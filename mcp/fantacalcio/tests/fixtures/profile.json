@@ -1,0 +1,45 @@
+{
+  "state_auth": 1724789741307,
+  "token_auth": "<scrubbed>",
+  "sendbird_token": "<scrubbed>",
+  "utente": {
+    "id": 10426252,
+    "username": "grimid3v",
+    "email": "<scrubbed>",
+    "confermato": 1,
+    "marketing": 0,
+    "regalo": 0,
+    "utente_token": "<scrubbed>",
+    "squadra": "Inter",
+    "provincia": "VA",
+    "nascita": "1994",
+    "data_c": "2024-08-27T20:14:54",
+    "data_m": "2024-08-27T20:15:41",
+    "social": [],
+    "purchases": []
+  },
+  "leghe": [
+    {
+      "visibile": true,
+      "ordine": 1,
+      "admin": -1,
+      "id": 2578630,
+      "id_squadra": 11560832,
+      "sponsor_id": 48,
+      "sponsor_v": 1,
+      "tipo_lega": 0,
+      "tipo_gioco": 2,
+      "nome": "Fantabalotelli3",
+      "alias": "fantabalotelli3",
+      "divisione": null,
+      "ordine_comp": "",
+      "link": "https://leghe.fantacalcio.it/fantabalotelli3",
+      "logo": "no_logo22.png",
+      "jwt": "<scrubbed>",
+      "token": "<scrubbed>"
+    }
+  ],
+  "acquisti": [],
+  "message_ids": [],
+  "jwt": "<scrubbed>"
+}

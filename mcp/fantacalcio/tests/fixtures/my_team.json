@@ -1,0 +1,67 @@
+{
+  "d": "A",
+  "c": false,
+  "id": 11560832,
+  "idu": 901613,
+  "cri": 500,
+  "crs": 0,
+  "bm": 0,
+  "cr": 500,
+  "n": "Sanzimippi FC",
+  "nu": "Edo",
+  "l": "no_logo6.png",
+  "cal": "",
+  "cs": "",
+  "m": "11560832_06223785.png",
+  "ms": "s_11560832_06223785.png",
+  "st": "1;1;1",
+  "pl": null,
+  "lm": {
+    "sponsor_id": 0,
+    "ver": 0,
+    "forma": "06",
+    "motivo": "01",
+    "simbolo": "17",
+    "sponsor": "00",
+    "colori": [
+      "#333333",
+      "#F79225",
+      "#CFD8E6"
+    ],
+    "badge": []
+  },
+  "mm": {
+    "sponsor_id": 48,
+    "ver": 1,
+    "forma": "50",
+    "motivo": "",
+    "simbolo": "",
+    "sponsor": "02",
+    "colori": [
+      "#662D91",
+      "#FD28FC",
+      "#FAD13C"
+    ],
+    "badge": []
+  },
+  "r": {
+    "p": 0,
+    "d": 0,
+    "c": 0,
+    "a": 0
+  },
+  "all": [
+    {
+      "nl": true,
+      "t": 0,
+      "id": 901613,
+      "n": "Edo"
+    },
+    {
+      "nl": true,
+      "t": 1,
+      "id": 10426252,
+      "n": "Himmy"
+    }
+  ]
+}

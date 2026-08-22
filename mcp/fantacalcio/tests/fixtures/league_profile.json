@@ -1,0 +1,49 @@
+{
+  "lega": {
+    "parola_ordine": true,
+    "tipo": 2,
+    "n_s": 8,
+    "id": 2578630,
+    "tipo_lega": 0,
+    "tmstp": 1785244957000,
+    "nome": "Fantabalotelli3",
+    "anno_fondazione": "2023",
+    "alias": "fantabalotelli3",
+    "presidente": "KingNazzario",
+    "logo": "no_logo22.png",
+    "logo_meta": {
+      "sponsor_id": 0,
+      "ver": 0,
+      "forma": "06",
+      "motivo": "01",
+      "simbolo": "38",
+      "sponsor": "00",
+      "colori": [
+        "#233f64",
+        "#359ec6",
+        "#2b7e9e"
+      ],
+      "badge": []
+    },
+    "admins": [
+      {
+        "id": 2797841,
+        "tipo": 0,
+        "nome": "KingNazzario"
+      },
+      {
+        "id": 3443139,
+        "tipo": 1,
+        "nome": "Chuck"
+      }
+    ],
+    "completamento": {
+      "info_principali": true,
+      "tre_confermati": true,
+      "regolamento": true,
+      "almeno_competizione": true,
+      "mercato_creato": true
+    },
+    "competizioni": []
+  }
+}

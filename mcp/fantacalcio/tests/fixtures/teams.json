@@ -1,0 +1,511 @@
+{
+  "nextPage": false,
+  "prevPage": false,
+  "page": 1,
+  "item": 8,
+  "pages": 1,
+  "data": [
+    {
+      "d": "A",
+      "c": false,
+      "id": 11554882,
+      "idu": 2797841,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "KingKlavan FC",
+      "nu": "KingNazzario",
+      "l": "no_logo16.png",
+      "cal": "",
+      "cs": "",
+      "m": "no_maglia_fc.png",
+      "ms": "",
+      "st": "1;1;0",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "50",
+        "motivo": "00",
+        "simbolo": "00",
+        "sponsor": "",
+        "colori": [
+          "#662D91",
+          "#FD28FC",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 2797841,
+          "n": "KingNazzario"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560187,
+      "idu": 2102893,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "Fabio Borini",
+      "nu": "piantaz",
+      "l": "no_logo19.png",
+      "cal": "",
+      "cs": "",
+      "m": "no_maglia_fc.png",
+      "ms": "",
+      "st": "1;0;0",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "50",
+        "motivo": "00",
+        "simbolo": "00",
+        "sponsor": "",
+        "colori": [
+          "#662D91",
+          "#FD28FC",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 2102893,
+          "n": "piantaz"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560224,
+      "idu": 3099608,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "Rickymaravilla FC",
+      "nu": "CavA",
+      "l": "11560224_02115675.png",
+      "cal": "",
+      "cs": "",
+      "m": "11560224_02895743.png",
+      "ms": "s_11560224_02895743.png",
+      "st": "1;1;1",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "00",
+        "motivo": "00",
+        "simbolo": "00",
+        "sponsor": "00",
+        "colori": [
+          "#ffffff"
+        ],
+        "badge": [
+          "00"
+        ]
+      },
+      "mm": {
+        "sponsor_id": 51,
+        "ver": 1,
+        "forma": "32",
+        "motivo": "",
+        "simbolo": "",
+        "sponsor": "02",
+        "colori": [
+          "#ED1C23",
+          "#104AA1",
+          "#FFFFFF"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 3099608,
+          "n": "CavA"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560303,
+      "idu": 1451327,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "Bangleville-sur-Lez",
+      "nu": "radyandre",
+      "l": "no_logo28.png",
+      "cal": "",
+      "cs": "",
+      "m": "no_maglia_fc.png",
+      "ms": "",
+      "st": "1;1;0",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "50",
+        "motivo": "00",
+        "simbolo": "00",
+        "sponsor": "",
+        "colori": [
+          "#662D91",
+          "#FD28FC",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 1451327,
+          "n": "radyandre"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560636,
+      "idu": 3443139,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "Quattro amici al VAR",
+      "nu": "Chuck",
+      "l": "no_logo15.png",
+      "cal": "",
+      "cs": "",
+      "m": "11560636_02441368.png",
+      "ms": "s_11560636_02441368.png",
+      "st": "1;1;1",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 49,
+        "ver": 1,
+        "forma": "62",
+        "motivo": "",
+        "simbolo": "",
+        "sponsor": "03",
+        "colori": [
+          "#1B1464",
+          "#FAD13C",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 3443139,
+          "n": "Chuck"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560723,
+      "idu": 3674482,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "TIBIE E PERONI",
+      "nu": "Cre",
+      "l": "no_logo30.png",
+      "cal": "",
+      "cs": "",
+      "m": "no_maglia_fc.png",
+      "ms": "",
+      "st": "1;1;0",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "50",
+        "motivo": "00",
+        "simbolo": "00",
+        "sponsor": "",
+        "colori": [
+          "#662D91",
+          "#FD28FC",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 3674482,
+          "n": "Cre"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11560832,
+      "idu": 901613,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "Sanzimippi FC",
+      "nu": "Edo",
+      "l": "no_logo6.png",
+      "cal": "",
+      "cs": "",
+      "m": "11560832_06223785.png",
+      "ms": "s_11560832_06223785.png",
+      "st": "1;1;1",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "06",
+        "motivo": "01",
+        "simbolo": "17",
+        "sponsor": "00",
+        "colori": [
+          "#333333",
+          "#F79225",
+          "#CFD8E6"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 48,
+        "ver": 1,
+        "forma": "50",
+        "motivo": "",
+        "simbolo": "",
+        "sponsor": "02",
+        "colori": [
+          "#662D91",
+          "#FD28FC",
+          "#FAD13C"
+        ],
+        "badge": []
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 901613,
+          "n": "Edo"
+        },
+        {
+          "nl": true,
+          "t": 1,
+          "id": 10426252,
+          "n": "Himmy"
+        }
+      ]
+    },
+    {
+      "d": "A",
+      "c": false,
+      "id": 11565631,
+      "idu": 2891924,
+      "cri": 500,
+      "crs": 0,
+      "bm": 0,
+      "cr": 500,
+      "n": "FC V-Valduce",
+      "nu": "Gene",
+      "l": "11565631_03177133.png",
+      "cal": "",
+      "cs": "",
+      "m": "11565631_01509161.png",
+      "ms": "s_11565631_01509161.png",
+      "st": "1;1;1",
+      "pl": null,
+      "lm": {
+        "sponsor_id": 0,
+        "ver": 0,
+        "forma": "01",
+        "motivo": "01",
+        "simbolo": "29",
+        "sponsor": "",
+        "colori": [
+          "#ED1C23",
+          "#1B1464",
+          "#1B1464"
+        ],
+        "badge": []
+      },
+      "mm": {
+        "sponsor_id": 55,
+        "ver": 1,
+        "forma": "48",
+        "motivo": "",
+        "simbolo": "",
+        "sponsor": "04",
+        "colori": [
+          "#ED1C23",
+          "#2E3192",
+          "#2E3192"
+        ],
+        "badge": [
+          "03"
+        ]
+      },
+      "r": {
+        "p": 0,
+        "d": 0,
+        "c": 0,
+        "a": 0
+      },
+      "all": [
+        {
+          "nl": true,
+          "t": 0,
+          "id": 2891924,
+          "n": "Gene"
+        }
+      ]
+    }
+  ],
+  "divisions": [
+    {
+      "division": "A",
+      "count": 8
+    }
+  ]
+}

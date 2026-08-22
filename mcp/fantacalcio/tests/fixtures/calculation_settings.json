@@ -1,0 +1,111 @@
+{
+  "count": 0,
+  "sourcev": 1,
+  "bnMls": {
+    "bmcsh": 0,
+    "bmycsv": 0,
+    "bmgs": [
+      3,
+      3
+    ],
+    "bmgc": [
+      -1,
+      -1
+    ],
+    "bmpsc": [
+      3,
+      3
+    ],
+    "bmpns": [
+      -2,
+      -2
+    ],
+    "bmpsa": [
+      3,
+      3
+    ],
+    "bmyc": [
+      -0.5,
+      -0.5
+    ],
+    "bmrc": [
+      -1,
+      -1
+    ],
+    "bmcg": [
+      0,
+      0
+    ],
+    "bmasf": [
+      1,
+      1
+    ],
+    "bmass": [
+      1,
+      1
+    ],
+    "bmasg": [
+      1,
+      1
+    ],
+    "bmog": [
+      -1,
+      -1
+    ],
+    "bmdg": [
+      0,
+      0
+    ],
+    "bmeg": [
+      0,
+      0
+    ],
+    "motm": [
+      0,
+      0
+    ]
+  },
+  "step": {
+    "stlmt": 66,
+    "starni": 0,
+    "stchkd": 0,
+    "stog": 0,
+    "stchkdl": false,
+    "starnil": true,
+    "stgoal": [
+      5,
+      10,
+      14
+    ],
+    "stf1": [
+      25,
+      18,
+      12,
+      10,
+      8,
+      6,
+      4,
+      3,
+      2,
+      1
+    ]
+  },
+  "subst": {
+    "ssdfm": 4,
+    "ssdfg": 2,
+    "sstype": 4,
+    "ssdfn": 1,
+    "ssnum": 5,
+    "ssdft": false
+  },
+  "stbdf": null,
+  "smodg": null,
+  "smodd": null,
+  "smodm": null,
+  "skodm": null,
+  "smodf": null,
+  "smodl": null,
+  "smodp": null,
+  "smodcp": null,
+  "version": "v1"
+}

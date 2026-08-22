@@ -1,0 +1,32 @@
+{
+  "state": 1787414858653,
+  "success": true,
+  "update": true,
+  "data": {
+    "state_auth": 1724789741307,
+    "token_auth": "<scrubbed>",
+    "utente": {
+      "id": 10426252,
+      "username": "grimid3v",
+      "confermato": 1
+    },
+    "leghe": [
+      {
+        "visibile": true,
+        "ordine": 1,
+        "admin": -1,
+        "id": 2578630,
+        "id_squadra": 11560832,
+        "tipo_lega": 0,
+        "tipo_gioco": 2,
+        "nome": "Fantabalotelli3",
+        "alias": "fantabalotelli3",
+        "link": "https://leghe.fantacalcio.it/fantabalotelli3",
+        "jwt": "<scrubbed>",
+        "token": "<scrubbed>"
+      }
+    ],
+    "jwt": "<scrubbed>"
+  },
+  "error_msgs": null
+}

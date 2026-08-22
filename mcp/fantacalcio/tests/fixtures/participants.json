@@ -1,0 +1,121 @@
+[
+  {
+    "teamId": 11554882,
+    "teamName": "KingKlavan FC",
+    "teamLogo": "no_logo16.png",
+    "coaches": [
+      {
+        "id": 2797841,
+        "name": "KingNazzario",
+        "email": "<scrubbed>",
+        "code": "ADMIN",
+        "admin": 0
+      }
+    ]
+  },
+  {
+    "teamId": 11560187,
+    "teamName": "Fabio Borini",
+    "teamLogo": "no_logo19.png",
+    "coaches": [
+      {
+        "id": 2102893,
+        "name": "piantaz",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      }
+    ]
+  },
+  {
+    "teamId": 11560224,
+    "teamName": "Rickymaravilla FC",
+    "teamLogo": "11560224_02115675.png",
+    "coaches": [
+      {
+        "id": 3099608,
+        "name": "CavA",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      }
+    ]
+  },
+  {
+    "teamId": 11560303,
+    "teamName": "Bangleville-sur-Lez",
+    "teamLogo": "no_logo28.png",
+    "coaches": [
+      {
+        "id": 1451327,
+        "name": "radyandre",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      }
+    ]
+  },
+  {
+    "teamId": 11560636,
+    "teamName": "Quattro amici al VAR",
+    "teamLogo": "no_logo15.png",
+    "coaches": [
+      {
+        "id": 3443139,
+        "name": "Chuck",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 1
+      }
+    ]
+  },
+  {
+    "teamId": 11560723,
+    "teamName": "TIBIE E PERONI",
+    "teamLogo": "no_logo30.png",
+    "coaches": [
+      {
+        "id": 3674482,
+        "name": "Cre",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      }
+    ]
+  },
+  {
+    "teamId": 11560832,
+    "teamName": "Sanzimippi FC",
+    "teamLogo": "no_logo6.png",
+    "coaches": [
+      {
+        "id": 901613,
+        "name": "Edo",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      },
+      {
+        "id": 10426252,
+        "name": "Himmy",
+        "email": "<scrubbed>",
+        "code": "G4A4QUZ5YF",
+        "admin": 9
+      }
+    ]
+  },
+  {
+    "teamId": 11565631,
+    "teamName": "FC V-Valduce",
+    "teamLogo": "11565631_03177133.png",
+    "coaches": [
+      {
+        "id": 2891924,
+        "name": "Gene",
+        "email": "<scrubbed>",
+        "code": "PAROLA",
+        "admin": 9
+      }
+    ]
+  }
+]

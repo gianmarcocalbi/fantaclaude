@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "fantacalcio": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/Users/grimid3v/Workspace/fantaclaudio/mcp/fantacalcio",
+        "fantacalcio-mcp"
+      ]
+    }
+  }
+}
