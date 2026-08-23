@@ -13,10 +13,27 @@ further deliberate commit rather than a stream of small ones.
 **Do not push while a spec or plan is unfinished.** Push only once it is
 complete, or when explicitly instructed to.
 
-Why this matters here: on 2026-08-22 a plan was committed mid-draft and carried
-a live credential into git history, which then required a full `git-filter-repo`
-rewrite to remove. The finished artifact is what is worth reviewing; publishing
-the path taken to it is how unchecked content escapes.
+**This binds the superpowers skills, and overrides their own instructions.**
+`brainstorming` says to commit the design document, `writing-plans` says to save
+the plan, and `subagent-driven-development` commits per task — none of them may
+produce more than one commit for the spec or more than one for the plan. In
+particular:
+
+- Do not commit a spec or plan as part of a repo-init or scaffolding commit and
+  then commit a correction to it later. Finish it first, then commit it once.
+- Preflight or self-review corrections to a plan are part of drafting it, not a
+  follow-up commit. Fold them in before the single commit.
+- If a task's implementation reveals a defect in the plan, fix the plan in the
+  working tree and let it ride with that task's commit, or amend — do not add a
+  `fix(plan): …` commit.
+
+Why this matters here: on 2026-08-22 this repo ended up with
+`chore: init repo with design spec and implementation plan` followed by
+`fix(plan): correct Task 3 interfaces…` — exactly the split this rule forbids.
+Worse, the plan was committed mid-draft and carried a live credential into git
+history, which then required a full `git-filter-repo` rewrite to remove. The
+finished artifact is what is worth reviewing; publishing the path taken to it is
+how unchecked content escapes.
 
 ## Commit messages
 
