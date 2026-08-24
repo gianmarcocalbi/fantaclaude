@@ -94,9 +94,10 @@ Three rules follow from it:
   `--offline` — it depends on the live feed — but it never ranks: the valuation is
   pinned and materialised before the night, so no re-sync can fire mid-auction.)
 - **Observed prices are stored in absolute credits**, stamped with the `rules_hash`
-  in force, and any normalisation is derived on read. See "Nothing is overwritten"
-  for why storing a normalised value would be both arithmetically wrong and a
-  violation of the rebuildable-from-raw rule.
+  in force, and any normalisation is derived on read. See "Prices are stored in
+  absolute credits" under "Forecasts are immutable" for why storing a normalised
+  value would be both arithmetically wrong and a violation of the
+  rebuildable-from-raw rule.
 - **A settings change is surfaced, not absorbed.** When `sync-league` writes a
   row whose `rules_hash` differs from the previous one, it reports what changed
   and flags every `valuations` run computed under the old rules as superseded.
@@ -129,7 +130,7 @@ they are a dated observation and several are already expected to change:
 | bonus/malus | goal +3, conceded -1, yellow -0.5, red -1, own goal -1 | `bnMls` |
 | modifiers | `stbdf`, `smod*`, `skodm` all **null** | reads as no modificatore active — but the league is unconfigured, so null may mean "not yet set" |
 | teams | 8 | `divisions`, corroborated by `n_s: 8` on the league profile |
-| league type | `tipo: 2` | candidate Mantra marker, unconfirmed |
+| league type | `tipo: 2`; `mods` = the eleven official Mantra schemes | **Mantra, confirmed 2026-08-24** by the module set; `tipo: 2` is consistent with it |
 | season / matchday | 21 / 1 | |
 
 Two consequences follow if these hold. **Roster composition is the manager's
@@ -193,6 +194,7 @@ fantaclaude/
 │   ├── adjustments.yml       # my beliefs and preferences, hot-reloaded
 │   ├── asta-state.json       # snapshot of the mirrored auction
 │   └── exports/              # regenerable renderings
+├── records/                  # committed — durable exports; live-event requirement 5
 ├── kb/                       # the knowledge base, committed
 └── .claude/skills/           # fanta-kb · fanta-market · fanta-asta · fanta-manager
 ```
@@ -221,17 +223,21 @@ fantaclaude ingest all                  # refresh every source
 fantaclaude rank                        # write a valuation run, render exports
 fantaclaude lineup --giornata 3         # optimal XI per allowed module
 fantaclaude asta serve --session FA-…   # API + WebSocket + frontend + live feed
+                       [--run <id>]     # pin a valuation; default: newest not superseded
 fantaclaude asta adjust <player> …      # append to adjustments.yml, then refresh
 fantaclaude asta refresh                # reread adjustments + dossiers, re-price
+fantaclaude asta verify-transfer        # diff the snapshot against the lega
 fantaclaude query --sql … --json        # ad-hoc read-only analysis
 fantaclaude schema                      # tables, views and columns, for query authors
 fantaclaude doctor                      # readiness check before auction night
 fantaclaude kb audit / move-player      # stale documents; club transfer
 ```
 
-Reads open the databases directly, including mid-auction. **Mutations to live
-auction state proxy to a running server** so its derived state stays correct and the
-dashboard is notified. See "Concurrency: reads are free, mutations have one owner".
+Analytical reads open `fanta.duckdb` directly, read-only, including mid-auction.
+**Live auction state has no file to open**: it exists only inside `asta serve`, so
+reads of it go to the running server, over the MCP or REST, and **mutations to it
+proxy to that server** so its derived state stays correct and the dashboard is
+notified. See "Concurrency: one owner of state, and two classes of query".
 
 A skill decides *which* command to run, then interprets the output like an
 analyst. This is what keeps a skill at eighty lines instead of letting it quietly
@@ -317,14 +323,19 @@ What genuinely must survive a restart is small, and none of it is auction events
 
 | File | Holds | Shape |
 | --- | --- | --- |
-| `data/adjustments.yml` | my beliefs and preferences — exclusions, value deltas, composition intent | declarative, hand- or Claude-editable, hot-reloaded |
-| `data/asta-state.json` | the mirrored auction as last seen | whole-state dump, rewritten on change |
+| `data/adjustments.yml` | my beliefs and preferences — exclusions, value factors, composition intent | declarative, hand- or Claude-editable, hot-reloaded |
+| `data/asta-state.json` | the mirrored auction as last seen | whole-state dump, atomically replaced on change |
 
 **The snapshot is a plain state dump, kept so the auction can be reviewed after it
 ends** — my roster, everyone else's, and what things went for. It is written with
 names, roles and participants resolved rather than raw Firebase ids, so it is
 readable on its own. Nothing depends on it during the auction: a restart resubscribes
-and gets full state from the feed.
+and gets full state from the feed. It is written the way `auth.py` writes its token
+cache — temp file, `fsync`, `os.replace` — because from the moment the admin closes
+FantaAstaLive until the transfer is confirmed it is the only record of what the room
+paid, and a torn write would lose it. For the same reason a copy goes to `records/`
+when the auction closes (see live-event requirement 5), and both are removed once
+the transfer is confirmed.
 
 Neither file is a database. There is no schema to migrate, and when the auction is
 over there is one small file to delete.
@@ -348,21 +359,29 @@ that is legitimately empty.
 confirmed to match what happened in the room, `asta-state.json` is deleted.
 Nothing is promoted into the spine and no parquet is exported: the roster and its
 purchase prices come back from the league API with the transfer, so copying them
-beforehand would duplicate a source rather than preserve one. The snapshot survives
-only until that confirmation, as the one local record of what the room actually did —
-which is precisely what catches a price mistyped during the transfer.
-`adjustments.yml` is mine and simply stays.
+beforehand would duplicate a source rather than preserve one. The snapshot — and its
+copy in `records/`, see live-event requirement 5 — survives only until that
+confirmation, as the one record of what the room actually did, which is precisely
+what catches a price mistyped during the transfer. `adjustments.yml` is mine and
+simply stays.
+
+The check has a name. `fantaclaude asta verify-transfer` diffs the snapshot's rosters
+and prices against what the league API reports, and deleting the auction files is
+something it offers on a clean diff rather than a step to remember.
 
 This rests on the league API exposing rosters with costs. That endpoint is currently
 **unmapped**, so verifying it is a prerequisite for purging rather than an
-afterthought, and it is listed as an open question.
+afterthought — `verify-transfer` cannot be built until it is mapped — and it is
+listed as an open question.
 
 ### Concurrency: one owner of state, and two classes of query
 
 During the auction a single process owns everything live: `asta serve` holds the
 state in memory, subscribes to the feed, serves the dashboard, and serves the MCP.
-There is no shared mutable store, therefore no cross-process locking to get right —
-a whole category of failure the earlier SQLite design had to defend against.
+There is no shared mutable store — `adjustments.yml` is the one shared *file*, and
+"Live adjustments" says how its writers are serialised — therefore no cross-process
+locking to get right, a whole category of failure the earlier SQLite design had to
+defend against.
 
 **DuckDB is single-process, multi-connection.** One process may hold the file
 read-write; inside that process concurrent read and write connections coexist safely
@@ -396,7 +415,9 @@ and reads only in-memory state, never an analytical query. DuckDB serves explora
 — "what is his away fantamedia over three seasons?" — asked between lots.
 
 `fantaclaude asta serve --run <run_id>` loads the pinned valuation into memory at
-startup, so the advice loop never reaches for a file at all.
+startup, so the advice loop never reaches for a file at all. Without `--run` it takes
+the newest run whose `rules_hash` is not superseded, and names it on the status line
+so the wrong run cannot be pinned silently.
 
 ### Live adjustments
 
@@ -411,9 +432,9 @@ run stays immutable while the board moves.
 
 | Kind | Means | Effect |
 | --- | --- | --- |
-| `value` | a fact about the world — *"he's limping"* | shifts that player's projection |
+| `value` | a fact about the world — *"he's limping"* | scales that player's projection by a `factor` |
 | `exclude` | a preference — *"I will not buy him"* | removes him from **my** completion pool |
-| `target` | composition intent — *"go heavier on `Dc`"* | reshapes the slot vector `V` optimises over |
+| `target` | composition intent — *"go heavier on `Dc`"* | biases the composition `V` optimises over — a weighted starting point, never a bound |
 
 `exclude` is the one worth spelling out, because its effect is indirect and correct.
 Excluding a striker does not lower his price; it **raises everyone else's**. He
@@ -421,6 +442,14 @@ leaves the pool from which `V(C, S)` builds your best completion, so your fallba
 that role gets worse, `V` drops, and the indifference price on every remaining
 striker rises. That behaviour falls out of the existing DP — no scarcity rule, no
 multiplier, nothing new to tune.
+
+`target` is the soft one, deliberately. It has the same semantics as the composition
+in `preferences.yml` — a starting point with a `weight`, which the optimiser may
+depart from when the remaining pool makes that shape a bad idea — rather than a
+bound `V` must satisfy, so it can never make the completion infeasible mid-auction.
+The cost is that *"go heavier on `Dc`"* may visibly move nothing, so `explain()`
+reports when the optimiser departed from a target and what it preferred instead;
+the answer to "nothing moved" is on the board, not a mystery.
 
 **They live in a file, never in Python.** `data/adjustments.yml` is declarative and
 hot-reloaded, so nothing ever restarts to apply one:
@@ -431,7 +460,7 @@ hot-reloaded, so nothing ever restarts to apply one:
   reason: "not buying him"
 - player: Bastoni
   type: value
-  delta: -15
+  factor: 0.85
   reason: "limping, reported in the room"
 ```
 
@@ -441,6 +470,14 @@ adjustment layer, recomputes the whole board and broadcasts. Sub-second, since t
 design already re-prices every player on every state change. An MCP or dashboard
 write refreshes implicitly; the button exists for the hand-edited case and for
 forcing a deterministic recompute when you want one.
+
+The file is the one piece of shared mutable state in the design, so its writers are
+disciplined the same way: `asta adjust`, the MCP tool and the dashboard form all
+proxy to the running server, which rereads the file, appends, and replaces it
+atomically before refreshing — one writer, whatever the surface. A hand edit is the
+exception that bypasses the server, and it is accepted as such: an editor save that
+lands in the same instant as a server append can lose one of the two, which is
+visible on the next refresh and costs a retyped line rather than any state.
 
 Every adjustment carries a reason, so the auction record explains itself afterwards —
 which is what `giornata-00-asta.md` needs. Because the file is mine rather than the
@@ -924,18 +961,36 @@ budget.
 decision variable, not a given**: within those bounds the manager chooses how many
 defenders, midfielders and forwards to carry. `V` therefore optimises composition as
 well as players, and the target composition in `preferences.yml` is a starting point
-the optimiser may depart from — not a constraint it must satisfy. Any hard split
+the optimiser may depart from — not a constraint it must satisfy. A live `target`
+adjustment is that same starting point, edited during the auction. Any hard split
 (*"3 portieri, 8 difensori…"*) is a house rule and belongs in `league.yml` with its
 `source:`.
+
+The auction follows the same bounds. Confirmed with the admin on 2026-08-24: the
+only enforced rule is that **two goalkeepers are mandatory**, the rest as each
+manager chooses — which is the league's own `sroles: 2` shape, `minrl: [2, 21]`,
+to the number, and not the fixed classic counts the session observed on 23 August
+carried. So composition stays a decision variable on the night, `S` stays
+denominated in Mantra role classes, and the one bounded bucket — goalkeeper — is
+unambiguous in Mantra (`Por`), so enforcing it needs no classic-role mapping. There
+is no verbal house rule to record in `league.yml`: the admin's rule and the API's
+lower bound are the same number. (Should "two" turn out to mean *exactly* two
+rather than at least two, that is a tightening of `maxrl` and goes in `league.yml`
+with `source: admin`.) The session's settings are still checked against these
+bounds at connect.
 
 #### The algorithm, concretely
 
 Five steps, so the plan does not have to invent them:
 
 1. **Expected pool prices, self-calibrating.** Not a fixed multiplier:
-   `inflation = credits still on the market ÷ sum of quotazioni of unsold players`.
-   If the room overspent early, residual prices deflate on their own. One division,
-   recomputed per sale.
+   `inflation = credits still on the market ÷ sum of quotazioni of the unsold
+   credible pool`. If the room overspent early, residual prices deflate on their
+   own. One division, recomputed per sale. The denominator is the same top-~30
+   candidates per role the DP already values, not every unsold name: the long tail
+   of one-credit players nobody will buy would otherwise dominate it, and late in
+   the night both terms shrink toward noise — so the ratio is also clamped to a
+   range set in `PricingConfig`.
 2. **Per-role value curves.** For each role `r`, `f_r(c)` = the most points
    obtainable buying exactly `k_r` players of that role for `c` credits. A DP over
    the top ~30 candidates (beyond that nothing changes) × `k_r` × credits.
@@ -946,9 +1001,11 @@ Five steps, so the plan does not have to invent them:
    **The detail that changes the answer:** in *both* branches the player leaves the
    pool — if you do not buy him, someone else does. Computing `walk` with him still
    available overstates the fallback and depresses the ceiling.
-5. **Band and adjustments.** `asta_adjustments` multiply `v_i` first; the band comes
-   from re-running only the binary search at p25/p50/p75 of `v_i` — three searches,
-   not three DPs.
+5. **Band and adjustments.** A `value` adjustment is a multiplicative `factor` on
+   `v_i`, applied before anything else, so p25, p50 and p75 scale together — a
+   fitness doubt shrinks the upside as well as the mean, which is what a doubt about
+   presenze does. The band comes from re-running only the binary search at
+   p25/p50/p75 of the adjusted `v_i` — three searches, not three DPs.
 
 Opponent pressure stays **outside** this: it answers *what will he actually cost*,
 not *what is he worth to me*. Two different numbers, displayed separately.
@@ -996,31 +1053,39 @@ teams[]  settings  options  pickOrder  hostId  playerListHash
 index, timestamp}` — and it is **strictly more than the league API can supply**:
 exact player identity, from which Mantra roles follow, rather than the classic
 `{p, d, c, a}` counts that cannot tell a `Dc` from a `Dd`. This is the input the
-old reconciliation design wanted and could not get.
+old reconciliation design wanted and could not get. Of those fields only `playerId`,
+`teamId` and `cost` are consumed: `value` is captured and ignored, since what
+FantaAstaLive puts there is unverified and `cost` is what was paid.
 
 `selectedPlayerId` is the other prize, and the spec previously had no equivalent:
 the instant the admin puts a player up, the board can **auto-focus that lot** and
 show its band, the slot it fills and the pressure against it *before* the bidding
 opens. `turnTeamId` and `pickOrder` say whose call it is.
 
-**What the feed does not carry is a live bid ladder.** It publishes completed sales
-and the selected lot, never the climbing price. So the dashboard answers *what this
-player is worth to you* and the room tells you *what it is at* — which is the right
-split anyway, since the band is the decision and the current bid is only the moment
-to stop.
+**What the feed did not carry, in the mode observed, is a live bid ladder.** It
+published completed sales and the selected lot, never the climbing price — the
+session was DRAFT-shaped (`turnTeamId`, `pickOrder`), where the admin assigns each
+lot. So the dashboard answers *what this player is worth to you* and the room tells
+you *what it is at* — which is the right split anyway, since the band is the
+decision and the current bid is only the moment to stop. FantaAstaLive's other mode,
+A RILANCI, necessarily publishes the current offer; see open question 10.
 
 **Derive credits from `picks[]`, never from `teams[].currentBudget`.** Observed
 directly: after 181 credits had been spent, the mirrored budget field still read
 500. It is an initial snapshot that the app recomputes client-side. Trusting it
 would silently corrupt every max price on the board.
 
-**Session settings are authoritative for the night, and checked exactly once.** The
-session carries its own `budget` and role bounds — the observed one was 500 credits
-with classic-shaped `gk3/def8/mid8/atk6`, which is *not* this league's Mantra
-configuration. What the room is playing is what the room is playing, so the session
-wins; but a mismatch against `league.yml` is surfaced **loudly at connect, before
-bidding opens**, never polled during. Pricing a 500-credit auction against a
-1000-credit config is invisible until it is expensive.
+**Session settings are authoritative for the night, and every change to them is
+surfaced.** The session carries its own `budget` and role bounds — the observed one
+was 500 credits with classic-shaped `gk3/def8/mid8/atk6`, which is *not* this
+league's configuration nor what the admin says they will run (two goalkeepers
+mandatory, the rest free; see "`S` is not a constant"). What the room is playing is what the
+room is playing, so the session wins; but a mismatch against `league.yml` is surfaced **loudly at
+connect, before bidding opens**. The settings node arrives in the same snapshot as
+`picks[]`, so nothing is polled: each snapshot's settings are diffed against the
+last, and a change — the admin correcting the budget after the connect-time warning,
+say — is announced on the status line and re-prices the board. Pricing a 500-credit
+auction against a 1000-credit config is invisible until it is expensive.
 
 #### The adapter, and the rules that keep it safe
 
@@ -1044,18 +1109,30 @@ SDK, no JavaScript, no second runtime.
   the most valuable stretch of the night, so it is refreshed on the `refreshToken`
   ahead of expiry.
 - **Exactly one subscriber.** The server owns the stream. No CLI and no MCP connects
-  to Firebase, because two subscribers risk applying the same pick twice.
+  to Firebase — not because a second reader could double-apply a pick (the set-diff
+  makes that a no-op) but because there is exactly one `mutate()` and one derived
+  state, and a second subscriber would be a second owner of both.
 - **Reconnect with backoff.** A resubscribe returns a full snapshot, so recovery
   needs no bookkeeping of its own.
+- **Nicks are scrubbed at ingestion.** `peers[].nick` is whatever someone typed, so
+  an `@`-shaped nick is replaced by its `teamId` before it can reach the snapshot,
+  the dashboard or a tool result. The repository rule that an email address never
+  reaches a tool result applies to the mirror too.
 
 **Two identity joins, both resolved before the auction rather than during it.** The
 player join is Firebase `playerId` → listone `Id`; they appear to be the same
 fantacalcio.it identifier, which would let auction ingestion bypass "Name matching"
 entirely — verified in Phase 0, falling back to name matching if it does not hold.
-The team join maps `teamId` and the free-text `peers[].nick` (`"host"`, a
-first name, whatever someone typed) onto participant dossiers, through a **one-time
-mapping screen at connect**, persisted for the run. Skipping it means discovering at
-minute one that opponent pressure is attached to the wrong people.
+The team join picks **which team is mine** and maps every other `teamId` and its
+free-text `peers[].nick` (`"host"`, a first name, whatever someone typed) onto a
+participant dossier, through a **mapping screen at every connect**. The server
+persists nothing of it: the previous answer is kept in the browser's `localStorage`
+and pre-filled, so after a restart the screen is one glance and one click, and a
+lost browser profile costs one screen of re-selection rather than any state. That
+is what keeps "a restart resubscribes and gets full state from the feed" literally
+true — the mapping is the one input the feed cannot supply, and it is re-asked
+rather than recovered. Skipping the screen means discovering at minute one that
+opponent pressure is attached to the wrong people.
 
 **There is no manual entry mode.** An earlier draft kept one as a fallback, inherited
 from when the user did the typing. With the feed as the sole source it would be a
@@ -1196,7 +1273,9 @@ source of truth for the contract.
    the browser crashes, the page reloads — the server holds the state and the client
    re-pulls it. If the *server* dies, recovery is a resubscribe: Firebase returns a
    full snapshot. The durable store is the admin's session, which is why this design
-   keeps no auction database of its own.
+   keeps no auction database of its own. The one thing the browser does remember —
+   the last team mapping — is a pre-filled default, not state: the screen is asked
+   again on every connect, and losing the cache means answering it from scratch.
 2. **Sales are never edited here, because they are not ours to edit.** Undo and
    correction belong to the admin's session and arrive through the feed. See "The
    mirror is faithful".
@@ -1220,9 +1299,12 @@ source of truth for the contract.
    to all live there, so `valuations` and `league_settings` are exported to `records/`
    as parquet. The auction snapshot is the exception: per "Succession, not
    reconciliation" it is **deleted** once the admin's transfer into the lega is
-   confirmed, because the roster and its prices come back from the league API. A
-   journal entry that links to a `run_id` nothing can resolve is worthless; a
-   duplicate of a roster the API will hand back is merely clutter.
+   confirmed, because the roster and its prices come back from the league API. It
+   does pass through `records/` on the way — copied there when the auction closes,
+   so the days between the room and the transfer are not spent with the only record
+   of what was paid on one gitignored disk — and the copy is removed with the
+   original. A journal entry that links to a `run_id` nothing can resolve is
+   worthless; a duplicate of a roster the API will hand back is merely clutter.
 6. **A refresh action that recomputes from current inputs.** Adjustments, dossiers
    and the pinned run are reread and the whole board is re-priced, without a restart.
    Mid-auction the useful edit is a belief — *"I'm not buying Malen"* — and it must
@@ -1267,8 +1349,8 @@ source of truth for the contract.
   This is the layer whose breakage would be silent, since a skill sees only output.
 - **The live feed** — the diff engine is where a mirror silently corrupts state, so
   it is tested against recorded snapshots: a normal sale, an admin undo, a cost edit,
-  a duplicate, an unknown `playerId`, a hand-edited row the feed must *not* revert,
-  and the same snapshot applied twice, which must be a no-op. Token refresh is tested
+  a duplicate, an unknown `playerId`, and the same snapshot applied twice, which
+  must be a no-op. Token refresh is tested
   on a stubbed clock, because the failure it prevents arrives at minute sixty of a
   four-hour event and never in a short test run.
 - **Replay is the rehearsal harness.** A captured SSE session replays through the
@@ -1281,8 +1363,9 @@ source of truth for the contract.
   player at that role, never lower it. That is the same monotonicity the scarcity test
   asserts, reached from the other direction, and it is what proves the exclusion
   reaches `V` rather than just annotating a row.
-- **Crash recovery is a test, not a hope.** Kill the server mid-run, restart, and the
-  state rebuilt from the Firebase snapshot must equal the state before the kill.
+- **Crash recovery is a test, not a hope.** Kill the server mid-run, restart, accept
+  the pre-filled mapping, and the state rebuilt from the Firebase snapshot must equal
+  the state before the kill.
   Separately, loading `asta-state.json` with no feed available must reproduce the same
   board — that is the post-auction path, and it is the one nobody would otherwise
   exercise until they needed it.
@@ -1304,7 +1387,7 @@ the network.
 | Two processes racing a token refresh | File lock around login-and-write, cache re-read after acquiring, shared cooldown stamp |
 | A query locking out the dashboard mid-auction | Nothing writes DuckDB during the asta and every reader opens it read-only; analytical queries run in a threadpool so they never block the event loop |
 | Server killed mid-auction | Resubscribe on restart for a full Firebase snapshot. No database to recover or corrupt |
-| Admin's session gone after the auction | `asta-state.json` holds the last mirrored state, which is what the transfer into the lega is checked against |
+| Admin's session gone after the auction | `asta-state.json` — written atomically, copied to `records/` at close — holds the last mirrored state, which is what `asta verify-transfer` checks the lega against |
 | Scraping blocked or rate-limited | Aggressive caching, dated raw files, polite intervals, and no fetching during the auction |
 | API shape changes | Inherited from the MCP: unknown fields survive in `raw`, unknown error codes pass through |
 | Missing DuckDB extension on auction night | Extensions installed and verified ahead of time; `fantaclaude doctor` fails loud well before the night |
@@ -1312,7 +1395,7 @@ the network.
 | Feed drops mid-auction | Reconnect with backoff; a resubscribe returns a full snapshot and the set-diff makes re-applying it a no-op |
 | Firebase token expires at minute 60 | Refreshed on the `refreshToken` ahead of expiry; a failed refresh retries and is surfaced on the status line |
 | Admin undoes a lot in FantaAstaLive | Set-diff emits the removal and the board re-prices; nothing local resists it |
-| Session settings disagree with `league.yml` | Surfaced loudly at connect, before bidding opens; the session wins for the night |
+| Session settings disagree with `league.yml` | Surfaced loudly at connect, before bidding opens; the session wins for the night, and a later change to its settings is diffed out of the next snapshot and announced |
 | Anonymous Firebase read blocked or rules tightened | Detected at connect rather than mid-auction, so it is known before the room fills |
 | Admin never shares the session code | No feed and therefore no live board; the printed tier board is the backstop |
 
@@ -1377,7 +1460,8 @@ though settled.
 **Rehearsal is mandatory**, on 3 September: replay a captured FantaAstaLive session
 end to end, exhaust the budget, have the admin undo a lot and confirm the board
 follows, exclude a player mid-run and watch the rest of that role re-price, kill the
-browser and reload, drop the network mid-run and watch the reconnect recover, ask
+browser and reload, kill the server and restart through the pre-filled mapping
+screen, drop the network mid-run and watch the reconnect recover, ask
 `fantaclaude-mcp` a question while the board is live, and reload from
 `asta-state.json` with the feed switched off. Single-shot events are lost to unrehearsed tooling far more
 often than to bad models.
@@ -1388,11 +1472,12 @@ often than to bad models.
    observed, ten expected) and the rules may change again. Not blocking — settings
    are read at run time — but the final pre-asta ranking must be produced *after*
    the freeze, and any earlier run treated as provisional.
-2. **Is this league actually configured for Mantra?** The whole design assumes it.
-   `tipo: 2` is a candidate marker, and `sroles: 2` shows roster bounds are *not*
-   Mantra-shaped — which is not a contradiction, since Mantra governs lineup roles
-   rather than roster composition, but it is load-bearing enough to confirm before
-   the role model is built.
+2. **~~Is this league actually configured for Mantra?~~ Resolved 2026-08-24.** Yes.
+   The league's `mods` — `343`, `3412`, `3421`, `352`, `3511`, `433`, `4312`, `442`,
+   `4141`, `4411`, `4231` — are the Mantra regolamento's eleven schemes one for one,
+   and `tipo: 2` is consistent with that. `sroles: 2` showing roster bounds that are
+   not Mantra-shaped is no contradiction: Mantra governs lineup roles, not roster
+   composition.
 3. **Is the modificatore di difesa active?** Every modifier field is currently null,
    which reads as inactive. Re-check once the league is configured; it materially
    changes both valuation and lineup choice.
@@ -1400,18 +1485,28 @@ often than to bad models.
    the admin runs the auction in FantaAstaLive and transfers the results into the
    lega afterwards. That retired the reconciliation design in favour of the live feed
    and the succession rule. What remains open is narrower — **will the admin share
-   the session code**, and does their session's configuration match the league's? Both
-   are answerable before the rehearsal, and both now matter more than they did: with
-   manual entry removed, no session code means no live board.
-5. **Are per-giornata voti available as XLSX?** If `Voti_Fantacalcio_Stagione_…
-   _Giornata_N.xlsx` exists, ~114 downloads beat scraping premium HTML and avoid the
-   terms-of-service question. Check before building `stats_web`.
+   the session code**, and does their session's configuration match what they have
+   said (two goalkeepers mandatory, composition otherwise free — confirmed verbally
+   on 2026-08-24)? Both are answerable before the rehearsal, and both now matter more
+   than they did: with manual entry removed, no session code means no live board.
+5. **Are per-giornata voti available as XLSX? Mostly answered 2026-08-24.** They
+   are: the voti page links `fantacalcio.it/api/v1/Excel/votes/<season>/<giornata>`,
+   and the quotazioni page `…/api/v1/Excel/prices/<season>/<giornata>`, so
+   `stats_web` should be an authenticated XLSX download rather than an HTML scraper.
+   Both answer `401` without a session for every season probed (17 through 21), so
+   the download needs the **fantacalcio.it website login** — a different session
+   from the league API's `apileague` token, and one more credential to keep in
+   `.env`. What remains is a check only the account holder can run: log in on the
+   site and confirm the three back seasons (18, 19, 20) are served rather than
+   gated to the current one.
 6. **Is there a player-database endpoint?** Unlike roster and market endpoints, the
    listone is not blocked by the auction. Worth thirty minutes of DevTools discovery,
    since it would yield Mantra roles directly. Falls back to `listone_xlsx`.
 7. **Target roster composition.** Bounds allow 2–6 goalkeepers and 21–34 outfield,
-   so the shape is chosen rather than given. The optimiser can propose one; the user
-   should state a preference in `preferences.yml` to start from.
+   and the admin has confirmed the auction keeps that freedom (two goalkeepers
+   mandatory, the rest as chosen), so the shape is chosen rather than given. The optimiser can
+   propose one; the user should state a preference in `preferences.yml` to start
+   from.
 8. **Does Firebase `playerId` equal the listone `Id`?** Spot-checked once — 2764 is
    Lautaro Martinez in both — and it holds, but one sample is an indication rather
    than a verification. If it holds generally, auction ingestion skips name matching
@@ -1421,10 +1516,16 @@ often than to bad models.
    any captured fixture. Purging the auction store assumes the answer is yes. Until
    it is verified, keep the file — the cost of being wrong is losing the only record
    of what the room paid.
-10. **Does FantaAstaLive expose anything during active bidding?** `status` and
-    `locked` may encode a bidding phase, but no live bid ladder was observed in the
-    state node. Worth checking at the rehearsal: if a current-bid value is published,
-    the board can show distance-to-max live instead of only the band.
+10. **Does FantaAstaLive expose anything during active bidding? Sharpened
+    2026-08-24.** FantaAstaLive runs in one of two modes: **DRAFT**, turn-based,
+    where the admin assigns each lot, and **A RILANCI**, where anyone bids at any
+    time and the lot goes to the last offer when a countdown expires. The observed
+    session carried `turnTeamId` and `pickOrder`, which is DRAFT-shaped — that is
+    why no bid ladder appeared. In A RILANCI the current offer and countdown must be
+    published to every client, so a live bid *would* be in the state node. The
+    question is therefore **which mode the admin will run** — ask when asking for
+    the session code — and, if A RILANCI, the bid fields are read at the rehearsal
+    so the board can show distance-to-max live instead of only the band.
 
 ## Non-goals
 
