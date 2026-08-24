@@ -106,11 +106,106 @@ All returned HTTP 200 against league 2578630 on 2026-08-22.
 | GET | `/onboarding/v1/adv` | advertising payload — not exposed |
 | GET | `/market/v1/time` | server clock |
 
-**Unmapped and required for phase 2:** roster contents (which players a team
-owns), player database, lineup submission, market/auction operations,
-calendar and results. None were exercised because this league's auction has not
-happened — every roster is empty (`r: {p:0,d:0,c:0,a:0}`) and season 21 matchday
-1 opened 2026-08-22T16:30. See "Phase 2 discovery" below.
+**Unmapped and required for phase 2:** lineup submission, market/auction
+operations, calendar and results. None were exercised because this league's
+auction has not happened — every roster is empty (`r: {p:0,d:0,c:0,a:0}`) and
+season 21 matchday 1 opened 2026-08-22T16:30. See "Phase 2 discovery" below.
+
+### The listone — `/onboarding/v1/league/players` (added 2026-08-23)
+
+Found by probing after the tool surface was built, so it is not among the seven
+tools. Same auth as everything else; returns `{players: [...], timestamp}` —
+**539 players, ~515 KB**, one row per Serie A player.
+
+Confirmed field meanings (verified against known players, not inferred):
+
+| field | meaning |
+| --- | --- |
+| `fcrle` | Classic role: **1=P, 2=D, 3=C, 4=A** (68/193/186/92 — matches squad structure; Svilar=1, Dimarco=2, Nico Paz=3, Lautaro=4) |
+| `marle` | Mantra roles, as an array of codes — see table below |
+| `icsfc` / `acsfc` | quotazione iniziale / attuale, **Classic** |
+| `icsma` / `acsma` | quotazione iniziale / attuale, **Mantra** |
+| `fvmfc` / `fvmma` | Fanta Valore di Mercato, Classic / Mantra |
+| `name`, `tname`, `tid`, `age`, `naty`, `img` | player, Serie A team, team id, age, nationality, image |
+| `trnsf` / `trsfd` | set for the 22 players whose name carries a `*` — Serie A transfer flags, **not** league ownership |
+| `bmcsh` | clean-sheet-bonus eligibility; the same key appears in `settings/calculate`'s `bnMls` |
+| `l5*`, `agrd`, `aagr`, `agit` | last-5 ratings and averages; mostly zero at matchday 1 |
+
+**Mantra pricing is a separate column.** 163 of 539 players have
+`icsfc != icsma`. Anything Mantra-facing must read the `*ma` fields.
+
+### Mantra role codes (`marle`)
+
+This league is Mantra: `lega.tipo = 2`, `leghe[].tipo_gioco = 2`,
+`roster.sroles = 2`.
+
+| code | role | n | code | role | n |
+| --- | --- | --- | --- | --- | --- |
+| 6 | Por | 68 | 12 | C | 125 |
+| 7 | Dd | 56 | 13 | W | 61 |
+| 8 | Ds | 66 | 14 | T | 58 |
+| 9 | Dc | 108 | 15 | A | 53 |
+| 10 | E | 93 | 16 | Pc | 58 |
+| 11 | M | 68 | 19 | **unidentified** | 12 |
+
+Derived by cross-tabulating each code against `fcrle` and checking known
+players (Svilar `Por`, Bastoni `Dc`, Lautaro/Hojlund `Pc`, Calhanoglu `M/C`,
+Dimarco `E/T`, Pulisic `W/A`).
+
+**Code 19 is deliberately unnamed.** All 12 holders are full-backs and always
+carry exactly three roles (`[19,Ds,E]`, `[19,Dd,E]`, `[19,Dd,Ds]`). A
+both-flanks marker is plausible but unobserved, so it stays raw under the
+naming rule.
+
+**266 of 539 players hold more than one Mantra role**, so role is an assignment
+against a module slot, not a player property — an `E/T` fills one or the other,
+never both.
+
+### Ownership — unresolved, with the search space recorded
+
+Determining which players are already taken is **not currently possible**, and
+the negative results matter more than the positive ones because each re-probe
+costs live-API exposure on a real account:
+
+- **The listone is league-agnostic.** No field references a league team id;
+  the same 539 rows serve every league.
+- **`releaseds` is a frontend-only parameter.** `?releaseds=true` and `=false`
+  return byte-identical payloads from `/league/players`. Toggling the site's
+  "only available" switch fires **no network request** — the filtering is
+  client-side over data already loaded.
+- **No roster endpoint exists** at any of: `/league/teams/{id}/players`,
+  `/league/teams/my/players`, `/league/roster(s)`, `/league/players/assigned`,
+  `/league/players/owned`, `/league/auction`, `/league/market`,
+  `/market/v1/players|listone|quotazioni`. `/league/teams/players` returns 400
+  only because `players` parses as an invalid team id — `/league/teams/notanumber`
+  behaves identically.
+- **`/market/v2/*` is edge-blocked**, returning an HTML 403 (not JSON) for both
+  `players` and `time`, while `/market/v1/time` still returns 200. That is a
+  WAF/CDN refusal, not an authorization decision.
+
+**Candidates, all currently indistinguishable from unused fields:** `pl` on the
+team object (`null` for all 8 teams, sitting beside the roster counts), and
+`mspvi`/`mspva` — the only listone fields that are uniformly zero and not
+explained by the season not having started.
+
+**The decisive test costs one diff.** A full listone snapshot taken 2026-08-23
+(pre-auction, nothing owned) is cached outside the repo. The moment one player
+is assigned, re-fetch and diff: whichever field changes for that player is the
+ownership marker, confirmed by observation. Until then, no availability filter
+should be shipped — it would encode a guess into auction decisions.
+
+### Mantra modules — the API names them but does not define them
+
+`settings/lineup.mods` lists the 11 allowed modules (`3412, 3421, 343, 3511,
+352, 4141, 4231, 4312, 433, 4411, 442`) and nothing else. **No endpoint gives
+the role-slot composition** — nothing says 343 means `Por + 3×Dc + E,M,M,E +
+W,Pc,W`. `minrl`/`maxrl` carry two entries (`[2,21]`/`[6,34]`), which are
+roster-wide bounds, not eleven role slots.
+
+Module-aware tooling therefore needs the Mantra module definitions encoded as
+domain data and checked by a human. That is legitimate — they are published
+rules, not guesses about an undocumented payload — but it must be labelled as
+domain data, not as something the API asserted.
 
 ## Architecture
 
@@ -355,8 +450,9 @@ session from disk, and deleting `captured/` removes the cleartext league
 password — both are security improvements, not just tidying. `.auth/` itself
 survives, since `tokens.json` lives there.
 
-**Phase 2 — discovery.** Map the unmapped surface: roster contents, player
-database, lineup submission, market/auction, calendar.
+**Phase 2 — discovery.** Map the unmapped surface: ownership (which players are
+taken), lineup submission, market/auction, calendar. The player database is
+already mapped — see "The listone" above.
 
 Method: browser DevTools → perform each action once → **Copy as cURL** on the
 resulting request → replay it against the API to confirm the shape. This needs
