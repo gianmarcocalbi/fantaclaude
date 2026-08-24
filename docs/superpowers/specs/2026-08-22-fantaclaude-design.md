@@ -27,16 +27,19 @@ duplicate it and does not block on it.
 Two concrete couplings, both cheap:
 
 - **As a library.** The MCP's `api.py` is deliberately free of FastMCP imports, so
-  `fantaclaude.ingest.mcp_api` imports it directly. No stdio round-trip, no second
+  `fantaclaude.ingest.listone_api` imports it directly. No stdio round-trip, no second
   HTTP client, no drift between two copies of the endpoint knowledge.
 - **As config.** League settings (budget, roster bounds, modules, bench,
   bonus/malus, substitutions) come from `get_league_settings` rather than from a
   hand-maintained file. See "League configuration is data, not constants".
 
-What the MCP cannot give us yet: the **player database, roster contents, and
-market/auction endpoints are unmapped**, and its Phase 2 discovery is blocked
-until an auction actually happens. Ingestion therefore stands on the official
-XLSX listone plus web sources, with the MCP as a later adapter.
+What the MCP gives us today, and what it cannot yet: the **player database is
+mapped** — `/onboarding/v1/league/players`, 539 rows with the Classic role, the
+Mantra role codes and separate Classic and Mantra quotazioni (see the MCP spec,
+"The listone") — so the listone is ingested through `fantacalcio_mcp.api` from
+Phase 0 with no second credential and no XLSX parser. **Roster contents and the
+market/auction endpoints remain unmapped**, and that discovery is blocked until an
+auction actually happens; historical statistics come from web sources.
 
 ### A second MCP, for the auction
 
@@ -113,7 +116,7 @@ provenance is as visible as any knowledge-base document.
 `league.yml` is for what the API *cannot* express, never for overriding what it
 can. If a key duplicates something the API reports and the two disagree,
 `sync-league` **fails loud** rather than picking a winner — the same principle
-applied to the `mcp_api` switchover.
+applied to the adapter switchover protocol.
 
 ### Observation on 2026-08-22, for orientation only
 
@@ -180,7 +183,7 @@ fantaclaude/
 ├── mcp/fantacalcio/          # existing MCP (workspace member) — league API
 ├── core/                     # workspace member, package `fantaclaude`
 │   └── src/fantaclaude/
-│       ├── ingest/           # listone_xlsx · stats_web · advanced · news · mcp_api · asta_live
+│       ├── ingest/           # listone_api · stats_web · advanced · calendar · news · asta_live
 │       ├── model/            # Mantra roles, module slots, scoring rules
 │       ├── analysis/         # projection, valuation, tiers, max price
 │       ├── cli/             # Typer app — the interface skills call
@@ -302,8 +305,17 @@ A player eligible for three slots keeps modules open, and is worth more than his
 fantamedia implies. Classic-mode rankings systematically undervalue him, and that
 gap is the edge being bought at this auction.
 
-Adaptation rules (how many `adattati` the league permits) are league-specific and
-resolved in Phase 0 from `sroles`/`minrl`/`maxrl` plus the official regolamento.
+The module definitions are **domain data, not API data**: `settings/lineup.mods`
+names the eleven schemes and nothing defines them. They are encoded in
+`core/src/fantaclaude/model/modules.yml` from the official *Tabella sostituzioni
+per schema* (`content.fantacalcio.it/web/risorse/Tabella-sostituzioni-per-schema-2024-2025.pdf`,
+linked from the Mantra regolamento and read on 2026-08-24): eleven modules, eleven
+slots each, and for every slot the roles that fill it naturally, the roles that fill
+it *adattati* with the malus, and the roles allowed only through a forced
+substitution. Twelve roles, not eleven — `B` (braccetto) is the listone's code 19,
+confirmed on 2026-08-24 against a player's public role badges. Whether the league
+caps the number of `adattati` per lineup is not in that table; if the admin sets one
+verbally it is a `league.yml` key with its `source:`.
 
 ### One database, and the auction is not in it
 
@@ -596,12 +608,12 @@ downstream knows where data came from.
 
 | adapter | source | status |
 | --- | --- | --- |
-| `listone_xlsx` | official Quotazioni XLSX, Classic + Mantra roles | Phase 0 |
-| `stats_web` | fantacalcio.it statistiche (premium account) | Phase 0 — see backfill note |
-| `advanced` | FBref / Understat xG, xA, minutes per 90 | Phase 0 |
-| `calendar` | Serie A fixtures **plus European midweek ties per team** | Phase 0 |
+| `listone_api` | `/onboarding/v1/league/players` through `fantacalcio_mcp.api` — Classic role, Mantra role codes, Classic and Mantra quotazioni | Phase 0a |
+| `stats_web` | fantacalcio.it voti and quotazioni XLSX (`/api/v1/Excel/votes\|prices/<season>/<giornata>`, behind the **website** login) | Phase 0b — see backfill note |
+| `advanced` | FBref / Understat xG, xA, minutes per 90 | Phase 0b |
+| `calendar` | Serie A fixtures **plus European midweek ties per team** | Phase 0b |
 | `news` | probabili formazioni, infortuni, squalifiche | Phase 3 |
-| `mcp_api` | `fantacalcio_mcp.api` as a library | when endpoints are mapped |
+| `rosters_api` | rosters and purchase costs through `fantacalcio_mcp.api` | when that endpoint is mapped (open question 9) |
 
 Every row carries `source` and `ingested_at`. `fantaclaude ingest all` is idempotent, and
 because raw files are immutable the spine can always be rebuilt from scratch.
@@ -618,16 +630,18 @@ because raw files are immutable the spine can always be rebuilt from scratch.
 An earlier draft made `player_match` the critical path, which would have put a
 slow, externally-rate-limited crawl in front of everything else.
 
-Worth checking first: fantacalcio.it publishes per-giornata voti as XLSX downloads
-(`Voti_Fantacalcio_Stagione_…_Giornata_N.xlsx`). If that holds, ~114 files beat
-scraping premium HTML on every axis — faster, more stable, structured, and it
-sidesteps the terms-of-service question that scraping raises. Confirm before
-building `stats_web`.
+Checked on 2026-08-24: fantacalcio.it does publish per-giornata voti as XLSX, at
+`/api/v1/Excel/votes/<season>/<giornata>`, so ~114 files beat scraping premium
+HTML on every axis — faster, more stable, structured, and it sidesteps the
+terms-of-service question that scraping raises. The download answers `401` without
+the **website** session, which is a different login from the league API's; how
+that session is obtained is the discovery step that opens Phase 0b, and until the
+first real file is on disk `stats_web` has no golden fixture to be built against.
 
 Three seasons is the recommendation either way: further back, squad and tactical
 changes make the data actively misleading.
 
-**Switchover protocol for `mcp_api`:** run it alongside the existing adapter, diff
+**Switchover protocol for a second source of the same data:** run it alongside the existing adapter, diff
 the outputs, and only then make it the default. Silent disagreement between two
 data sources is worse than either being wrong.
 
@@ -920,7 +934,9 @@ point" and Phase 2 by indifference against `V`, the board would jump discontinuo
 the moment the auction opened and neither number would deserve trust.
 
 **Expected prices for the pool** come from the cheapest model that works:
-`listone quotazione × observed inflation`, rivals ignored. That is deliberately the
+`listone quotazione × observed inflation`, rivals ignored — and the *Mantra*
+quotazione (`acsma`), never the Classic one, since 163 of 539 players are priced
+differently in the two systems. That is deliberately the
 model that survives the cut-line — scarcity behaviour does **not** depend on
 opponent modelling, because `V` collapses when the *pool* empties, which is visible
 from the sale log alone. The opponent-pressure model sharpens the price estimate; it
@@ -1077,9 +1093,13 @@ would silently corrupt every max price on the board.
 
 **Session settings are authoritative for the night, and every change to them is
 surfaced.** The session carries its own `budget` and role bounds — the observed one
-was 500 credits with classic-shaped `gk3/def8/mid8/atk6`, which is *not* this
-league's configuration nor what the admin says they will run (two goalkeepers
-mandatory, the rest free; see "`S` is not a constant"). What the room is playing is what the
+was 500 credits with `gk3/def8/mid8/atk6`, which is *not* this league's
+configuration nor what the admin says they will run (two goalkeepers mandatory,
+the rest free; see "`S` is not a constant"). The local state captured on
+2026-08-23 suggests those per-role numbers are carried for both game types while
+the enforced bounds in Mantra (`settings.game = 2`) are `gk` and `mov` —
+`teams[].missingPlayers` counts only those two — which would make the check a
+comparison of two numbers rather than two taxonomies; confirmed at the rehearsal. What the room is playing is what the
 room is playing, so the session wins; but a mismatch against `league.yml` is surfaced **loudly at
 connect, before bidding opens**. The settings node arrives in the same snapshot as
 `picks[]`, so nothing is polled: each snapshot's settings are diffed against the
@@ -1120,9 +1140,11 @@ SDK, no JavaScript, no second runtime.
   reaches a tool result applies to the mirror too.
 
 **Two identity joins, both resolved before the auction rather than during it.** The
-player join is Firebase `playerId` → listone `Id`; they appear to be the same
-fantacalcio.it identifier, which would let auction ingestion bypass "Name matching"
-entirely — verified in Phase 0, falling back to name matching if it does not hold.
+player join is Firebase `playerId` → listone `id`, and they are the same
+fantacalcio.it identifier: FantaAstaLive's own player directory (539 rows) joins the
+league API listone on `id` with every name agreeing, verified 2026-08-24. Auction
+ingestion therefore bypasses "Name matching" entirely, and an unknown `playerId` is
+a fault to surface, not a name to fuzzy-match.
 The team join picks **which team is mine** and maps every other `teamId` and its
 free-text `peers[].nick` (`"host"`, a first name, whatever someone typed) onto a
 participant dossier, through a **mapping screen at every connect**. The server
@@ -1355,8 +1377,11 @@ source of truth for the contract.
   four-hour event and never in a short test run.
 - **Replay is the rehearsal harness.** A captured SSE session replays through the
   whole pipeline with `--replay <file> --speed N`, no network and no live auction.
-  Without it the feed's first real exercise would be auction night itself. A real
-  session capture already exists to seed the fixture.
+  Without it the feed's first real exercise would be auction night itself. The
+  capture on disk (`captured/fantaastalive-state-2026-08-23.json`) is the
+  pre-auction local state — settings, options, the player directory, no picks — and
+  seeds the settings and directory tests; a capture *with* picks comes from the
+  rehearsal or a scripted test session, and the diff-engine fixture waits for it.
 - **Adjustments are hot-reloaded, and `exclude` has a directional invariant.**
   Rewriting `adjustments.yml` and refreshing must change the board without a restart;
   and excluding a player from a role must **raise** the max price of every remaining
@@ -1403,7 +1428,8 @@ the network.
 
 | Phase | Ships | Target |
 | --- | --- | --- |
-| **0 — spine** | uv workspace (including `.mcp.json` still resolving via the root lock), `sync-league`, DuckDB schema, Mantra role model, listone + `player_season` ingestion, `kb/` bootstrap, MCP token-cache hardening | 26 Aug |
+| **0a — spine** | uv workspace (including `.mcp.json` still resolving via the root lock), MCP token-cache hardening and `players()`, DuckDB schema, `sync-league` with the `league.yml` cross-check, Mantra role model with the module table, listone ingestion through the API, the CLI contract (`schema`, `query`, `doctor`, `kb audit`), `kb/` scaffold | 26 Aug |
+| **0b — history** | website-session discovery, then `stats_web` (`player_season` and `player_match` from the voti XLSX), `calendar`, `advanced`; `kb/` bootstrap through `fanta-kb` | after 0a |
 | **1 — market** | projection, VOR, allocation, tiers, max prices, asta plan; opponent dossiers via `fanta-kb interview` | 29 Aug |
 | **2a — asta core** | state machine, advisor, adjustment layer, state snapshot, CLI entry | 31 Aug |
 | **2b — dashboard** | FastAPI + WebSocket + Vite/shadcn UI, FantaAstaLive feed, `fantaclaude-mcp` | 2 Sep |
@@ -1441,21 +1467,24 @@ is ~5 September and the freeze is 48 hours before it, so **2b must land on 2
 September** or the rehearsal cannot rehearse the dashboard — which was the point of
 having one.
 
-**One task reaches into existing code:** the MCP token cache needs cross-process
-locking (see "Concurrency"), touching `mcp/fantacalcio/auth.py`, a file with its own
-spec and tests. It is the only place this design modifies rather than extends the
-MCP, so it is named here rather than appearing as a surprise diff.
+**Two tasks reach into existing code**, both named here rather than appearing as a
+surprise diff. The MCP token cache needs cross-process locking (see
+"Concurrency"), touching `mcp/fantacalcio/auth.py`, a file with its own spec and
+tests — the only place this design *modifies* the MCP. And `api.py` gains one
+method, `players()`, for the listone endpoint the MCP spec mapped after its tool
+surface was built — an *extension* in the MCP's own one-method-per-endpoint style,
+with no new tool (539 rows is not a tool result).
 
-**The `player_match` crawl runs in the background** from the start of Phase 0, but
+**The `player_match` crawl runs in the background** from the start of Phase 0b, but
 nothing waits on it: `player_season` carries the projection, and a throttled crawl
 costs precision rather than blocking a phase.
 
-**Two cheap verifications gate decisions made elsewhere in this document**, both in
-Phase 0. That Firebase `playerId` equals the listone `Id` decides whether auction
-ingestion can skip name matching. That the league API exposes rosters with purchase
-costs decides whether the auction store may be purged rather than kept. Each is
-minutes of work, and each is load-bearing for a choice already written down as
-though settled.
+**Two cheap verifications gate decisions made elsewhere in this document.** That
+Firebase `playerId` equals the listone `id` decided whether auction ingestion could
+skip name matching — done on 2026-08-24, it can (open question 8). That the league
+API exposes rosters with purchase costs decides whether the auction store may be
+purged rather than kept — still open, and answerable only once a roster exists
+(open question 9).
 
 **Rehearsal is mandatory**, on 3 September: replay a captured FantaAstaLive session
 end to end, exhaust the budget, have the admin undo a lot and confirm the board
@@ -1499,23 +1528,26 @@ often than to bad models.
    `.env`. What remains is a check only the account holder can run: log in on the
    site and confirm the three back seasons (18, 19, 20) are served rather than
    gated to the current one.
-6. **Is there a player-database endpoint?** Unlike roster and market endpoints, the
-   listone is not blocked by the auction. Worth thirty minutes of DevTools discovery,
-   since it would yield Mantra roles directly. Falls back to `listone_xlsx`.
+6. **~~Is there a player-database endpoint?~~ Resolved 2026-08-23.** Yes:
+   `/onboarding/v1/league/players`, mapped in the MCP spec ("The listone") — Classic
+   role, Mantra role codes and separate Mantra quotazioni. It is Phase 0a's listone
+   source; the XLSX is no longer needed for it.
 7. **Target roster composition.** Bounds allow 2–6 goalkeepers and 21–34 outfield,
    and the admin has confirmed the auction keeps that freedom (two goalkeepers
    mandatory, the rest as chosen), so the shape is chosen rather than given. The optimiser can
    propose one; the user should state a preference in `preferences.yml` to start
    from.
-8. **Does Firebase `playerId` equal the listone `Id`?** Spot-checked once — 2764 is
-   Lautaro Martinez in both — and it holds, but one sample is an indication rather
-   than a verification. If it holds generally, auction ingestion skips name matching
-   entirely; if not, it falls back to the matcher that already exists.
+8. **~~Does Firebase `playerId` equal the listone `Id`?~~ Resolved 2026-08-24.** It
+   does: FantaAstaLive's player directory (539 rows, the ids `picks[].playerId` is
+   drawn from) joins the league API listone on `id` with all 539 names agreeing.
+   Auction ingestion skips name matching entirely.
 9. **Does the league API expose rosters with purchase costs?** The `/market/v1/…`
    namespace exists but roster contents are unmapped, and no cost field appears in
-   any captured fixture. Purging the auction store assumes the answer is yes. Until
-   it is verified, keep the file — the cost of being wrong is losing the only record
-   of what the room paid.
+   any captured fixture. The MCP spec ("Ownership — unresolved") records the paths
+   already probed and found absent, that `/market/v2/*` is edge-blocked, and the
+   decisive test: diff the listone the moment one player is assigned. Purging the
+   auction store assumes the answer is yes. Until it is verified, keep the file —
+   the cost of being wrong is losing the only record of what the room paid.
 10. **Does FantaAstaLive expose anything during active bidding? Sharpened
     2026-08-24.** FantaAstaLive runs in one of two modes: **DRAFT**, turn-based,
     where the admin assigns each lot, and **A RILANCI**, where anyone bids at any
@@ -1526,6 +1558,10 @@ often than to bad models.
     question is therefore **which mode the admin will run** — ask when asking for
     the session code — and, if A RILANCI, the bid fields are read at the rehearsal
     so the board can show distance-to-max live instead of only the band.
+    FantaAstaLive's own local state (captured 2026-08-23, pre-auction) carries
+    `options.bids` and `options.draft` side by side and a `bids-log` list, so the
+    ladder exists client-side; what the rehearsal checks is whether it is mirrored
+    into the session node.
 
 ## Non-goals
 

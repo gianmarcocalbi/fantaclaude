@@ -146,16 +146,19 @@ This league is Mantra: `lega.tipo = 2`, `leghe[].tipo_gioco = 2`,
 | 8 | Ds | 66 | 14 | T | 58 |
 | 9 | Dc | 108 | 15 | A | 53 |
 | 10 | E | 93 | 16 | Pc | 58 |
-| 11 | M | 68 | 19 | **unidentified** | 12 |
+| 11 | M | 68 | 19 | B | 12 |
 
 Derived by cross-tabulating each code against `fcrle` and checking known
 players (Svilar `Por`, Bastoni `Dc`, Lautaro/Hojlund `Pc`, Calhanoglu `M/C`,
 Dimarco `E/T`, Pulisic `W/A`).
 
-**Code 19 is deliberately unnamed.** All 12 holders are full-backs and always
-carry exactly three roles (`[19,Ds,E]`, `[19,Dd,E]`, `[19,Dd,Ds]`). A
-both-flanks marker is plausible but unobserved, so it stays raw under the
-naming rule.
+**Code 19 is `B` (braccetto), confirmed 2026-08-24.** All 12 holders are
+full-backs carrying exactly three roles (`[19,Ds,E]`, `[19,Dd,E]`, `[19,Dd,Ds]`);
+Carlos Augusto (`id` 5877, `marle` `[19, 8, 10]`) renders on his public
+fantacalcio.it page as the badges `B` "Braccetto", `Ds`, `E` — the observation the
+naming rule requires. The regolamento's role legend lists `B` among the defensive
+roles, and the official module table uses it in every back-three scheme's third
+slot (`Dc/B`).
 
 **266 of 539 players hold more than one Mantra role**, so role is an assignment
 against a module slot, not a player property — an `E/T` fills one or the other,
