@@ -269,5 +269,29 @@ def kb_audit_cmd(
     emit(payload, json_=json_, render=_render_audit)
 
 
+def _render_doctor(payload: dict) -> str:
+    lines = [f"{'ok ' if c['ok'] else 'FAIL'}  {c['name']:<16} {c['detail']}" for c in payload["checks"]]
+    lines.append("ready" if payload["ok"] else "not ready")
+    return "\n".join(lines)
+
+
+@app.command("doctor")
+def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
+    """Readiness check: credentials, token cache, database, snapshots, league.yml, kb, module table."""
+    from fantacalcio_mcp.config import env_path, token_cache_path
+
+    from fantaclaude.commands.doctor import DoctorPaths, run_doctor
+    from fantaclaude.paths import db_path, kb_dir, league_yml_path, preferences_yml_path
+    from fantaclaude.timeutil import utc_now
+
+    paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
+                        league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir())
+    checks = run_doctor(paths, now=utc_now())
+    payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
+    emit(payload, json_=json_, render=_render_doctor)
+    if not payload["ok"]:
+        raise typer.Exit(code=ExitCode.NOT_READY)
+
+
 def main() -> None:
     app()
