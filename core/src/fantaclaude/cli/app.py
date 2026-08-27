@@ -99,5 +99,63 @@ def sync_league_cmd(
         raise typer.Exit(code=ExitCode.CONFLICT)
 
 
+ingest_app = typer.Typer(name="ingest", help="Fetch a source into data/raw/ and snapshot it into DuckDB.",
+                         no_args_is_help=True)
+app.add_typer(ingest_app)
+
+
+def _render_ingest(payload: dict) -> str:
+    lines = []
+    for name, result in payload.items():
+        if result["skipped_duplicate"]:
+            lines.append(f"{name}: duplicate of snapshot {result['snapshot_id']} -- nothing new ({result['raw_path']})")
+        else:
+            lines.append(f"{name}: snapshot {result['snapshot_id']}, {result['inserted']} rows ({result['raw_path']})")
+    return "\n".join(lines)
+
+
+def _run_ingest(names: list[str], json_: bool, league: str | None) -> None:
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.ingest import ingest_all, ingest_listone
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+
+    store = RawStore(raw_dir())
+    con = connect()
+    try:
+        apply_schema(con)
+        if names == ["all"]:
+            results = run_with_api(lambda api: ingest_all(api, con, store, league=league))
+        else:
+            results = {"listone": run_with_api(lambda api: ingest_listone(api, con, store, league=league))}
+    finally:
+        con.close()
+    payload = {name: r.to_dict() for name, r in results.items()}
+    if names != ["all"]:
+        emit(payload["listone"], json_=json_, render=lambda p: _render_ingest({"listone": p}))
+    else:
+        emit(payload, json_=json_, render=_render_ingest)
+
+
+@ingest_app.command("listone")
+def ingest_listone_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Fetch the listone (539 players, Mantra roles and quotazioni) and snapshot it."""
+    _run_ingest(["listone"], json_, league)
+
+
+@ingest_app.command("all")
+def ingest_all_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Refresh every source (only the listone in Phase 0a)."""
+    _run_ingest(["all"], json_, league)
+
+
 def main() -> None:
     app()

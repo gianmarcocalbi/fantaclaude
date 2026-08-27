@@ -87,3 +87,10 @@ def fake_api(mcp_fixture_json):
     def _make(overrides=None):
         return FakeAPI(mcp_fixture_json, overrides)
     return _make
+
+
+@pytest.fixture
+def fixture_path():
+    def _path(name: str) -> Path:
+        return FIXTURE_DIR / f"{name}.json"
+    return _path

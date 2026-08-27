@@ -1,0 +1,999 @@
+{
+ "players": [
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 21,
+   "fvmfc": 1,
+   "fvmma": 1,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 387733,
+   "bmcsh": 0,
+   "id": 3,
+   "fcrle": 1,
+   "icsfc": 1,
+   "icsma": 1,
+   "acsfc": 1,
+   "acsma": 1,
+   "age": 30,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    6
+   ],
+   "name": "Radunovic",
+   "tname": "Cagliari",
+   "stnme": "CAG",
+   "leag": "ITA",
+   "naty": "Serbia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 15,
+   "fvmfc": 33,
+   "fvmma": 33,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 969723,
+   "bmcsh": 0,
+   "id": 5841,
+   "fcrle": 1,
+   "icsfc": 18,
+   "icsma": 18,
+   "acsfc": 18,
+   "acsma": 18,
+   "age": 27,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    6
+   ],
+   "name": "Svilar",
+   "tname": "Roma",
+   "stnme": "ROM",
+   "leag": "ITA",
+   "naty": "Serbia;Belgio",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 22,
+   "fvmma": 22,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 985630,
+   "bmcsh": 1,
+   "id": 2120,
+   "fcrle": 2,
+   "icsfc": 14,
+   "icsma": 14,
+   "acsfc": 14,
+   "acsma": 14,
+   "age": 27,
+   "agrd": 6.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    9
+   ],
+   "name": "Bastoni",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    6.0
+   ],
+   "l5frfc": [
+    6.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 133,
+   "fvmma": 133,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 369570,
+   "bmcsh": 1,
+   "id": 254,
+   "fcrle": 2,
+   "icsfc": 32,
+   "icsma": 30,
+   "acsfc": 32,
+   "acsma": 30,
+   "age": 29,
+   "agrd": 6.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    10,
+    14
+   ],
+   "name": "Dimarco",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    6.0
+   ],
+   "l5frfc": [
+    6.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 14,
+   "fvmma": 15,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 1032200,
+   "bmcsh": 0,
+   "id": 5877,
+   "fcrle": 2,
+   "icsfc": 7,
+   "icsma": 8,
+   "acsfc": 7,
+   "acsma": 8,
+   "age": 27,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    19,
+    8,
+    10
+   ],
+   "name": "Carlos Augusto",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Brasile",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 185,
+   "fvmma": 185,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 944662,
+   "bmcsh": 1,
+   "id": 2764,
+   "fcrle": 4,
+   "icsfc": 35,
+   "icsma": 35,
+   "acsfc": 35,
+   "acsma": 35,
+   "age": 29,
+   "agrd": 5.5,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    16
+   ],
+   "name": "Martinez L.",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Argentina",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    "U"
+   ],
+   "l5rfc": [
+    5.5
+   ],
+   "l5frfc": [
+    5.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 115,
+   "fvmma": 130,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 243760,
+   "bmcsh": 1,
+   "id": 2194,
+   "fcrle": 3,
+   "icsfc": 27,
+   "icsma": 28,
+   "acsfc": 27,
+   "acsma": 28,
+   "age": 32,
+   "agrd": 7.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    11,
+    12
+   ],
+   "name": "Calhanoglu",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Turchia;Germania",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    "U"
+   ],
+   "l5rfc": [
+    7.0
+   ],
+   "l5frfc": [
+    9.5
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 12,
+   "fvmfc": 90,
+   "fvmma": 90,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 951471,
+   "bmcsh": 0,
+   "id": 2423,
+   "fcrle": 3,
+   "icsfc": 25,
+   "icsma": 23,
+   "acsfc": 25,
+   "acsma": 23,
+   "age": 28,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    13,
+    15
+   ],
+   "name": "Pulisic",
+   "tname": "Milan",
+   "stnme": "MIL",
+   "leag": "ITA",
+   "naty": "Stati Uniti;Croazia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 6,
+   "fvmfc": 100,
+   "fvmma": 99,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 984561,
+   "bmcsh": 0,
+   "id": 2097,
+   "fcrle": 4,
+   "icsfc": 25,
+   "icsma": 25,
+   "acsfc": 25,
+   "acsma": 25,
+   "age": 26,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    16
+   ],
+   "name": "Kean",
+   "tname": "Fiorentina",
+   "stnme": "FIO",
+   "leag": "ITA",
+   "naty": "Italia;Costa d'Avorio",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 13,
+   "fvmfc": 136,
+   "fvmma": 136,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 1119438,
+   "bmcsh": 0,
+   "id": 6052,
+   "fcrle": 4,
+   "icsfc": 28,
+   "icsma": 28,
+   "acsfc": 28,
+   "acsma": 28,
+   "age": 23,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    16
+   ],
+   "name": "Hojlund",
+   "tname": "Napoli",
+   "stnme": "NAP",
+   "leag": "ITA",
+   "naty": "Danimarca",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 13,
+   "fvmfc": 49,
+   "fvmma": 48,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 267544,
+   "bmcsh": 0,
+   "id": 2517,
+   "fcrle": 3,
+   "icsfc": 15,
+   "icsma": 14,
+   "acsfc": 15,
+   "acsma": 14,
+   "age": 35,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    13
+   ],
+   "name": "De Bruyne",
+   "tname": "Napoli",
+   "stnme": "NAP",
+   "leag": "ITA",
+   "naty": "Belgio",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 13,
+   "fvmfc": 24,
+   "fvmma": 22,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 359999,
+   "bmcsh": 0,
+   "id": 536,
+   "fcrle": 3,
+   "icsfc": 10,
+   "icsma": 9,
+   "acsfc": 10,
+   "acsma": 9,
+   "age": 33,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    14
+   ],
+   "name": "Politano",
+   "tname": "Napoli",
+   "stnme": "NAP",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 15,
+   "fvmfc": 34,
+   "fvmma": 34,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 314686,
+   "bmcsh": 0,
+   "id": 309,
+   "fcrle": 4,
+   "icsfc": 14,
+   "icsma": 15,
+   "acsfc": 14,
+   "acsma": 15,
+   "age": 33,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    15
+   ],
+   "name": "Dybala",
+   "tname": "Roma",
+   "stnme": "ROM",
+   "leag": "ITA",
+   "naty": "Argentina;Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 21,
+   "fvmma": 21,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 285457,
+   "bmcsh": 1,
+   "id": 152,
+   "fcrle": 3,
+   "icsfc": 10,
+   "icsma": 10,
+   "acsfc": 10,
+   "acsma": 10,
+   "age": 32,
+   "agrd": 7.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    12
+   ],
+   "name": "Zielinski",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Polonia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    "U"
+   ],
+   "l5rfc": [
+    7.0
+   ],
+   "l5frfc": [
+    10.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 1,
+   "trsfd": 1,
+   "quotd": 1,
+   "tid": 1,
+   "fvmfc": 1,
+   "fvmma": 1,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 257719,
+   "bmcsh": 0,
+   "id": 2297,
+   "fcrle": 1,
+   "icsfc": 1,
+   "icsma": 1,
+   "acsfc": 1,
+   "acsma": 1,
+   "age": 35,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    6
+   ],
+   "name": "Rossi F. *",
+   "tname": "Atalanta",
+   "stnme": "ATA",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 8,
+   "fvmfc": 3,
+   "fvmma": 3,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 323866,
+   "bmcsh": 0,
+   "id": 791,
+   "fcrle": 2,
+   "icsfc": 2,
+   "icsma": 2,
+   "acsfc": 2,
+   "acsma": 2,
+   "age": 33,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    7,
+    8,
+    10
+   ],
+   "name": "Sabelli",
+   "tname": "Genoa",
+   "stnme": "GEN",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 1,
+   "fvmfc": 6,
+   "fvmma": 7,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 323989,
+   "bmcsh": 0,
+   "id": 2640,
+   "fcrle": 2,
+   "icsfc": 5,
+   "icsma": 6,
+   "acsfc": 5,
+   "acsma": 6,
+   "age": 33,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    8,
+    9
+   ],
+   "name": "Kolasinac",
+   "tname": "Atalanta",
+   "stnme": "ATA",
+   "leag": "ITA",
+   "naty": "Bosnia Erzegovina;Germania",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  }
+ ],
+ "timestamp": 1787517550778
+}
