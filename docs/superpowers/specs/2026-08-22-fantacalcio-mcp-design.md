@@ -281,6 +281,14 @@ killed constantly by the client, and in-memory caching would mean a login
 round-trip on every Claude Code restart. `exp` is checked before every use, so
 an expired token triggers a proactive re-login rather than a failed call.
 
+**Cross-process:** the cache is shared by every process that imports this
+module (the MCP server and the `fantaclaude` CLI). A `flock` sidecar
+(`tokens.json.lock`) is held around every login-and-write, the cache is
+re-read once the lock is held so the loser of a race uses the winner's token,
+and `login-attempt.json` records the last attempt (kind, time, error type) so
+the cooldown and the never-retry rule for `ATH018` hold across processes, not
+per instance.
+
 **Failure handling:** a `401`/`403` triggers exactly one re-login and one
 retry, then fails with the server's own error message. No retry loop — repeated
 failed logins are how accounts get locked. `ATH018` (bad credentials) never

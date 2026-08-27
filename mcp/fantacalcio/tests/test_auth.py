@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import fcntl
 import json
 import os
 import time
@@ -212,8 +213,12 @@ async def test_cache_directory_and_file_are_owner_only(tmp_path, login_response)
             await Auth(Credentials("u", "p"), cache, http, "K", BASE).token_for()
     assert cache.parent.stat().st_mode & 0o777 == 0o700
     assert cache.stat().st_mode & 0o777 == 0o600
-    # No leftover temp files from the atomic-write dance.
-    assert list(cache.parent.iterdir()) == [cache]
+    # No leftover temp files from the atomic-write dance -- only the cache and
+    # the two cross-process sidecars, every one of them owner-only.
+    assert sorted(p.name for p in cache.parent.iterdir()) == [
+        "login-attempt.json", "tokens.json", "tokens.json.lock"]
+    for entry in cache.parent.iterdir():
+        assert entry.stat().st_mode & 0o777 == 0o600, entry.name
 
 
 @pytest.mark.skipif(
@@ -515,3 +520,235 @@ async def test_unwritable_cache_directory_does_not_break_construction(tmp_path):
             assert await auth.token_for()   # must not raise
     finally:
         readonly_root.chmod(0o700)
+
+
+# ---- cross-process coordination ------------------------------------------
+# Two Auth instances on one cache path stand in for two processes: flock is
+# per open file description, so two opens of the same sidecar contend exactly
+# as two processes would (verified on this platform before writing these).
+
+
+def _cache_with(jwt: str) -> str:
+    return json.dumps({"account": None, "user_id": None, "username": "u", "leagues": {
+        "fantabalotelli3": {"alias": "fantabalotelli3", "league_id": "2578630",
+                            "team_id": "11560832", "name": "Fantabalotelli3", "jwt": jwt}}})
+
+
+async def test_two_cold_instances_share_one_login(tmp_path, login_response):
+    cache = tmp_path / "tokens.json"
+
+    async def slow_login(request):
+        await asyncio.sleep(0.01)   # long enough for the second instance to reach the lock
+        return httpx.Response(200, json=login_response)
+
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(side_effect=slow_login)
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            first = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            second = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            tokens = await asyncio.gather(first.token_for(), second.token_for())
+    assert route.call_count == 1
+    assert len(set(tokens)) == 1
+    assert (tmp_path / "tokens.json.lock").stat().st_mode & 0o777 == 0o600
+
+
+async def test_cross_process_lock_closes_fd_on_cancellation_during_poll(tmp_path, monkeypatch):
+    """Fix round 2, finding A: a task cancelled while parked in the poll's
+    `asyncio.sleep` must not leak the lock-sidecar fd. Closing it there is
+    safe -- and required -- because the acquire is a non-blocking poll
+    running synchronously on the event loop: unlike the earlier
+    blocking-thread design, nothing is ever parked inside flock() on this
+    descriptor for a close to race against.
+    """
+    cache = tmp_path / "tokens.json"
+    lock_path = tmp_path / "tokens.json.lock"
+    real_open, real_close = os.open, os.close
+
+    # Hold the flock ourselves first, with the *real* os.open/close, so
+    # Auth's poll spins on BlockingIOError long enough to be cancelled
+    # mid-sleep instead of acquiring on its first try.
+    holder_fd = real_open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(holder_fd, fcntl.LOCK_EX)
+
+    opened: list[int] = []
+    closed: list[int] = []
+
+    def recording_open(path, flags, mode=0o777):
+        fd = real_open(path, flags, mode)
+        if str(path) == str(lock_path):
+            opened.append(fd)
+        return fd
+
+    def recording_close(fd):
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(os, "open", recording_open)
+    monkeypatch.setattr(os, "close", recording_close)
+    monkeypatch.setattr("fantacalcio_mcp.auth._CROSS_PROCESS_LOCK_POLL_SECONDS", 0.001)
+
+    try:
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+
+            async def contend():
+                async with auth._cross_process_lock():
+                    pass  # never reached -- cancelled while polling
+
+            task = asyncio.create_task(contend())
+            await asyncio.sleep(0.02)   # let it open the fd and enter the poll
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    finally:
+        fcntl.flock(holder_fd, fcntl.LOCK_UN)
+        real_close(holder_fd)
+
+    assert opened, "Auth never reached the poll loop"
+    assert closed == opened, "the fd opened for the poll must be closed on cancellation"
+
+
+async def test_failed_login_in_one_instance_holds_the_cooldown_for_another(tmp_path):
+    cache = tmp_path / "tokens.json"
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(return_value=httpx.Response(
+            400, json={"code": "ATH018", "message": "Invalid username or password"}))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            first = Auth(Credentials("u", "bad"), cache, http, "K", BASE)
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await first.token_for()
+            second = Auth(Credentials("u", "bad"), cache, http, "K", BASE)
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await second.token_for()
+    assert route.call_count == 1
+    stamp_path = tmp_path / "login-attempt.json"
+    stamp = json.loads(stamp_path.read_text())
+    assert set(stamp) == {"at", "kind", "error_type", "message"}
+    assert stamp["kind"] == "login" and stamp["error_type"] == "ConfigurationError"
+    assert "eyJhbGci" not in stamp_path.read_text()
+    assert stamp_path.stat().st_mode & 0o777 == 0o600
+
+
+async def test_shared_cooldown_expires(tmp_path):
+    cache = tmp_path / "tokens.json"
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(return_value=httpx.Response(
+            400, json={"code": "ATH018", "message": "Invalid username or password"}))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            first = Auth(Credentials("u", "bad"), cache, http, "K", BASE)
+            with pytest.raises(ConfigurationError):
+                await first.token_for()
+            stamp_path = tmp_path / "login-attempt.json"
+            stamp = json.loads(stamp_path.read_text())
+            stamp["at"] = time.time() - 120          # older than the 60 s cooldown
+            stamp_path.write_text(json.dumps(stamp))
+            second = Auth(Credentials("u", "bad"), cache, http, "K", BASE)
+            with pytest.raises(ConfigurationError):
+                await second.token_for()
+    assert route.call_count == 2
+
+
+@pytest.mark.parametrize("garbage", [
+    "null", "[]", '{"at": "soon"}', "{not json",
+    # The four payloads above all bail at the isinstance guard and never
+    # reach the delta check -- a future-dated "at" (or NaN) needs its own
+    # case: a one-sided ">= cooldown" comparison gives a non-positive delta
+    # for either, which reads as "recent" forever instead of being ignored.
+    json.dumps({"at": time.time() + 86_400}),
+])
+async def test_corrupt_stamp_is_ignored(tmp_path, login_response, garbage):
+    (tmp_path / "login-attempt.json").write_text(garbage)
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(
+            return_value=httpx.Response(200, json=login_response))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            await Auth(Credentials("u", "p"), tmp_path / "tokens.json", http, "K", BASE).token_for()
+    assert route.call_count == 1
+
+
+async def test_recovery_adopts_a_token_another_process_already_refreshed(tmp_path):
+    cache = tmp_path / "tokens.json"
+    stale = league_jwt(exp_offset=3_600)
+    fresh = league_jwt(exp_offset=7_200)      # a different string, still valid
+    cache.write_text(_cache_with(stale))
+    with respx.mock(base_url=BASE, assert_all_called=False) as mock:
+        route = mock.post("/onboarding/v1/login")
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            assert await auth.token_for() == stale
+            cache.write_text(_cache_with(fresh))    # "another process" recovered meanwhile
+            assert await auth.refresh_if_stale(stale) == fresh
+    assert not route.called
+
+
+async def test_recovery_honours_a_failed_recovery_from_another_process(tmp_path):
+    cache = tmp_path / "tokens.json"
+    stale = league_jwt(exp_offset=3_600)
+    cache.write_text(_cache_with(stale))
+    (tmp_path / "login-attempt.json").write_text(json.dumps({
+        "at": time.time(), "kind": "recovery", "error_type": "ConfigurationError",
+        "message": "ATH018: Invalid username or password"}))
+    with respx.mock(base_url=BASE, assert_all_called=False) as mock:
+        route = mock.post("/onboarding/v1/login")
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            assert await auth.token_for() == stale
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await auth.refresh_if_stale(stale)
+            assert cache.exists(), "a refusal must leave the cache intact"
+    assert not route.called
+
+
+async def test_recovery_honours_a_failed_ordinary_login_from_another_process(tmp_path):
+    """The never-retry rule for ATH018 does not care which kind of login
+    found the bad password: an *ordinary* login that just failed elsewhere
+    must stop a recovery from posting the same known-bad credentials again,
+    the same way a failed recovery stops another recovery above."""
+    cache = tmp_path / "tokens.json"
+    stale = league_jwt(exp_offset=3_600)
+    cache.write_text(_cache_with(stale))
+    (tmp_path / "login-attempt.json").write_text(json.dumps({
+        "at": time.time(), "kind": "login", "error_type": "ConfigurationError",
+        "message": "ATH018: Invalid username or password"}))
+    with respx.mock(base_url=BASE, assert_all_called=False) as mock:
+        route = mock.post("/onboarding/v1/login")
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            assert await auth.token_for() == stale
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await auth.refresh_if_stale(stale)
+            assert cache.exists(), "a refusal must leave the cache intact"
+    assert not route.called
+
+
+async def test_ordinary_login_is_not_blocked_by_a_recent_recovery_stamp(tmp_path, login_response):
+    """A recovery elsewhere must not stop a cold process from logging in when
+    the cache it re-reads has nothing usable -- only an ordinary attempt or a
+    failure holds an ordinary login back."""
+    (tmp_path / "login-attempt.json").write_text(json.dumps({
+        "at": time.time(), "kind": "recovery", "error_type": None, "message": None}))
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(
+            return_value=httpx.Response(200, json=login_response))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            await Auth(Credentials("u", "p"), tmp_path / "tokens.json", http, "K", BASE).token_for()
+    assert route.call_count == 1
+
+
+async def test_ordinary_login_honours_a_failed_recovery_stamp_from_another_process(tmp_path):
+    """The never-retry rule for ATH018 does not care which kind of login
+    found the bad password: a *recovery* that just failed elsewhere must
+    stop a cold ordinary login from posting the same known-bad credentials
+    again, and it must see the original ConfigurationError -- contrast with
+    the success case above, where only a same-kind success suppresses the
+    call."""
+    (tmp_path / "login-attempt.json").write_text(json.dumps({
+        "at": time.time(), "kind": "recovery", "error_type": "ConfigurationError",
+        "message": "ATH018: Invalid username or password"}))
+    with respx.mock(base_url=BASE, assert_all_called=False) as mock:
+        route = mock.post("/onboarding/v1/login")
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "bad"), tmp_path / "tokens.json", http, "K", BASE)
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await auth.token_for()
+    assert not route.called

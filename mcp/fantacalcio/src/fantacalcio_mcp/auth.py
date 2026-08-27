@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
+import fcntl
 import json
 import os
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,14 @@ import httpx
 from .config import ConfigurationError, Credentials
 
 LOGIN_PATH = "/onboarding/v1/login"
+
+# How long to poll for the flock sidecar before giving up and proceeding
+# unlocked. Must comfortably exceed a real login round-trip (the POST to
+# /login plus the atomic cache write) so a legitimately slow peer is waited
+# for rather than raced, while still being finite -- an unbounded wait is
+# exactly the "wedge forever on cancellation" failure mode this replaces.
+_CROSS_PROCESS_LOCK_TIMEOUT_SECONDS = 30.0
+_CROSS_PROCESS_LOCK_POLL_SECONDS = 0.01
 
 
 class AuthError(Exception):
@@ -93,6 +103,13 @@ class Auth:
                  login_cooldown: float = _LOGIN_COOLDOWN_SECONDS) -> None:
         self._credentials = credentials
         self._cache_path = cache_path
+        # Cross-process coordination lives beside the cache: a flock sidecar
+        # serialises login-and-write across processes (fantaclaude sync-league
+        # and the MCP server both drive this class), and a stamp records the
+        # last attempt so the cooldown holds for a process that was not the
+        # one to try. See _cross_process_lock and _recent_shared_attempt.
+        self._lock_path = cache_path.with_name(cache_path.name + ".lock")
+        self._stamp_path = cache_path.with_name("login-attempt.json")
         self._http = http
         self._app_key = app_key
         self._base_url = base_url.rstrip("/")
@@ -166,8 +183,13 @@ class Auth:
             # The cache file lives at a fixed workspace path, independent
             # of credentials. If .env got re-pointed at a different
             # account, serving the old account's league tokens would be
-            # silently wrong. Discard it entirely and start cold.
+            # silently wrong. Discard it entirely and start cold. The
+            # shared attempt stamp goes with it -- see invalidate() -- or a
+            # stale success recorded for the old identity would be read by
+            # the cross-process re-check as "someone already logged in" and
+            # silently suppress the new identity's own login.
             self._discard_cache_file()
+            self._discard_stamp_file()
             return
 
         self._account_jwt = account_jwt
@@ -194,6 +216,155 @@ class Auth:
     def _discard_cache_file(self) -> None:
         try:
             self._cache_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _discard_stamp_file(self) -> None:
+        try:
+            self._stamp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    @contextlib.asynccontextmanager
+    async def _cross_process_lock(self) -> AsyncIterator[None]:
+        """Hold the flock sidecar for the duration of a login-and-write.
+
+        `_login_lock` serialises coroutines inside one process and nothing
+        else; two processes racing a login is how a real account gets
+        locked. flock is taken on a sidecar rather than on the cache file,
+        because the cache is replaced atomically (os.replace) and a lock on
+        it would end up attached to an unlinked inode.
+
+        The acquire is a bounded, non-blocking poll on the event loop --
+        not a blocking LOCK_EX handed to a worker thread. asyncio.
+        CancelledError is a BaseException, so a cancellation while awaiting
+        a blocking acquire would propagate out of this generator before
+        the try/finally that owns the release is even entered: the fd is
+        discarded with the frame, the worker thread is not cancelled, and
+        it goes on to take LOCK_EX with nothing left able to release it --
+        every later login in every process then blocks forever. Polling
+        keeps the acquire cancellable and bounded, and closes the "no
+        timeout" gap the blocking form also had. Best-effort like every
+        other filesystem step here: if the sidecar cannot be opened, or
+        the lock is not acquired within the timeout, the login proceeds
+        unlocked rather than not at all -- the attempt stamp still guards
+        the cooldown even without the lock.
+
+        A cancellation can still land during the poll's own
+        `asyncio.sleep`, though, and that is not an OSError -- see the
+        `except BaseException` below for why closing the fd there is safe
+        (and load-bearing), unlike closing it out from under the old
+        blocking-thread acquire.
+        """
+        fd: int | None = None
+        try:
+            self._secure_cache_dir()
+            fd = os.open(self._lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            deadline = time.monotonic() + _CROSS_PROCESS_LOCK_TIMEOUT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        os.close(fd)
+                        fd = None
+                        break
+                    await asyncio.sleep(_CROSS_PROCESS_LOCK_POLL_SECONDS)
+        except OSError:
+            # A filesystem problem opening or polling the sidecar: fail
+            # open like every other best-effort step here and proceed
+            # unlocked.
+            if fd is not None:
+                os.close(fd)
+            fd = None
+        except BaseException:
+            # Cancellation (or any other BaseException) delivered while
+            # parked in the poll's asyncio.sleep. Closing fd here is safe
+            # -- and required -- specifically because the acquire above is
+            # a non-blocking poll running synchronously on the event loop:
+            # at the instant a cancellation can land, no thread is blocked
+            # inside flock() on this descriptor for us to race. That is
+            # what made closing unsafe in the old blocking-thread design
+            # this replaced (a worker could still be parked in flock() on
+            # the same fd) and it does not apply here. fd never held a
+            # successful flock() on this path either, so no other process
+            # is waiting on it -- only the descriptor needs closing. The
+            # cancellation itself must keep propagating: swallowing it
+            # here would corrupt asyncio's cancellation machinery.
+            if fd is not None:
+                os.close(fd)
+            raise
+        try:
+            yield
+        finally:
+            if fd is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+
+    def _recent_shared_attempt(self) -> tuple[str, BaseException | None] | None:
+        """The last login attempt any process recorded, if it is still inside
+        the cooldown window: (kind, exception-or-None). A missing, stale or
+        unreadable stamp is None -- fail open to "no recent attempt", the
+        same way a corrupt cache is treated as a cold start. Unknown error
+        types come back as AuthError so a transient failure elsewhere is not
+        mistaken for a success.
+        """
+        try:
+            data = json.loads(self._stamp_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict) or not isinstance(data.get("at"), (int, float)):
+            return None
+        # A one-sided ">= cooldown" check fails *closed* on a future-dated
+        # or NaN "at": both give a non-positive delta, so the stamp reads
+        # as recent forever (a bad-credentials error re-raised until the
+        # wall clock catches up, or a login silently skipped). Requiring
+        # the delta to sit in [0, cooldown) rejects a future timestamp and
+        # NaN alike (any comparison with NaN is False, so "not (...)"
+        # returns None) instead of trusting either.
+        delta = time.time() - float(data["at"])
+        if not (0.0 <= delta < self._login_cooldown_seconds):
+            return None
+        kind = data.get("kind") if data.get("kind") in ("login", "recovery") else "login"
+        message = str(data.get("message") or "")
+        error_type = data.get("error_type")
+        if error_type is None:
+            return kind, None
+        if error_type == "ConfigurationError":
+            return kind, ConfigurationError(message)
+        return kind, AuthError(message)
+
+    def _write_stamp(self, at: float, kind: str, error: BaseException | None) -> None:
+        """Record an attempt for other processes -- the same atomic, owner-only,
+        best-effort write as the cache. The message is the exception text (an
+        error code and a hint), never a token or a credential.
+        """
+        payload = json.dumps({
+            "at": at,
+            "kind": kind,
+            "error_type": type(error).__name__ if error is not None else None,
+            "message": str(error)[:500] if error is not None else None,
+        }).encode("utf-8")
+        try:
+            self._secure_cache_dir()
+            fd, tmp_name = tempfile.mkstemp(dir=self._stamp_path.parent,
+                                            prefix=".stamp-", suffix=".tmp")
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(payload)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp_name, self._stamp_path)
+            except OSError:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
         except OSError:
             pass
 
@@ -247,6 +418,9 @@ class Auth:
         one piece of state that survives an invalidate() and therefore the
         only thing that can bound *sequential* recoveries, each of which
         arrives with a different token. See `_begin_recovery_login`.
+
+        The shared attempt stamp goes with the cache file: invalidate()
+        means the next login is wanted, in this process or another.
         """
         self._account_jwt = None
         self._account_user_id = None
@@ -255,6 +429,7 @@ class Auth:
         self._last_login_error = None
         self._recovery_attempted_for = None
         self._discard_cache_file()
+        self._discard_stamp_file()
 
     def list_leagues(self) -> list[LeagueToken]:
         return list(self._leagues.values())
@@ -305,7 +480,7 @@ class Auth:
             return None
         return str(uid) if uid is not None else None
 
-    async def _login_and_record(self) -> None:
+    async def _login_and_record(self, *, kind: str = "login") -> None:
         """Call `login()` and record the attempt's time/outcome for the
         cooldown machinery. Caller must hold `_login_lock`. Shared by
         `_maybe_login` (cooldown-gated, for an ordinary lookup) and
@@ -319,9 +494,11 @@ class Auth:
             await self.login()
         except Exception as exc:
             self._last_login_error = exc
+            self._write_stamp(self._last_login_at, kind, exc)
             raise
         else:
             self._last_login_error = None
+            self._write_stamp(self._last_login_at, kind, None)
 
     def _begin_recovery_login(self) -> None:
         """Gate a 401-recovery login on its own clock, or raise.
@@ -346,10 +523,27 @@ class Auth:
         quiet window is always allowed, so ordinary 401-healing is
         unaffected. Caller must hold `_login_lock`, and must call this
         *before* `invalidate()` so a refusal leaves the cache intact.
+
+        The attempt stamp extends this clock across processes: another
+        process's recovery inside the window is refused the same way,
+        and its failure is re-raised with its own type. That failure
+        check is kind-agnostic, like `_maybe_login`'s: an *ordinary*
+        login that just failed with ATH018 means the password is bad, and
+        a recovery attempting it again a moment later would just fail
+        again -- the never-retry rule does not care which kind of login
+        found the bad password. Only the cooldown extension below (a
+        *recent attempt* forcing this recovery to wait, as opposed to a
+        confirmed-bad password forcing it to stop) stays recovery-specific,
+        because an ordinary login succeeding elsewhere says nothing about
+        whether a 401 recovery is currently in its own cooldown.
         """
         now = time.time()
-        if (self._last_recovery_login_at is not None
-                and now - self._last_recovery_login_at < self._login_cooldown_seconds):
+        recent = self._recent_shared_attempt()
+        if recent is not None and recent[1] is not None:
+            raise recent[1]              # any recent failure, whatever its kind
+        if ((self._last_recovery_login_at is not None
+                and now - self._last_recovery_login_at < self._login_cooldown_seconds)
+                or (recent is not None and recent[0] == "recovery")):
             raise AuthError(
                 "token rejected immediately after a fresh login -- refusing to "
                 "log in again inside the cooldown window. The server is "
@@ -378,6 +572,20 @@ class Auth:
         genuine cache miss would produce. Losing the type is the sharp
         edge: ATH018 must stay a ConfigurationError (never retried) on
         every call, not just the first, or it starts looking retryable.
+
+        Across processes the same two guards are the flock sidecar and the
+        attempt stamp: once the lock is held the cache is re-read, so the
+        loser of a race uses the winner's token instead of logging in
+        again, and a recent attempt recorded by any process answers the
+        way an in-process one does -- a failure re-raised with its
+        original type, a success taken as already done. The failure half
+        of that check is kind-agnostic on purpose: a recovery login that
+        just failed with ATH018 means the password is bad, and an ordinary
+        login retrying it a moment later would just fail again -- "never
+        retry ATH018" does not care which kind of login found that out.
+        Only a *success* is kind-specific, because a recent recovery
+        succeeding says nothing about whether an ordinary lookup here is
+        still needed.
         """
         async with self._login_lock:
             if not still_needed():
@@ -388,7 +596,17 @@ class Auth:
                 if self._last_login_error is not None:
                     raise self._last_login_error
                 return
-            await self._login_and_record()
+            async with self._cross_process_lock():
+                self._load_cache()          # adopt what another process wrote meanwhile
+                if not still_needed():
+                    return
+                recent = self._recent_shared_attempt()
+                if recent is not None:
+                    if recent[1] is not None:      # any recent failure, whatever its kind
+                        raise recent[1]
+                    if recent[0] == "login":        # a recent success only counts if ordinary
+                        return
+                await self._login_and_record()
 
     # ---- token access --------------------------------------------------
     async def account_token(self) -> str:
@@ -439,22 +657,28 @@ class Auth:
                     and not _cache_token_expired(self._account_jwt)):
                 return self._account_jwt
 
-            if self._recovery_attempted_for != failed_token:
-                # Before invalidate(), so a refusal leaves the cache intact.
-                self._begin_recovery_login()
-                self.invalidate()
-                self._recovery_attempted_for = failed_token
-                try:
-                    await self._login_and_record()
-                except Exception:
-                    pass  # outcome is read from _last_login_error below,
-                          # the same way for us and every piggybacking waiter
+            async with self._cross_process_lock():
+                self._load_cache()
+                if (self._account_jwt is not None and self._account_jwt != failed_token
+                        and not _cache_token_expired(self._account_jwt)):
+                    return self._account_jwt     # another process already recovered
 
-            if self._last_login_error is not None:
-                raise self._last_login_error
-            if self._account_jwt is None or _cache_token_expired(self._account_jwt):
-                raise AuthError("login did not return a valid account token")
-            return self._account_jwt
+                if self._recovery_attempted_for != failed_token:
+                    # Before invalidate(), so a refusal leaves the cache intact.
+                    self._begin_recovery_login()
+                    self.invalidate()
+                    self._recovery_attempted_for = failed_token
+                    try:
+                        await self._login_and_record(kind="recovery")
+                    except Exception:
+                        pass  # outcome is read from _last_login_error below,
+                              # the same way for us and every piggybacking waiter
+
+                if self._last_login_error is not None:
+                    raise self._last_login_error
+                if self._account_jwt is None or _cache_token_expired(self._account_jwt):
+                    raise AuthError("login did not return a valid account token")
+                return self._account_jwt
 
     async def token_for(self, alias: str | None = None) -> str:
         if self._credentials.token and not self._credentials.can_login:
@@ -530,26 +754,33 @@ class Auth:
                     and not _cache_token_expired(current.jwt)):
                 return current.jwt
 
-            if self._recovery_attempted_for != failed_token:
-                # Before invalidate(), so a refusal leaves the cache intact.
-                self._begin_recovery_login()
-                self.invalidate()
-                self._recovery_attempted_for = failed_token
-                try:
-                    await self._login_and_record()
-                except Exception:
-                    pass  # outcome is read from _last_login_error below,
-                          # the same way for us and every piggybacking waiter
+            async with self._cross_process_lock():
+                self._load_cache()
+                current = self._pick(alias)
+                if (current is not None and current.jwt != failed_token
+                        and not _cache_token_expired(current.jwt)):
+                    return current.jwt           # another process already recovered
 
-            if self._last_login_error is not None:
-                raise self._last_login_error
-            current = self._pick(alias)
-            if current is None or _cache_token_expired(current.jwt):
-                raise AuthError(
-                    f"league {alias!r} not found after recovery login. Available: "
-                    f"{', '.join(sorted(self._leagues)) or 'none'}"
-                )
-            return current.jwt
+                if self._recovery_attempted_for != failed_token:
+                    # Before invalidate(), so a refusal leaves the cache intact.
+                    self._begin_recovery_login()
+                    self.invalidate()
+                    self._recovery_attempted_for = failed_token
+                    try:
+                        await self._login_and_record(kind="recovery")
+                    except Exception:
+                        pass  # outcome is read from _last_login_error below,
+                              # the same way for us and every piggybacking waiter
+
+                if self._last_login_error is not None:
+                    raise self._last_login_error
+                current = self._pick(alias)
+                if current is None or _cache_token_expired(current.jwt):
+                    raise AuthError(
+                        f"league {alias!r} not found after recovery login. Available: "
+                        f"{', '.join(sorted(self._leagues)) or 'none'}"
+                    )
+                return current.jwt
 
     def _pick(self, alias: str | None) -> LeagueToken | None:
         if alias:
