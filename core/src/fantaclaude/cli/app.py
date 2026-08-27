@@ -56,5 +56,48 @@ def _root(
     """Fantacalcio Mantra assistant — data spine and auction tooling."""
 
 
+def _render_sync(payload: dict) -> str:
+    lines = [(f"league {payload['league_id']} · season {payload['season_id']} · "
+              f"{payload['team_count']} teams · rules {payload['rules_hash']}")]
+    for c in payload["conflicts"]:
+        lines.append(f"CONFLICT {c['key']}: league.yml says {c['league_yml']!r}, the API says {c['api']!r}")
+    if payload["conflicts"]:
+        lines.append("nothing recorded -- fix league.yml (it must never override the API) and re-run")
+        return "\n".join(lines)
+    if payload["changed"]:
+        was = f" (was {payload['previous_hash']})" if payload["previous_hash"] else " (first snapshot)"
+        lines.append(f"changed: snapshot {payload['snapshot_id']}{was}")
+        for c in payload["diff"]:
+            lines.append(f"  {c['path']}: {c['before']!r} -> {c['after']!r}")
+    else:
+        lines.append(f"unchanged (snapshot {payload['snapshot_id']})")
+    return "\n".join(lines)
+
+
+@app.command("sync-league")
+def sync_league_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Refresh league_settings from the league API: profile, status, the three settings payloads and the team list."""
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.sync_league import sync_league
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.league.league_yml import load_league_yml
+    from fantaclaude.paths import league_yml_path
+
+    entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
+    con = connect()
+    try:
+        apply_schema(con)
+        report = run_with_api(lambda api: sync_league(api, con, entries, league=league))
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_sync)
+    if report.conflicts:
+        raise typer.Exit(code=ExitCode.CONFLICT)
+
+
 def main() -> None:
     app()
