@@ -1,0 +1,166 @@
+# Mantra module table -- DOMAIN DATA, not API data. The league API names the
+# eleven modules (settings/lineup.mods) and defines none of them.
+# Source: "Tabella sostituzioni per schema 2024-2025",
+#   https://content.fantacalcio.it/web/risorse/Tabella-sostituzioni-per-schema-2024-2025.pdf
+#   linked from https://www.fantacalcio.it/regolamenti/sistema-mantra
+# Transcribed 2026-08-24: 11 modules x 11 slots, checked by hand against the PDF.
+# Per slot: natural = "ok" (no malus); adapted = "-1" (out of position, with
+# the malus); forced_only = "-1*" (not allowed at lineup insertion, reachable
+# only through a forced substitution, with the malus). Anything else is "no".
+source: https://content.fantacalcio.it/web/risorse/Tabella-sostituzioni-per-schema-2024-2025.pdf
+verified_on: 2026-08-24
+modules:
+  '343':
+    label: 3-4-3
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc/B", natural: [Dc, B], forced_only: [Dd, Ds]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "W/A", natural: [W, A], adapted: [Dd, Ds, Dc, B, E, M, C, T]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+      - {slot: "W/A", natural: [W, A], adapted: [Dd, Ds, Dc, B, E, M, C, T]}
+  '3412':
+    label: 3-4-1-2
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc/B", natural: [Dc, B], forced_only: [Dd, Ds]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "T", natural: [T], adapted: [Dd, Ds, Dc, B, E, M, C], forced_only: [W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '3421':
+    label: 3-4-2-1
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc/B", natural: [Dc, B], forced_only: [Dd, Ds]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "T", natural: [T], adapted: [Dd, Ds, Dc, B, E, M, C], forced_only: [W]}
+      - {slot: "T/A", natural: [T, A], adapted: [Dd, Ds, Dc, B, E, M, C, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '352':
+    label: 3-5-2
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc/B", natural: [Dc, B], forced_only: [Dd, Ds]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '3511':
+    label: 3-5-1-1
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc/B", natural: [Dc, B], forced_only: [Dd, Ds]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "T/A", natural: [T, A], adapted: [Dd, Ds, Dc, B, E, M, C, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '433':
+    label: 4-3-3
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "W/A", natural: [W, A], adapted: [Dd, Ds, Dc, B, E, M, C, T]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+      - {slot: "W/A", natural: [W, A], adapted: [Dd, Ds, Dc, B, E, M, C, T]}
+  '4312':
+    label: 4-3-1-2
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "T", natural: [T], adapted: [Dd, Ds, Dc, B, E, M, C], forced_only: [W]}
+      - {slot: "T/A/Pc", natural: [T, A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '442':
+    label: 4-4-2
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "E", natural: [E], adapted: [Dd, Ds, Dc, B], forced_only: [M]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '4411':
+    label: 4-4-1-1
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "C", natural: [C], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C, T]}
+      - {slot: "T/A", natural: [T, A], adapted: [Dd, Ds, Dc, B, E, M, C, W]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '4231':
+    label: 4-2-3-1
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "M/C", natural: [M, C], adapted: [Dd, Ds, Dc, B, E]}
+      - {slot: "W/T", natural: [T, W], adapted: [Dd, Ds, Dc, B, E, M, C]}
+      - {slot: "T", natural: [T], adapted: [Dd, Ds, Dc, B, E, M, C], forced_only: [W]}
+      - {slot: "W/A", natural: [W, A], adapted: [Dd, Ds, Dc, B, E, M, C, T]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
+  '4141':
+    label: 4-1-4-1
+    slots:
+      - {slot: "Por", natural: [Por]}
+      - {slot: "Ds", natural: [Ds], adapted: [Dc], forced_only: [Dd, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dc", natural: [Dc], forced_only: [Dd, Ds, B]}
+      - {slot: "Dd", natural: [Dd], adapted: [Dc], forced_only: [Ds, B]}
+      - {slot: "M", natural: [M], adapted: [Dd, Ds, Dc, B], forced_only: [E]}
+      - {slot: "C/T", natural: [C, T], adapted: [Dd, Ds, Dc, B, E, M]}
+      - {slot: "T", natural: [T], adapted: [Dd, Ds, Dc, B, E, M, C]}
+      - {slot: "E/W", natural: [E, W], adapted: [Dd, Ds, Dc, B, M, C]}
+      - {slot: "W", natural: [W], adapted: [Dd, Ds, Dc, B, E, M, C]}
+      - {slot: "A/Pc", natural: [A, Pc], adapted: [Dd, Ds, Dc, B, E, M, C, T, W]}
