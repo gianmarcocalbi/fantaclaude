@@ -1,0 +1,6 @@
+# Human overrides for name matching across sources (fantacalcio.it vs FBref vs
+# Transfermarkt), keyed by source: the source's spelling -> listone player id.
+# Empty until Phase 0b brings a second source. The listone and FantaAstaLive
+# share ids and need no aliases.
+fbref: {}
+understat: {}

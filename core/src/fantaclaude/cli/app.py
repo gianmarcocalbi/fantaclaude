@@ -227,5 +227,47 @@ def query_cmd(
     emit(payload, json_=json_, render=_render_rows)
 
 
+kb_app = typer.Typer(name="kb", help="Knowledge-base maintenance.", no_args_is_help=True)
+app.add_typer(kb_app)
+
+
+def _render_audit(payload: dict) -> str:
+    lines = [f"{e['status']:<20} {e['path']}  ({e['detail']})" for e in payload["entries"]]
+    lines.append(f"{len(payload['entries'])} documents: {payload['expired']} expired, "
+                 f"{payload['invalid']} invalid, {payload['missing_front_matter']} without front-matter")
+    return "\n".join(lines)
+
+
+@kb_app.command("audit")
+def kb_audit_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    today: str | None = typer.Option(None, "--today", help="ISO date to audit against (default: today)."),
+) -> None:
+    """List knowledge-base documents that have expired, lack front-matter, or are malformed."""
+    from datetime import date
+
+    from fantaclaude.kb.audit import audit
+    from fantaclaude.paths import kb_dir
+    from fantaclaude.timeutil import utc_now
+
+    if today is None:
+        as_of = utc_now().date()
+    else:
+        try:
+            as_of = date.fromisoformat(today)
+        except ValueError:
+            typer.echo(f"--today must be an ISO date (YYYY-MM-DD), got {today!r}", err=True)
+            raise typer.Exit(code=ExitCode.USAGE) from None
+
+    entries = audit(kb_dir(), as_of)
+    payload = {
+        "entries": [e.to_dict() for e in entries],
+        "expired": sum(e.status == "expired" for e in entries),
+        "invalid": sum(e.status == "invalid" for e in entries),
+        "missing_front_matter": sum(e.status == "missing_front_matter" for e in entries),
+    }
+    emit(payload, json_=json_, render=_render_audit)
+
+
 def main() -> None:
     app()
