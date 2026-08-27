@@ -26,6 +26,10 @@ All configuration lives in a `.env` file at the **workspace root**
 The server locates it independent of the process's working directory, since
 an MCP client may launch the server from anywhere.
 
+The same file, the token cache in `.auth/` and the lock/stamp sidecars
+beside it are shared with the `fantaclaude` CLI (`core/`), which imports
+this package as a library — one login machinery for both.
+
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `FANTACALCIO_APP_KEY` | yes | The app key the Fantacalcio.it API expects on every request. |
@@ -133,17 +137,23 @@ The workspace root's `.mcp.json` already registers this server:
   "mcpServers": {
     "fantacalcio": {
       "command": "uv",
-      "args": ["run", "--project", "/Users/grimid3v/Workspace/fantaclaudio/mcp/fantacalcio", "fantacalcio-mcp"]
+      "args": [
+        "run",
+        "--directory",
+        "/Users/grimid3v/Workspace/fantaclaudio",
+        "fantacalcio-mcp"
+      ]
     }
   }
 }
 ```
 
-Claude Code launches it over stdio; no manual `uv sync` is required beyond
-having run it once so the `.venv` exists.
+Claude Code launches it over stdio from the workspace root's environment; run
+`uv sync` at the root once so the `.venv` exists.
 
 ## Running the tests
 
-The pytest suite (`uv run pytest`) is fixture-driven and performs no network
-I/O at all — it never talks to the live API. It is safe to run as often as
-you like.
+From the workspace root, `uv run poe test-mcp` (or `uv run poe test` for both
+packages). The suite is fixture-driven and performs no network I/O at all.
+Running `uv run pytest` from inside `mcp/fantacalcio/` still works: uv
+resolves the workspace root automatically.

@@ -1,9 +1,8 @@
 import json
 
-from typer.testing import CliRunner
-
 from fantaclaude import __version__
 from fantaclaude.cli.app import ExitCode, app, emit
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
