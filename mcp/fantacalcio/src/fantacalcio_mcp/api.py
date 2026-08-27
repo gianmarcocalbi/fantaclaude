@@ -149,6 +149,14 @@ class FantacalcioAPI:
     async def server_time(self, league: str | None = None) -> Any:
         return await self._get("/market/v1/time", league=league)
 
+    async def players(self, league: str | None = None) -> Any:
+        """The listone: every Serie A player with Classic role, Mantra role
+        codes and both quotazioni. ~515 KB, 539 rows — a library call for
+        ingestion, deliberately not exposed as a tool. See the spec, "The
+        listone".
+        """
+        return await self._get("/onboarding/v1/league/players", league=league)
+
 
 def _pagination(page_number: int, page_size: int) -> dict[str, int]:
     return {"pageNumber": max(1, page_number), "pageSize": min(max(1, page_size), 1000)}
