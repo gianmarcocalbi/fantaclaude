@@ -1,0 +1,37 @@
+[project]
+name = "fantaclaudio-workspace"
+version = "0.0.0"
+description = "uv workspace root: fantaclaude (core) and fantacalcio-mcp"
+requires-python = ">=3.14.7"
+dependencies = [
+    "fantaclaude",
+    "fantacalcio-mcp",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["core", "mcp/fantacalcio"]
+
+[tool.uv.sources]
+fantaclaude = { workspace = true }
+fantacalcio-mcp = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "poethepoet>=0.48.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.16.4",
+]
+
+[tool.poe.tasks]
+# Two suites, two rootdirs: each package keeps its own pytest configuration
+# and its own conftest.py, so they are run separately rather than merged.
+test-mcp = "pytest mcp/fantacalcio/tests -c mcp/fantacalcio/pyproject.toml -q"
+test-core = "pytest core/tests -c core/pyproject.toml -q"
+test = ["test-mcp", "test-core"]
+lint = "ruff check core mcp/fantacalcio"
+fmt = "ruff format core mcp/fantacalcio"

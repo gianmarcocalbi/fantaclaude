@@ -4,8 +4,8 @@
       "command": "uv",
       "args": [
         "run",
-        "--project",
-        "/Users/grimid3v/Workspace/fantaclaudio/mcp/fantacalcio",
+        "--directory",
+        "/Users/grimid3v/Workspace/fantaclaudio",
         "fantacalcio-mcp"
       ]
     }
