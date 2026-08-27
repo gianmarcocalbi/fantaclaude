@@ -157,5 +157,75 @@ def ingest_all_cmd(
     _run_ingest(["all"], json_, league)
 
 
+def _open_read_only():
+    from fantaclaude.db.connection import DatabaseMissing, connect
+
+    try:
+        return connect(read_only=True)
+    except DatabaseMissing as exc:
+        typer.echo(f"no database at {exc} -- run `fantaclaude sync-league` or "
+                   f"`fantaclaude ingest listone` first", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+
+
+def _render_schema(payload: dict) -> str:
+    lines = [f"schema version {payload['version']}"]
+    for t in payload["tables"]:
+        cols = ", ".join(f"{c['name']} {c['type']}" for c in t["columns"])
+        lines.append(f"{t['kind']} {t['name']} ({t['rows']} rows): {cols}")
+    return "\n".join(lines)
+
+
+@app.command("schema")
+def schema_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
+    """List tables, views and columns -- the names `query --sql` may use. Prefer the v_* views."""
+    from fantaclaude.db.schema import schema_report
+
+    con = _open_read_only()
+    try:
+        report = schema_report(con)
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_schema)
+
+
+def _render_rows(payload: dict) -> str:
+    columns, rows = payload["columns"], payload["rows"]
+    if not columns:
+        return "(no result set)"
+    cells = [[("" if v is None else str(v)) for v in row] for row in rows]
+    widths = [max(len(c), *(len(r[i]) for r in cells)) if cells else len(c) for i, c in enumerate(columns)]
+    line = lambda values: "  ".join(v.ljust(w) for v, w in zip(values, widths))
+    out = [line(columns), line(["-" * w for w in widths]), *(line(r) for r in cells)]
+    if payload["truncated"]:
+        out.append(f"... truncated at {len(rows)} rows (raise --limit)")
+    return "\n".join(out)
+
+
+@app.command("query")
+def query_cmd(
+    sql: str = typer.Option(..., "--sql", help="A read-only SQL statement."),
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    limit: int = typer.Option(200, "--limit", help="Maximum rows returned."),
+) -> None:
+    """Run ad-hoc read-only SQL against fanta.duckdb. Query the v_* views by name; raw table shapes may change."""
+    import duckdb
+
+    con = _open_read_only()
+    try:
+        try:
+            cursor = con.execute(sql)
+            columns = [d[0] for d in cursor.description] if cursor.description else []
+            rows = cursor.fetchmany(limit + 1) if columns else []
+        except duckdb.Error as exc:
+            typer.echo(f"query failed: {exc}", err=True)
+            raise typer.Exit(code=ExitCode.ERROR)
+    finally:
+        con.close()
+    truncated = len(rows) > limit
+    payload = {"columns": columns, "rows": [list(r) for r in rows[:limit]], "truncated": truncated}
+    emit(payload, json_=json_, render=_render_rows)
+
+
 def main() -> None:
     app()
