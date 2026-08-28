@@ -25,7 +25,7 @@ def _paths(root):
 def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=31_536_000):
     token = make_jwt(user_id="1", l_id="2578630", t_id="1", role="user_league",
                      exp=int(time.time()) + token_exp_offset)
-    (root / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=u\n")
+    (root / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=u\nFANTACALCIO_PASSWORD=synthetic\n")
     (root / ".auth").mkdir()
     (root / ".auth" / "tokens.json").write_text(json.dumps({
         "account": None, "user_id": None, "username": "u",
@@ -70,6 +70,27 @@ def test_expired_token_cache_is_flagged(tmp_path, fixture_json, mcp_fixture_json
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json, token_exp_offset=-10)
     checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert not checks["token_cache"].ok and "expired" in checks["token_cache"].detail
+
+
+def test_credentials_check_agrees_with_load_settings(monkeypatch, tmp_path):
+    """doctor must predict what the real commands do. Re-deriving credentials
+    from .env alone disagreed with load_settings in both directions."""
+    for var in ("FANTACALCIO_USERNAME", "FANTACALCIO_PASSWORD", "FANTACALCIO_LEAGUE_TOKEN",
+                "FANTACALCIO_APP_KEY", "FANTACALCIO_API_BASE_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+    # username with no resolvable password: load_settings raises, so doctor must fail
+    (tmp_path / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=nobody-has-this-keychain-entry\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["credentials"].ok, by["credentials"].detail
+
+    # credentials exported in the environment, no .env: load_settings succeeds,
+    # so doctor must not report the workspace unconfigured
+    (tmp_path / ".env").unlink()
+    monkeypatch.setenv("FANTACALCIO_APP_KEY", "K")
+    monkeypatch.setenv("FANTACALCIO_LEAGUE_TOKEN", "header.payload.sig")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["env"].ok and by["credentials"].ok, (by["env"].detail, by["credentials"].detail)
 
 
 def test_schema_less_database_is_reported_not_raised(tmp_path):

@@ -8,6 +8,7 @@ leak into a terminal log.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from pathlib import Path
 import duckdb
 import yaml
 from fantacalcio_mcp.auth import AuthError, is_expired
-from fantacalcio_mcp.config import load_dotenv
+from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
 from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
@@ -142,15 +143,24 @@ def _yaml_check(name: str, path: Path, required_key: str) -> Check:
 
 
 def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
-    env = load_dotenv(paths.env) if paths.env.is_file() else {}
-    checks = [Check("env", paths.env.is_file() and bool(env.get("FANTACALCIO_APP_KEY")),
-                    "FANTACALCIO_APP_KEY set" if env.get("FANTACALCIO_APP_KEY") else f"{paths.env} missing or without FANTACALCIO_APP_KEY")]
-    if env.get("FANTACALCIO_USERNAME"):
-        checks.append(Check("credentials", True, "login mode (password from the keychain or .env)"))
-    elif env.get("FANTACALCIO_LEAGUE_TOKEN"):
-        checks.append(Check("credentials", True, "token-only mode (no self-healing on expiry)"))
+    # Mirror load_settings() exactly -- same merge, same resolver. Deriving
+    # this independently made doctor disagree with the commands it exists to
+    # predict, in both directions: it passed a username whose password did not
+    # resolve, and failed a workspace configured through the environment.
+    env = {**(load_dotenv(paths.env) if paths.env.is_file() else {}), **os.environ}
+    app_key = (env.get("FANTACALCIO_APP_KEY") or "").strip()
+    checks = [Check("env", bool(app_key),
+                    "FANTACALCIO_APP_KEY set" if app_key
+                    else f"FANTACALCIO_APP_KEY not set in {paths.env} or the environment")]
+    try:
+        credentials = resolve_credentials(env)
+    except ConfigurationError as exc:
+        checks.append(Check("credentials", False, str(exc).split(".")[0]))
     else:
-        checks.append(Check("credentials", False, "neither FANTACALCIO_USERNAME nor FANTACALCIO_LEAGUE_TOKEN in .env"))
+        checks.append(Check("credentials", True,
+                            "login mode (password from the keychain or .env)"
+                            if credentials.can_login
+                            else "token-only mode (no self-healing on expiry)"))
     checks.append(_token_cache(paths.token_cache, now))
     checks.extend(_database_checks(paths.db, now))
     try:
