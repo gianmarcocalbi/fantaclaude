@@ -15,6 +15,14 @@ from fantaclaude.ingest.advanced import (
     load_advanced,
     record_advanced,
 )
+from fantaclaude.ingest.calendar import (
+    FixtureIngestResult,
+    fetch_serie_a,
+    fetch_uefa,
+    load_serie_a,
+    load_uefa,
+    record_fixtures,
+)
 from fantaclaude.ingest.http import polite_pause
 from fantaclaude.ingest.listone_api import (
     IngestResult,
@@ -24,7 +32,7 @@ from fantaclaude.ingest.listone_api import (
 )
 from fantaclaude.ingest.names import load_aliases, load_candidates, load_teams
 from fantaclaude.ingest.raw import RawFile, RawStore
-from fantaclaude.model.seasons import back_seasons
+from fantaclaude.model.seasons import SERIE_A_GIORNATE, back_seasons
 
 
 async def fetch_all(api: FantacalcioAPI, store: RawStore, *,
@@ -105,4 +113,35 @@ def record_advanced_seasons(con: duckdb.DuckDBPyConnection, raws: dict[int, RawF
         loaded_season, rows = load_advanced(raws[season_id].path)
         results.append(record_advanced(con, loaded_season, rows, raws[season_id],
                                        candidates=candidates, teams=teams, aliases=aliases))
+    return results
+
+
+async def fetch_calendar(http: httpx.AsyncClient, store: RawStore, season_id: int,
+                         competitions: list[str]) -> dict[str, list[RawFile]]:
+    """Every requested competition, in the order given, one host at a time."""
+    raws: dict[str, list[RawFile]] = {}
+    for index, competition in enumerate(competitions):
+        if index:
+            await polite_pause()
+        if competition == "SA":
+            raws[competition] = await fetch_serie_a(http, store, season_id=season_id,
+                                                    giornate=range(1, SERIE_A_GIORNATE + 1))
+        else:
+            raws[competition] = await fetch_uefa(http, store, season_id=season_id, competition=competition)
+    return raws
+
+
+def record_calendar(con: duckdb.DuckDBPyConnection, season_id: int, raws: dict[str, list[RawFile]],
+                    aliases_path: Path) -> list[FixtureIngestResult]:
+    aliases = load_aliases(aliases_path)
+    teams = load_teams(con)
+    results = []
+    for competition, files in raws.items():
+        paths = [f.path for f in files]
+        if competition == "SA":
+            rows, team_aliases = load_serie_a(paths, season_id=season_id), aliases.teams_for("fantacalcio")
+        else:
+            rows, team_aliases = load_uefa(paths), aliases.teams_for("uefa")
+        results.append(record_fixtures(con, competition, season_id, rows, files,
+                                       teams=teams, team_aliases=team_aliases))
     return results

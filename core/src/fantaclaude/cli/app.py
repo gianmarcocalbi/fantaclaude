@@ -177,6 +177,9 @@ def ingest_all_cmd(
 SEASON_OPTION = typer.Option(
     None, "--season", help="Season id(s), e.g. 20; default: the current season and the three before it.")
 
+COMPETITION_OPTION = typer.Option(
+    None, "--competition", help="SA, UCL, UEL or UECL; repeatable. Default: all four.")
+
 
 @contextmanager
 def _source_errors():
@@ -195,6 +198,9 @@ def _source_errors():
         raise typer.Exit(code=ExitCode.NOT_READY) from None
     except SourceError as exc:
         typer.echo(f"source failed: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+    except ValueError as exc:                      # *ShapeError: the source changed under us
+        typer.echo(f"source shape unexpected: {exc}", err=True)
         raise typer.Exit(code=ExitCode.ERROR) from None
 
 
@@ -246,13 +252,56 @@ def ingest_advanced_cmd(
     store = RawStore(raw_dir())
     with _source_errors():
         raws = run_web(lambda http: fetch_advanced_seasons(http, store, seasons))
-    con = connect()
-    try:
-        apply_schema(con)
-        results = record_advanced_seasons(con, raws, aliases_path())
-    finally:
-        con.close()
+        con = connect()
+        try:
+            apply_schema(con)
+            results = record_advanced_seasons(con, raws, aliases_path())
+        finally:
+            con.close()
     emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
+
+
+def _render_calendar(payload: dict) -> str:
+    lines = []
+    for r in payload["calendar"]:
+        if r["skipped_unchanged"]:
+            lines.append(f"calendar {r['competition']} {r['season_id']}: unchanged (snapshot {r['snapshot_id']})")
+        else:
+            lines.append(f"calendar {r['competition']} {r['season_id']}: snapshot {r['snapshot_id']}, "
+                         f"{r['inserted']} fixtures ({len(r['raw_paths'])} raw files)")
+    return "\n".join(lines)
+
+
+@ingest_app.command("calendar")
+def ingest_calendar_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    competition: list[str] | None = COMPETITION_OPTION,
+) -> None:
+    """The current season's Serie A calendar (fantacalcio.it) and every UEFA tie of an Italian club."""
+    from fantaclaude.commands.ingest import fetch_calendar, record_calendar
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.calendar import COMPETITIONS
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+
+    competitions = [c.upper() for c in competition] if competition else list(COMPETITIONS)
+    unknown = [c for c in competitions if c not in COMPETITIONS]
+    if unknown:
+        typer.echo(f"unknown competition {unknown}; choose from {', '.join(COMPETITIONS)}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    season_id = _seasons_or_exit(None)[-1]           # the season the league is in
+    store = RawStore(raw_dir())
+    with _source_errors():
+        raws = run_web(lambda http: fetch_calendar(http, store, season_id, competitions))
+        con = connect()
+        try:
+            apply_schema(con)
+            results = record_calendar(con, season_id, raws, aliases_path())
+        finally:
+            con.close()
+    emit({"calendar": [r.to_dict() for r in results]}, json_=json_, render=_render_calendar)
 
 
 def _open_read_only():

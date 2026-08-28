@@ -1,0 +1,1353 @@
+[
+ {
+  "competition": "UCL",
+  "matches": [
+   {
+    "awayTeam": {
+     "associationId": "200066",
+     "confederationType": "UEFA",
+     "countryCode": "ITA",
+     "id": "52816",
+     "idProvider": "FAME",
+     "internationalName": "Atalanta",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+     "organizationId": "252816",
+     "teamCode": "ATA",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "competition": {
+     "age": "ADULT",
+     "code": "UCL",
+     "id": "1",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/1.svg"
+     },
+     "metaData": {
+      "name": "UEFA Champions League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "TOURNAMENT",
+    "condition": {
+     "humidity": 80,
+     "pitchCondition": "EXCELLENT",
+     "temperature": 4,
+     "weatherCondition": "CLEAR_NIGHT",
+     "windSpeed": 11
+    },
+    "fullTimeAt": "2026-03-18T21:53:13.909Z",
+    "homeTeam": {
+     "associationId": "200047",
+     "confederationType": "UEFA",
+     "countryCode": "GER",
+     "id": "50037",
+     "idProvider": "FAME",
+     "internationalName": "Bayern München",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50037.png",
+     "organizationId": "250037",
+     "teamCode": "BAY",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2048058",
+    "kickOffTime": {
+     "date": "2026-03-18",
+     "dateTime": "2026-03-18T20:00:00Z",
+     "utcOffsetInHours": 1
+    },
+    "leg": {
+     "dateTimeFrom": "2026-03-16T23:00:00Z",
+     "dateTimeTo": "2026-03-17T23:00:00Z",
+     "number": 2
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 75000,
+    "matchday": {
+     "competitionId": "1",
+     "dateFrom": "2026-03-16T23:00:00+0000",
+     "dateTo": "2026-03-17T23:00:00+0000",
+     "format": "EXTRA_TIME_WITH_PENALTIES",
+     "id": "36266",
+     "longName": "Matchday 12",
+     "name": "MD12",
+     "phase": "TOURNAMENT",
+     "roundId": "2002112",
+     "seasonYear": "2026",
+     "sequenceNumber": "2",
+     "type": "SECOND_LEG"
+    },
+    "playerOfTheMatch": {
+     "player": {
+      "age": "33",
+      "birthDate": "1993-07-28",
+      "clubId": "50037",
+      "clubJerseyNumber": "9",
+      "clubShirtName": "Kane",
+      "countryCode": "ENG",
+      "detailedFieldPosition": "STRIKER",
+      "fieldPosition": "FORWARD",
+      "gender": "MALE",
+      "height": 188,
+      "id": "250016833",
+      "imageUrl": "https://img.uefa.com/imgml/TP/players/1/2026/324x324/250016833.jpg",
+      "internationalName": "Harry Kane",
+      "nationalFieldPosition": "FORWARD",
+      "nationalJerseyNumber": "9",
+      "nationalShirtName": "Kane",
+      "nationalTeamId": "39",
+      "weight": 65
+     },
+     "teamId": "50037"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "1",
+     "dateFrom": "2026-03-09T23:00:00+0000",
+     "dateTo": "2026-03-18T22:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 8,
+     "id": "2002112",
+     "metaData": {
+      "name": "Round of 16",
+      "type": "ROUND_OF_16"
+     },
+     "mode": "KNOCK_OUT",
+     "modeDetail": "KNOCK_OUT_TWO_LEGS",
+     "orderInCompetition": 7,
+     "phase": "TOURNAMENT",
+     "seasonYear": "2026",
+     "secondaryType": "KNOCKOUT_PHASE",
+     "stadiumNameType": "OFFICIAL_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 16,
+     "teams": [
+      "52816",
+      "52919",
+      "59333",
+      "50080",
+      "52280",
+      "50051",
+      "59324",
+      "1652",
+      "50067",
+      "50037",
+      "50124",
+      "50149",
+      "7889",
+      "52914",
+      "50109",
+      "52747"
+     ]
+    },
+    "score": {
+     "aggregate": {
+      "away": 2,
+      "home": 10
+     },
+     "regular": {
+      "away": 1,
+      "home": 4
+     },
+     "total": {
+      "away": 1,
+      "home": 4
+     }
+    },
+    "seasonYear": "2026",
+    "sessionNumber": 4,
+    "stadium": {
+     "address": "Werner-Heisenberg-Allee 25",
+     "capacity": 61682,
+     "city": {
+      "countryCode": "GER",
+      "id": "2298"
+     },
+     "countryCode": "GER",
+     "geolocation": {
+      "latitude": 48.2187944,
+      "longitude": 11.6247306
+     },
+     "id": "85441",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/85441.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/85441.jpg"
+     },
+     "openingDate": "2005-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "SECOND_LEG",
+    "winner": {
+     "aggregate": {
+      "reason": "WIN_ON_AGGREGATE",
+      "team": {
+       "associationId": "200047",
+       "confederationType": "UEFA",
+       "countryCode": "GER",
+       "id": "50037",
+       "idProvider": "FAME",
+       "internationalName": "Bayern München",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50037.png",
+       "organizationId": "250037",
+       "teamCode": "BAY",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     },
+     "match": {
+      "reason": "WIN_REGULAR",
+      "team": {
+       "associationId": "200047",
+       "confederationType": "UEFA",
+       "countryCode": "GER",
+       "id": "50037",
+       "idProvider": "FAME",
+       "internationalName": "Bayern München",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50037.png",
+       "organizationId": "250037",
+       "teamCode": "BAY",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     }
+    }
+   },
+   {
+    "awayTeam": {
+     "associationId": "200101",
+     "confederationType": "UEFA",
+     "countryCode": "NOR",
+     "id": "59333",
+     "idProvider": "FAME",
+     "internationalName": "Bodø/Glimt",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/59333.png",
+     "organizationId": "259333",
+     "teamCode": "BOD",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "competition": {
+     "age": "ADULT",
+     "code": "UCL",
+     "id": "1",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/1.svg"
+     },
+     "metaData": {
+      "name": "UEFA Champions League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "TOURNAMENT",
+    "condition": {
+     "humidity": 84,
+     "pitchCondition": "EXCELLENT",
+     "temperature": 9,
+     "weatherCondition": "CLEAR_NIGHT",
+     "windSpeed": 11
+    },
+    "fullTimeAt": "2026-02-24T21:51:27.813Z",
+    "homeTeam": {
+     "associationId": "200066",
+     "confederationType": "UEFA",
+     "countryCode": "ITA",
+     "id": "50138",
+     "idProvider": "FAME",
+     "internationalName": "Inter",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50138.png",
+     "organizationId": "250138",
+     "teamCode": "INT",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2047774",
+    "kickOffTime": {
+     "date": "2026-02-24",
+     "dateTime": "2026-02-24T20:00:00Z",
+     "utcOffsetInHours": 1
+    },
+    "leg": {
+     "dateTimeFrom": "2026-02-23T23:00:00Z",
+     "dateTimeTo": "2026-02-24T23:00:00Z",
+     "number": 2
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 70441,
+    "matchday": {
+     "competitionId": "1",
+     "dateFrom": "2026-02-23T23:00:00+0000",
+     "dateTo": "2026-02-24T23:00:00+0000",
+     "format": "EXTRA_TIME_WITH_PENALTIES",
+     "id": "36264",
+     "longName": "Matchday 10",
+     "name": "MD10",
+     "phase": "TOURNAMENT",
+     "roundId": "2002111",
+     "seasonYear": "2026",
+     "sequenceNumber": "2",
+     "type": "SECOND_LEG"
+    },
+    "playerOfTheMatch": {
+     "player": {
+      "age": "26",
+      "birthDate": "1999-10-12",
+      "clubId": "59333",
+      "clubJerseyNumber": "10",
+      "clubShirtName": "Hauge",
+      "countryCode": "NOR",
+      "detailedFieldPosition": "UNKNOWN",
+      "fieldPosition": "FORWARD",
+      "gender": "MALE",
+      "id": "250193522",
+      "imageUrl": "https://img.uefa.com/imgml/TP/players/1/2026/324x324/250193522.jpg",
+      "internationalName": "Jens Petter Hauge",
+      "nationalFieldPosition": "FORWARD",
+      "nationalJerseyNumber": "23",
+      "nationalShirtName": "Hauge",
+      "nationalTeamId": "101"
+     },
+     "teamId": "59333"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "1",
+     "dateFrom": "2026-02-16T23:00:00+0000",
+     "dateTo": "2026-02-25T22:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 8,
+     "id": "2002111",
+     "metaData": {
+      "name": "Knock-out Play-off",
+      "type": "FINAL_TOURNAMENT_PLAY_OFF"
+     },
+     "mode": "KNOCK_OUT",
+     "modeDetail": "KNOCK_OUT_TWO_LEGS",
+     "orderInCompetition": 6,
+     "phase": "TOURNAMENT",
+     "seasonYear": "2026",
+     "stadiumNameType": "OFFICIAL_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 16,
+     "teams": [
+      "52816",
+      "59333",
+      "60609",
+      "50051",
+      "2610",
+      "59324",
+      "50043",
+      "50023",
+      "50067",
+      "50147",
+      "50124",
+      "50138",
+      "50139",
+      "50109",
+      "52747",
+      "52758"
+     ]
+    },
+    "score": {
+     "aggregate": {
+      "away": 5,
+      "home": 2
+     },
+     "regular": {
+      "away": 2,
+      "home": 1
+     },
+     "total": {
+      "away": 2,
+      "home": 1
+     }
+    },
+    "seasonYear": "2026",
+    "sessionNumber": 2,
+    "stadium": {
+     "address": "Piazzale A. Moratti",
+     "capacity": 75773,
+     "city": {
+      "countryCode": "ITA",
+      "id": "2236"
+     },
+     "countryCode": "ITA",
+     "geolocation": {
+      "latitude": 45.4797849,
+      "longitude": 9.1246561
+     },
+     "id": "57771",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/57771.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/57771.jpg"
+     },
+     "openingDate": "1925-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "SECOND_LEG",
+    "winner": {
+     "aggregate": {
+      "reason": "WIN_ON_AGGREGATE",
+      "team": {
+       "associationId": "200101",
+       "confederationType": "UEFA",
+       "countryCode": "NOR",
+       "id": "59333",
+       "idProvider": "FAME",
+       "internationalName": "Bodø/Glimt",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/59333.png",
+       "organizationId": "259333",
+       "teamCode": "BOD",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     },
+     "match": {
+      "reason": "WIN_REGULAR",
+      "team": {
+       "associationId": "200101",
+       "confederationType": "UEFA",
+       "countryCode": "NOR",
+       "id": "59333",
+       "idProvider": "FAME",
+       "internationalName": "Bodø/Glimt",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/59333.png",
+       "organizationId": "259333",
+       "teamCode": "BOD",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     }
+    }
+   },
+   {
+    "awayTeam": {
+     "associationId": "200039",
+     "confederationType": "UEFA",
+     "countryCode": "ENG",
+     "id": "52280",
+     "idProvider": "FAME",
+     "internationalName": "Arsenal",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52280.png",
+     "organizationId": "252280",
+     "teamCode": "ARS",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "behindClosedDoors": false,
+    "competition": {
+     "age": "ADULT",
+     "code": "UCL",
+     "id": "1",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/1.svg"
+     },
+     "metaData": {
+      "name": "UEFA Champions League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "TOURNAMENT",
+    "fullTimeAt": "2026-05-30T19:00:24.003Z",
+    "homeTeam": {
+     "associationId": "200043",
+     "confederationType": "UEFA",
+     "countryCode": "FRA",
+     "id": "52747",
+     "idProvider": "FAME",
+     "internationalName": "Paris",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52747.png",
+     "organizationId": "252747",
+     "teamCode": "PSG",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2047742",
+    "kickOffTime": {
+     "date": "2026-05-30",
+     "dateTime": "2026-05-30T16:00:00Z",
+     "utcOffsetInHours": 2
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 61035,
+    "matchday": {
+     "competitionId": "1",
+     "dateFrom": "2026-05-30T06:00:00+0000",
+     "dateTo": "2026-05-30T21:59:59+0000",
+     "format": "EXTRA_TIME_WITH_PENALTIES",
+     "id": "36271",
+     "longName": "Matchday 17",
+     "name": "MD17",
+     "phase": "TOURNAMENT",
+     "roundId": "2002115",
+     "seasonYear": "2026",
+     "sequenceNumber": "1",
+     "type": "FINAL"
+    },
+    "playerOfTheMatch": {
+     "player": {
+      "age": "26",
+      "birthDate": "2000-02-13",
+      "clubId": "52747",
+      "clubJerseyNumber": "17",
+      "clubShirtName": "VITINHA",
+      "countryCode": "POR",
+      "detailedFieldPosition": "UNKNOWN",
+      "fieldPosition": "MIDFIELDER",
+      "gender": "MALE",
+      "id": "250101444",
+      "imageUrl": "https://img.uefa.com/imgml/TP/players/1/2026/324x324/250101444.jpg",
+      "internationalName": "Vitinha",
+      "nationalFieldPosition": "MIDFIELDER",
+      "nationalJerseyNumber": "23",
+      "nationalShirtName": "VITNHA",
+      "nationalTeamId": "110"
+     },
+     "teamId": "52747"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "1",
+     "dateFrom": "2026-05-30T06:00:00+0000",
+     "dateTo": "2026-05-30T21:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 1,
+     "id": "2002115",
+     "metaData": {
+      "name": "Final",
+      "type": "FINAL"
+     },
+     "mode": "FINAL",
+     "modeDetail": "KNOCK_OUT_ONE_LEG",
+     "orderInCompetition": 10,
+     "phase": "TOURNAMENT",
+     "seasonYear": "2026",
+     "secondaryType": "FINALS",
+     "stadiumNameType": "SPECIAL_EVENTS_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 2,
+     "teams": [
+      "2614324",
+      "52280",
+      "52747"
+     ]
+    },
+    "score": {
+     "penalty": {
+      "away": 3,
+      "home": 4
+     },
+     "regular": {
+      "away": 1,
+      "home": 1
+     },
+     "total": {
+      "away": 1,
+      "home": 1
+     }
+    },
+    "seasonYear": "2026",
+    "sessionNumber": 1,
+    "stadium": {
+     "address": "Istvánmezei u. 3-5",
+     "capacity": 65014,
+     "city": {
+      "countryCode": "HUN",
+      "id": "1327"
+     },
+     "countryCode": "HUN",
+     "geolocation": {
+      "latitude": 47.503111,
+      "longitude": 19.098024
+     },
+     "id": "250004078",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/250004078.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/250004078.jpg"
+     },
+     "openingDate": "2019-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "SINGLE",
+    "winner": {
+     "match": {
+      "reason": "WIN_ON_PENALTIES",
+      "team": {
+       "associationId": "200043",
+       "confederationType": "UEFA",
+       "countryCode": "FRA",
+       "id": "52747",
+       "idProvider": "FAME",
+       "internationalName": "Paris",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52747.png",
+       "organizationId": "252747",
+       "teamCode": "PSG",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     }
+    }
+   },
+   {
+    "awayTeam": {
+     "associationId": "200135",
+     "confederationType": "UEFA",
+     "countryCode": "TUR",
+     "id": "50067",
+     "idProvider": "FAME",
+     "internationalName": "Galatasaray",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50067.png",
+     "organizationId": "250067",
+     "teamCode": "GAL",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "competition": {
+     "age": "ADULT",
+     "code": "UCL",
+     "id": "1",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/1.svg"
+     },
+     "metaData": {
+      "name": "UEFA Champions League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "TOURNAMENT",
+    "condition": {
+     "humidity": 92,
+     "pitchCondition": "EXCELLENT",
+     "temperature": 8,
+     "weatherCondition": "CLOUDY_NIGHT",
+     "windSpeed": 2
+    },
+    "fullTimeAt": "2026-02-25T22:36:51.021Z",
+    "homeTeam": {
+     "associationId": "200066",
+     "confederationType": "UEFA",
+     "countryCode": "ITA",
+     "id": "50139",
+     "idProvider": "FAME",
+     "internationalName": "Juventus",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50139.png",
+     "organizationId": "250139",
+     "teamCode": "JUV",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2047770",
+    "kickOffTime": {
+     "date": "2026-02-25",
+     "dateTime": "2026-02-25T20:00:00Z",
+     "utcOffsetInHours": 1
+    },
+    "leg": {
+     "dateTimeFrom": "2026-02-23T23:00:00Z",
+     "dateTimeTo": "2026-02-24T23:00:00Z",
+     "number": 2
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 41421,
+    "matchday": {
+     "competitionId": "1",
+     "dateFrom": "2026-02-23T23:00:00+0000",
+     "dateTo": "2026-02-24T23:00:00+0000",
+     "format": "EXTRA_TIME_WITH_PENALTIES",
+     "id": "36264",
+     "longName": "Matchday 10",
+     "name": "MD10",
+     "phase": "TOURNAMENT",
+     "roundId": "2002111",
+     "seasonYear": "2026",
+     "sequenceNumber": "2",
+     "type": "SECOND_LEG"
+    },
+    "playerOfTheMatch": {
+     "player": {
+      "age": "27",
+      "birthDate": "1998-12-29",
+      "clubId": "50067",
+      "clubJerseyNumber": "45",
+      "clubShirtName": "OSIMHEN",
+      "countryCode": "NGA",
+      "detailedFieldPosition": "STRIKER",
+      "fieldPosition": "FORWARD",
+      "gender": "MALE",
+      "id": "250132987",
+      "imageUrl": "https://img.uefa.com/imgml/TP/players/1/2026/324x324/250132987.jpg",
+      "internationalName": "Victor Osimhen",
+      "nationalFieldPosition": "FORWARD",
+      "nationalJerseyNumber": "9",
+      "nationalShirtName": "Osimhen",
+      "nationalTeamId": "100"
+     },
+     "teamId": "50067"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "1",
+     "dateFrom": "2026-02-16T23:00:00+0000",
+     "dateTo": "2026-02-25T22:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 8,
+     "id": "2002111",
+     "metaData": {
+      "name": "Knock-out Play-off",
+      "type": "FINAL_TOURNAMENT_PLAY_OFF"
+     },
+     "mode": "KNOCK_OUT",
+     "modeDetail": "KNOCK_OUT_TWO_LEGS",
+     "orderInCompetition": 6,
+     "phase": "TOURNAMENT",
+     "seasonYear": "2026",
+     "stadiumNameType": "OFFICIAL_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 16,
+     "teams": [
+      "52816",
+      "59333",
+      "60609",
+      "50051",
+      "2610",
+      "59324",
+      "50043",
+      "50023",
+      "50067",
+      "50147",
+      "50124",
+      "50138",
+      "50139",
+      "50109",
+      "52747",
+      "52758"
+     ]
+    },
+    "score": {
+     "aggregate": {
+      "away": 7,
+      "home": 5
+     },
+     "regular": {
+      "away": 0,
+      "home": 3
+     },
+     "total": {
+      "away": 2,
+      "home": 3
+     }
+    },
+    "seasonYear": "2026",
+    "sessionNumber": 4,
+    "stadium": {
+     "address": "Corso Gaetano Scirea 50",
+     "capacity": 41741,
+     "city": {
+      "countryCode": "ITA",
+      "id": "3006"
+     },
+     "countryCode": "ITA",
+     "geolocation": {
+      "latitude": 45.109444,
+      "longitude": 7.641111
+     },
+     "id": "250001576",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/250001576.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/250001576.jpg"
+     },
+     "openingDate": "1990-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "SECOND_LEG",
+    "winner": {
+     "aggregate": {
+      "reason": "WIN_ON_EXTRA_TIME",
+      "team": {
+       "associationId": "200135",
+       "confederationType": "UEFA",
+       "countryCode": "TUR",
+       "id": "50067",
+       "idProvider": "FAME",
+       "internationalName": "Galatasaray",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50067.png",
+       "organizationId": "250067",
+       "teamCode": "GAL",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     },
+     "match": {
+      "reason": "WIN_REGULAR",
+      "team": {
+       "associationId": "200066",
+       "confederationType": "UEFA",
+       "countryCode": "ITA",
+       "id": "50139",
+       "idProvider": "FAME",
+       "internationalName": "Juventus",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/50139.png",
+       "organizationId": "250139",
+       "teamCode": "JUV",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     }
+    }
+   }
+  ],
+  "offset": 0,
+  "season_id": 20
+ },
+ {
+  "competition": "UECL",
+  "matches": [
+   {
+    "awayTeam": {
+     "associationId": "200065",
+     "confederationType": "UEFA",
+     "countryCode": "ISR",
+     "id": "59869",
+     "idProvider": "FAME",
+     "internationalName": "H. Tel-Aviv",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/59869.png",
+     "organizationId": "259869",
+     "teamCode": "HTA",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "behindClosedDoors": false,
+    "competition": {
+     "age": "ADULT",
+     "code": "UECL",
+     "id": "2019",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/2019.svg"
+     },
+     "metaData": {
+      "name": "UEFA Conference League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "QUALIFYING",
+    "condition": {
+     "pitchCondition": "WET",
+     "temperature": 24,
+     "weatherCondition": "RAIN"
+    },
+    "fullTimeAt": "2026-08-20T20:21:42.832Z",
+    "homeTeam": {
+     "associationId": "200066",
+     "confederationType": "UEFA",
+     "countryCode": "ITA",
+     "id": "52816",
+     "idProvider": "FAME",
+     "internationalName": "Atalanta",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+     "organizationId": "252816",
+     "teamCode": "ATA",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2049260",
+    "kickOffTime": {
+     "date": "2026-08-20",
+     "dateTime": "2026-08-20T18:30:00Z",
+     "utcOffsetInHours": 2
+    },
+    "leg": {
+     "dateTimeFrom": "2026-08-18T06:00:00Z",
+     "dateTimeTo": "2026-08-20T21:59:59Z",
+     "number": 1
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 21061,
+    "matchday": {
+     "competitionId": "2019",
+     "dateFrom": "2026-08-18T06:00:00+0000",
+     "dateTo": "2026-08-20T21:59:59+0000",
+     "format": "REGULAR",
+     "id": "36621",
+     "longName": "Matchday 1",
+     "name": "MD1 - PO",
+     "phase": "QUALIFYING",
+     "roundId": "2002248",
+     "seasonYear": "2027",
+     "sequenceNumber": "1",
+     "type": "FIRST_LEG"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "2019",
+     "dateFrom": "2026-08-18T06:00:00+0000",
+     "dateTo": "2026-08-27T21:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 24,
+     "id": "2002248",
+     "metaData": {
+      "name": "Play-Offs",
+      "type": "PLAY_OFF"
+     },
+     "mode": "KNOCK_OUT",
+     "modeDetail": "KNOCK_OUT_TWO_LEGS",
+     "orderInCompetition": 4,
+     "phase": "QUALIFYING",
+     "seasonYear": "2027",
+     "secondaryType": "PLAYOFF",
+     "stadiumNameType": "OFFICIAL_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 48,
+     "teams": [
+      "52709",
+      "63401",
+      "59880",
+      "2601105",
+      "60609",
+      "2607924",
+      "52770",
+      "52792",
+      "53001",
+      "4608",
+      "50130",
+      "59869",
+      "52350",
+      "50110",
+      "52356",
+      "52697",
+      "52359",
+      "52336",
+      "52818",
+      "52816",
+      "2608290",
+      "62169",
+      "75795",
+      "52381",
+      "50084",
+      "51151",
+      "59878",
+      "85009",
+      "50042",
+      "79940",
+      "50063",
+      "50162",
+      "50121",
+      "50143",
+      "57475",
+      "60566",
+      "50120",
+      "53035",
+      "57477",
+      "50023",
+      "8538",
+      "52821",
+      "50104",
+      "87960",
+      "2609532",
+      "2605572",
+      "52824",
+      "64161"
+     ]
+    },
+    "score": {
+     "aggregate": {
+      "away": 0,
+      "home": 1
+     },
+     "regular": {
+      "away": 0,
+      "home": 0
+     },
+     "total": {
+      "away": 0,
+      "home": 0
+     }
+    },
+    "seasonYear": "2027",
+    "sessionNumber": 1,
+    "stadium": {
+     "address": "Piazzale Gosis, 7",
+     "capacity": 23439,
+     "city": {
+      "countryCode": "ITA",
+      "id": "1223"
+     },
+     "countryCode": "ITA",
+     "geolocation": {
+      "latitude": 45.70915,
+      "longitude": 9.6807167
+     },
+     "id": "63185",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/63185.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/63185.jpg"
+     },
+     "openingDate": "1927-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "FIRST_LEG",
+    "winner": {
+     "aggregate": {
+      "reason": "WIN_ON_AGGREGATE",
+      "team": {
+       "associationId": "200066",
+       "confederationType": "UEFA",
+       "countryCode": "ITA",
+       "id": "52816",
+       "idProvider": "FAME",
+       "internationalName": "Atalanta",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+       "organizationId": "252816",
+       "teamCode": "ATA",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     },
+     "match": {
+      "reason": "DRAW"
+     }
+    }
+   },
+   {
+    "awayTeam": {
+     "associationId": "200066",
+     "confederationType": "UEFA",
+     "countryCode": "ITA",
+     "id": "52816",
+     "idProvider": "FAME",
+     "internationalName": "Atalanta",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+     "organizationId": "252816",
+     "teamCode": "ATA",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "behindClosedDoors": false,
+    "competition": {
+     "age": "ADULT",
+     "code": "UECL",
+     "id": "2019",
+     "images": {
+      "FULL_LOGO": "https://img.uefa.com/imgml/uefacom/elements/logos/competitions/color/full/2019.svg"
+     },
+     "metaData": {
+      "name": "UEFA Conference League"
+     },
+     "region": "CONTINENTAL",
+     "sex": "MALE",
+     "sportsType": "FOOTBALL",
+     "teamCategory": "CLUB",
+     "type": "CUP"
+    },
+    "competitionPhase": "QUALIFYING",
+    "condition": {
+     "pitchCondition": "EXCELLENT",
+     "temperature": 27,
+     "weatherCondition": "SUNNY"
+    },
+    "fullTimeAt": "2026-08-27T19:50:51.261Z",
+    "homeTeam": {
+     "associationId": "200065",
+     "confederationType": "UEFA",
+     "countryCode": "ISR",
+     "id": "59869",
+     "idProvider": "FAME",
+     "internationalName": "H. Tel-Aviv",
+     "isPlaceHolder": false,
+     "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/59869.png",
+     "organizationId": "259869",
+     "teamCode": "HTA",
+     "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+     "typeIsNational": false,
+     "typeTeam": "DOMESTIC"
+    },
+    "id": "2049284",
+    "kickOffTime": {
+     "date": "2026-08-27",
+     "dateTime": "2026-08-27T18:00:00Z",
+     "utcOffsetInHours": 2
+    },
+    "leg": {
+     "dateTimeFrom": "2026-08-25T06:00:00Z",
+     "dateTimeTo": "2026-08-27T21:59:59Z",
+     "number": 2
+    },
+    "lineupStatus": "TACTICAL_AVAILABLE",
+    "matchAttendance": 5437,
+    "matchday": {
+     "competitionId": "2019",
+     "dateFrom": "2026-08-25T06:00:00+0000",
+     "dateTo": "2026-08-27T21:59:59+0000",
+     "format": "EXTRA_TIME_WITH_PENALTIES",
+     "id": "36622",
+     "longName": "Matchday 2",
+     "name": "MD2 - PO",
+     "phase": "QUALIFYING",
+     "roundId": "2002248",
+     "seasonYear": "2027",
+     "sequenceNumber": "2",
+     "type": "SECOND_LEG"
+    },
+    "round": {
+     "active": false,
+     "benchGKCount": 12,
+     "benchPlayersCount": 12,
+     "benchStaffCount": 15,
+     "coefficientWinnerBonus": 0.0,
+     "competitionId": "2019",
+     "dateFrom": "2026-08-18T06:00:00+0000",
+     "dateTo": "2026-08-27T21:59:59+0000",
+     "fieldPlayersCount": 11,
+     "groupCount": 24,
+     "id": "2002248",
+     "metaData": {
+      "name": "Play-Offs",
+      "type": "PLAY_OFF"
+     },
+     "mode": "KNOCK_OUT",
+     "modeDetail": "KNOCK_OUT_TWO_LEGS",
+     "orderInCompetition": 4,
+     "phase": "QUALIFYING",
+     "seasonYear": "2027",
+     "secondaryType": "PLAYOFF",
+     "stadiumNameType": "OFFICIAL_NAME",
+     "status": "FINISHED",
+     "substitutionCount": 5,
+     "teamCount": 48,
+     "teams": [
+      "52709",
+      "63401",
+      "59880",
+      "2601105",
+      "60609",
+      "2607924",
+      "52770",
+      "52792",
+      "53001",
+      "4608",
+      "50130",
+      "59869",
+      "52350",
+      "50110",
+      "52356",
+      "52697",
+      "52359",
+      "52336",
+      "52818",
+      "52816",
+      "2608290",
+      "62169",
+      "75795",
+      "52381",
+      "50084",
+      "51151",
+      "59878",
+      "85009",
+      "50042",
+      "79940",
+      "50063",
+      "50162",
+      "50121",
+      "50143",
+      "57475",
+      "60566",
+      "50120",
+      "53035",
+      "57477",
+      "50023",
+      "8538",
+      "52821",
+      "50104",
+      "87960",
+      "2609532",
+      "2605572",
+      "52824",
+      "64161"
+     ]
+    },
+    "score": {
+     "aggregate": {
+      "away": 1,
+      "home": 0
+     },
+     "regular": {
+      "away": 1,
+      "home": 0
+     },
+     "total": {
+      "away": 1,
+      "home": 0
+     }
+    },
+    "seasonYear": "2027",
+    "sessionNumber": 1,
+    "stadium": {
+     "address": "Andrassy ut 61",
+     "capacity": 14672,
+     "city": {
+      "countryCode": "HUN",
+      "id": "2243"
+     },
+     "countryCode": "HUN",
+     "geolocation": {
+      "latitude": 48.0996972,
+      "longitude": 20.7176917
+     },
+     "id": "63457",
+     "images": {
+      "LARGE_ULTRA_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/uw/63457.jpg",
+      "MEDIUM_WIDE": "https://img.uefa.com/imgml/stadium/matchinfo/w1/63457.jpg"
+     },
+     "openingDate": "1953-01-01",
+     "pitch": {
+      "length": 105,
+      "width": 68
+     }
+    },
+    "status": "FINISHED",
+    "type": "SECOND_LEG",
+    "winner": {
+     "aggregate": {
+      "reason": "WIN_ON_AGGREGATE",
+      "team": {
+       "associationId": "200066",
+       "confederationType": "UEFA",
+       "countryCode": "ITA",
+       "id": "52816",
+       "idProvider": "FAME",
+       "internationalName": "Atalanta",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+       "organizationId": "252816",
+       "teamCode": "ATA",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     },
+     "match": {
+      "reason": "WIN_REGULAR",
+      "team": {
+       "associationId": "200066",
+       "confederationType": "UEFA",
+       "countryCode": "ITA",
+       "id": "52816",
+       "idProvider": "FAME",
+       "internationalName": "Atalanta",
+       "isPlaceHolder": false,
+       "logoUrl": "https://img.uefa.com/imgml/TP/teams/logos/70x70/52816.png",
+       "organizationId": "252816",
+       "teamCode": "ATA",
+       "teamTypeDetail": "DOMESTIC_MEN_TEAM_A",
+       "typeIsNational": false,
+       "typeTeam": "DOMESTIC"
+      }
+     }
+    }
+   }
+  ],
+  "offset": 0,
+  "season_id": 21
+ }
+]

@@ -22,7 +22,7 @@ def _keys_at_any_depth(value) -> set[str]:
 
 
 def test_expected_fixtures_exist():
-    for name in ("listone_sample.json", "understat_sample.json"):
+    for name in ("listone_sample.json", "understat_sample.json", "calendario_sample.html", "uefa_sample.json"):
         assert (FIXTURE_DIR / name).is_file(), name
 
 
