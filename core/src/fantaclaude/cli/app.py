@@ -180,6 +180,9 @@ SEASON_OPTION = typer.Option(
 COMPETITION_OPTION = typer.Option(
     None, "--competition", help="SA, UCL, UEL or UECL; repeatable. Default: all four.")
 
+GIORNATA_OPTION = typer.Option(
+    None, "--giornata", help="Giornata number(s), 1-38; repeatable. Default: every giornata.")
+
 
 @contextmanager
 def _source_errors():
@@ -302,6 +305,94 @@ def ingest_calendar_cmd(
         finally:
             con.close()
     emit({"calendar": [r.to_dict() for r in results]}, json_=json_, render=_render_calendar)
+
+
+def _ranges(values: list[int]) -> str:
+    """[1, 2, 3, 7] -> '1-3, 7'"""
+    parts: list[tuple[int, int]] = []
+    for value in sorted(values):
+        if parts and value == parts[-1][1] + 1:
+            parts[-1] = (parts[-1][0], value)
+        else:
+            parts.append((value, value))
+    return ", ".join(f"{a}-{b}" if a != b else f"{a}" for a, b in parts)
+
+
+def _render_stats_web(payload: dict) -> str:
+    data = payload["stats_web"]
+    lines = []
+    for season in sorted({f["season_id"] for f in data["files"]} | {int(s) for s in data["skipped"]}):
+        files = [f for f in data["files"] if f["season_id"] == season]
+        new = [f for f in files if not f["skipped_duplicate"]]
+        dupes = [f for f in files if f["skipped_duplicate"]]
+        bits = [f"{len(new)} new file(s)" + (f" (giornate {_ranges([f['giornata'] for f in new])})" if new else "")]
+        if dupes:
+            bits.append(f"{len(dupes)} duplicate(s)")
+        skipped = data["skipped"].get(str(season), [])
+        if skipped:
+            bits.append(f"skipped {_ranges(skipped)} (already on disk)")
+        stop = data["not_published_from"].get(str(season))
+        if stop is not None:
+            bits.append(f"not published from {stop}")
+        lines.append(f"voti {season}: " + ", ".join(bits))
+        if new:
+            rows = sum(f["inserted"] for f in new)
+            unknown = sum(f["unknown_players"] for f in new)
+            lines.append(f"  sheets {', '.join(new[0]['sheets'])}; {rows} rows; "
+                         f"{unknown} player ids not in the current listone")
+    return "\n".join(lines) or "nothing to do"
+
+
+@ingest_app.command("stats-web")
+def ingest_stats_web_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    season: list[int] | None = SEASON_OPTION,
+    giornata: list[int] | None = GIORNATA_OPTION,
+    refetch: bool = typer.Option(False, "--refetch", help="Download again what is already on disk."),
+) -> None:
+    """Per-giornata voti and event counts from fantacalcio.it's XLSX export (needs FANTACALCIO_WEB_COOKIE)."""
+    from fantaclaude.commands.ingest import (
+        existing_giornate,
+        fetch_voti_seasons,
+        record_voti_files,
+    )
+    from fantaclaude.config import web_cookie
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.model.seasons import SERIE_A_GIORNATE
+    from fantaclaude.paths import raw_dir
+
+    cookie = web_cookie()
+    if cookie is None:
+        typer.echo("FANTACALCIO_WEB_COOKIE is not set -- capture the website session first "
+                   "(core/README.md, 'The website session')", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    giornate = sorted(set(giornata)) if giornata else list(range(1, SERIE_A_GIORNATE + 1))
+    bad = [g for g in giornate if not 1 <= g <= SERIE_A_GIORNATE]
+    if bad:
+        typer.echo(f"--giornata must be between 1 and {SERIE_A_GIORNATE}, got {bad}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    seasons = _seasons_or_exit(season)
+    existing = existing_giornate(None, seasons)
+    store = RawStore(raw_dir())
+    with _source_errors():
+        fetched = run_web(lambda http: fetch_voti_seasons(
+            http, store, cookie=cookie, seasons=seasons, giornate=giornate, existing=existing, refetch=refetch))
+        con = connect()
+        try:
+            apply_schema(con)
+            results = record_voti_files(con, fetched)
+        finally:
+            con.close()
+    payload = {"stats_web": {
+        "files": [r.to_dict() for r in results],
+        "skipped": {str(s): sorted(f.skipped) for s, f in fetched.items()},
+        "not_published_from": {str(s): f.not_published_from for s, f in fetched.items()
+                               if f.not_published_from is not None},
+    }}
+    emit(payload, json_=json_, render=_render_stats_web)
 
 
 def _open_read_only():

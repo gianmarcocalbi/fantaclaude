@@ -94,3 +94,10 @@ def fixture_path():
     def _path(name: str) -> Path:
         return FIXTURE_DIR / f"{name}.json"
     return _path
+
+
+@pytest.fixture
+def fixture_file():
+    def _path(name: str) -> Path:
+        return FIXTURE_DIR / name
+    return _path

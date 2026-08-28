@@ -32,6 +32,13 @@ from fantaclaude.ingest.listone_api import (
 )
 from fantaclaude.ingest.names import load_aliases, load_candidates, load_teams
 from fantaclaude.ingest.raw import RawFile, RawStore
+from fantaclaude.ingest.stats_web import (
+    VotiFetch,
+    VotiIngestResult,
+    fetch_voti_range,
+    parse_voti,
+    record_voti,
+)
 from fantaclaude.model.seasons import SERIE_A_GIORNATE, back_seasons
 
 
@@ -144,4 +151,44 @@ def record_calendar(con: duckdb.DuckDBPyConnection, season_id: int, raws: dict[s
             rows, team_aliases = load_uefa(paths), aliases.teams_for("uefa")
         results.append(record_fixtures(con, competition, season_id, rows, files,
                                        teams=teams, team_aliases=team_aliases))
+    return results
+
+
+def existing_giornate(path: Path | None, seasons: list[int]) -> dict[int, set[int]]:
+    """Which giornate of each season are already on disk (read-only, closed before returning)."""
+    try:
+        con = connect(path, read_only=True)
+    except DatabaseMissing:
+        return {season: set() for season in seasons}
+    try:
+        rows = con.execute("SELECT season_id, giornata FROM voti_files WHERE season_id IN "
+                           f"({', '.join('?' for _ in seasons)})", seasons).fetchall() if seasons else []
+    finally:
+        con.close()
+    found: dict[int, set[int]] = {season: set() for season in seasons}
+    for season_id, giornata in rows:
+        found[int(season_id)].add(int(giornata))
+    return found
+
+
+async def fetch_voti_seasons(http: httpx.AsyncClient, store: RawStore, *, cookie: str, seasons: list[int],
+                             giornate: list[int], existing: dict[int, set[int]],
+                             refetch: bool) -> dict[int, VotiFetch]:
+    fetched: dict[int, VotiFetch] = {}
+    for index, season_id in enumerate(seasons):
+        if index:
+            await polite_pause()
+        fetched[season_id] = await fetch_voti_range(http, store, cookie=cookie, season_id=season_id,
+                                                    giornate=giornate, existing=existing.get(season_id, set()),
+                                                    refetch=refetch)
+    return fetched
+
+
+def record_voti_files(con: duckdb.DuckDBPyConnection, fetched: dict[int, VotiFetch]) -> list[VotiIngestResult]:
+    known = {int(r[0]) for r in con.execute("SELECT player_id FROM v_players_current").fetchall()}
+    results: list[VotiIngestResult] = []
+    for season_id in sorted(fetched):
+        for giornata in sorted(fetched[season_id].raws):
+            raw = fetched[season_id].raws[giornata]
+            results.append(record_voti(con, season_id, giornata, parse_voti(raw.path), raw, known_ids=known))
     return results

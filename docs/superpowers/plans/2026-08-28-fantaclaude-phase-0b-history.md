@@ -2848,7 +2848,7 @@ git commit -m "docs(spec): record the fantacalcio.it website session and the vot
 ### Task 7: The `stats_web` adapter — per-giornata voti and event counts from the XLSX export
 
 **Files:**
-- Create: `core/src/fantaclaude/ingest/stats_web.py`, `core/tests/fixtures/_extract_voti.py`, `core/tests/fixtures/voti_sample.xlsx`, `core/tests/test_stats_web.py`
+- Create: `core/src/fantaclaude/ingest/stats_web.py`, `core/tests/fixtures/_extract_voti.py`, `core/tests/fixtures/voti_sample.xlsx`, `core/tests/fixtures/voti_placeholder.xlsx` (Ruling R4), `core/tests/test_stats_web.py`
 - Modify: `core/src/fantaclaude/commands/ingest.py`, `core/src/fantaclaude/cli/app.py`, `core/tests/test_fixtures.py`, `core/tests/conftest.py`
 
 **Interfaces:**
@@ -2857,23 +2857,41 @@ git commit -m "docs(spec): record the fantacalcio.it website session and the vot
 
 The identity join is the file's `Cod.` column — the fantacalcio.it player id, the listone's `id` (Task 6 measured the share). Nothing here is matched by name. Only the base voto and the event counts are stored; the fantavoto is computed at projection time under the league's own bonus/malus and never stored (spec, "Fantavoto is computed, never stored"). Every sheet of the workbook is a voto source and is kept under its sheet name; which one this league scores with is a `league_settings` question for Phase 1 (`calculate.sourcev` is the candidate key, observed `1`).
 
+**Three corrections found while implementing this task (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with that task's commit; the third is a review finding, Ruling R6 of the task-review dispatch, resolved the same way):**
+
+1. *An unplayed giornata is a 200, not a 404.* `fetch_voti`'s original text stopped `fetch_voti_range` at the first `404`. Against the real site an unplayed giornata answers HTTP `200` with a placeholder workbook instead — one sheet named `Fantacalcio` with exactly one row reading "File ancora non disponibile. Riprova più tardi" (`captured/voti-21-38.xlsx`). `stats_web.py` now carries `NOT_PUBLISHED_MARKER` and `_is_not_published_placeholder(data)`; `fetch_voti` raises `NotPublished(url, 200)` for it *before* `store.write_bytes`, so a placeholder is never written to `data/raw/` and never counted as an already-fetched giornata by `existing_giornate`. `fetch_voti_range` needed no structural change: its `except NotPublished` already produces the right `not_published_from`. `_extract_voti.py` also emits `core/tests/fixtures/voti_placeholder.xlsx`, machine-extracted from `captured/voti-21-38.xlsx`; `test_fixtures.py` and the fetch-range tests were extended accordingly (one more test than the original count below).
+2. *The header row repeats before every club's block, not just the sheet's first.* Task 6's probe read only the first block (Atalanta, at the top of the sheet) and recorded "header on row 6, players from row 7" as if that held for the whole sheet. Dumping the full captured workbook (`captured/voti-21-01.xlsx`, `voti-20-01.xlsx`) shows the site repeats the `Cod.`/`Ruolo`/… header before all 20 clubs, not once. `_parse_sheet` now validates and skips a header row wherever it occurs, and tracks a club's name row unconditionally (even before the sheet's own first header) so the club that opens the sheet — whose name row sits *above* that header — is not missed. `_extract_voti.py` was fixed the same way: its team-row detection now runs regardless of whether the sheet's header has been seen yet, so `voti_sample.xlsx` keeps Atalanta's real player rows (it previously kept none, because `keep_block` was never set for the club preceding the header) alongside Bologna's own repeated header, faithfully mirroring the site.
+3. *A club's coach row (`Ruolo == "ALL"`) was stored undocumented and untested, and inflated `unknown_players`.* Each club block ends with one extra row for the coach (e.g. `688 'ALL' 'Sarri'`, `captured/voti-21-01.xlsx`); `_parse_sheet` has no special case for it, so it parses exactly like a player row and was landing in `player_match` undocumented. Measured against the real capture and the live listone (read-only): 20 coach rows vs 319 player rows, zero id collision with the listone (no correctness risk to `player_match` or the views over it), but `unknown_players` coverage read 92.0% counting coaches vs 97.8% over players only — 20 of 27 "unknown" ids were coaches, burying the real signal (players signed after the listone snapshot). Resolution: the coach row is still stored (dropping it would hardcode "this league does not score the coach", which the plan's Global Constraints forbid and not every league agrees with); `stats_web.py`'s module docstring now documents it and adds `COACH_ROLE = "ALL"`; `record_voti` excludes `classic_role == COACH_ROLE` rows from `unknown_players` (a coach id is never in the listone, so counting it only ever inflates the metric) while still inserting the row into `player_match`. `v_player_season` and `v_player_form` (Task 1's versioned schema) are unchanged — zero id collision means no correctness gain, and changing them here would ripple into Task 8's doctor checks. **A consumer that wants players only filters `classic_role <> 'ALL'`** — this is Phase 1's job when it projects a player from `player_match`, not this task's.
+
 - [ ] **Step 1: Build the workbook fixture from the capture**
 
 Create `core/tests/fixtures/_extract_voti.py`:
 
 ```python
-"""One-shot: build voti_sample.xlsx from captured/voti-21-01.xlsx (giornata 1, 2026-27).
+"""One-shot: build voti_sample.xlsx from captured/voti-21-01.xlsx (giornata 1, 2026-27),
+and voti_placeholder.xlsx from captured/voti-21-38.xlsx (the "not yet published" workbook).
 
 Run from the workspace root:  uv run python core/tests/fixtures/_extract_voti.py
 
 Every sheet is kept, with everything above and including its header row and
 then only the Atalanta and Bologna blocks (a team row followed by its player
 rows), so the layout the parser locks -- title rows, header, team rows,
-senza-voto cells -- is exactly the site's. The reference values the tests
-assert (Carnesecchi 6,5 with a goal conceded and an assist, Elmas senza
-voto, Raspadori and Krstovic 7 with a goal, Scalvini 6 / 5,5 / 6 across the
-sources) were read off the public voti page on 2026-08-28. Values only: no
-styles, no formulas. Public voti, nothing to scrub.
+senza-voto cells -- is exactly the site's. This includes the header row the
+site repeats before *every* club's block (all 20 of them, not just the
+sheet's first) -- observed by dumping the full captured workbook, since
+Task 6's probe only looked at the first block and missed the repeat; the
+extracted fixture keeps both the sheet's opening header and Bologna's own
+repeated one, so the parser is tested against the real shape. The reference
+values the tests assert (Carnesecchi 6,5 with a goal conceded and an
+assist, Elmas senza voto, Raspadori and Krstovic 7 with a goal, Scalvini 6 /
+5,5 / 6 across the sources) were read off the public voti page on
+2026-08-28. Values only: no styles, no formulas. Public voti, nothing to
+scrub.
+
+The placeholder is copied verbatim: one sheet, one cell, the site's own
+"not yet published" text -- Ruling R4 of Task 7, since the site answers a
+200 with this workbook for a giornata that has not been played yet, not a
+404. Nothing to scrub there either.
 """
 
 from pathlib import Path
@@ -2883,6 +2901,8 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[3]
 CAPTURE = ROOT / "captured" / "voti-21-01.xlsx"
 OUT = Path(__file__).with_name("voti_sample.xlsx")
+PLACEHOLDER_CAPTURE = ROOT / "captured" / "voti-21-38.xlsx"
+PLACEHOLDER_OUT = Path(__file__).with_name("voti_placeholder.xlsx")
 TEAMS = {"atalanta", "bologna"}
 HEADER_FIRST = "Cod."
 
@@ -2898,14 +2918,20 @@ def main() -> None:
         keep_block = False
         for row in sheet.iter_rows(values_only=True):
             cells = list(row)
-            if not header_seen:
-                target.append(cells)
-                header_seen = str(cells[0]).strip() == HEADER_FIRST if cells else False
-                continue
             first, rest = cells[0] if cells else None, cells[1:] if cells else []
             blank_rest = all(c is None or (isinstance(c, str) and not c.strip()) for c in rest)
-            if isinstance(first, str) and first.strip() and blank_rest:      # a team row
+            # A team row's first cell is the club name and every other cell is
+            # blank; a header row's first cell is "Cod." but its other cells
+            # are not blank, so this never mistakes one for the other. Tracked
+            # unconditionally -- even before the sheet's own first header --
+            # so the club whose name row precedes that header (Atalanta) is
+            # not missed once header_seen flips true.
+            if isinstance(first, str) and first.strip() and blank_rest:
                 keep_block = first.strip().lower() in TEAMS
+            if not header_seen:
+                target.append(cells)
+                header_seen = isinstance(first, str) and first.strip() == HEADER_FIRST
+                continue
             if keep_block and not (first is None and blank_rest):
                 target.append(cells)
                 kept += 1
@@ -2914,13 +2940,24 @@ def main() -> None:
     out.save(OUT)
     print(f"wrote {len(out.sheetnames)} sheet(s) {out.sheetnames}, {kept} rows, {OUT.stat().st_size} bytes")
 
+    placeholder = openpyxl.load_workbook(PLACEHOLDER_CAPTURE, read_only=True, data_only=True)
+    placeholder_out = openpyxl.Workbook()
+    placeholder_out.remove(placeholder_out.active)
+    for sheet in placeholder.worksheets:
+        target = placeholder_out.create_sheet(sheet.title)
+        for row in sheet.iter_rows(values_only=True):
+            target.append(list(row))
+    placeholder_out.save(PLACEHOLDER_OUT)
+    print(f"wrote {len(placeholder_out.sheetnames)} sheet(s) {placeholder_out.sheetnames}, "
+         f"{PLACEHOLDER_OUT.stat().st_size} bytes")
+
 
 if __name__ == "__main__":
     main()
 ```
 
 Run: `uv run python core/tests/fixtures/_extract_voti.py`
-Expected: `wrote N sheet(s) [...], M rows, <under 30000> bytes` with every sheet Task 6 listed.
+Expected: `wrote 3 sheet(s) ['Fantacalcio', 'Statistico', 'Italia'], 108 rows, <under 15000> bytes` and `wrote 1 sheet(s) ['Fantacalcio'], <under 6000> bytes` (the placeholder, Ruling R4 of the Task 7 dispatch).
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -2934,7 +2971,7 @@ def fixture_file():
     return _path
 ```
 
-In `core/tests/test_fixtures.py`, add `"voti_sample.xlsx"` to the names in `test_expected_fixtures_exist`.
+In `core/tests/test_fixtures.py`, add `"voti_sample.xlsx"` and `"voti_placeholder.xlsx"` (Ruling R4) to the names in `test_expected_fixtures_exist`.
 
 Create `core/tests/test_stats_web.py`:
 
@@ -2981,9 +3018,14 @@ def sample_bytes(fixture_file):
     return fixture_file("voti_sample.xlsx").read_bytes()
 
 
+@pytest.fixture
+def placeholder_bytes(fixture_file):
+    return fixture_file("voti_placeholder.xlsx").read_bytes()
+
+
 def test_parse_voto_conventions():
     assert parse_voto(6.5) == (Decimal("6.5"), False)
-    assert parse_voto(7) == (Decimal("7"), False)
+    assert parse_voto(7) == (Decimal(7), False)
     assert parse_voto("6,5") == (Decimal("6.5"), False)
     assert parse_voto("6*") == (None, True)                 # voto d'ufficio: played, not rated
     assert parse_voto("s.v.") == (None, True) and parse_voto("S.V.") == (None, True)
@@ -3006,12 +3048,12 @@ def test_parse_voti_reads_every_sheet_and_the_reference_players(fixture_file):
         assert (carnesecchi.voto, carnesecchi.senza_voto) == (Decimal("6.5"), False)
         assert (carnesecchi.goals_conceded, carnesecchi.assists, carnesecchi.goals) == (1, 1, 0)
         assert (by[4479].voto, by[4479].senza_voto) == (None, True)              # Elmas
-        assert by[4371].voto == Decimal("7") and by[4371].goals == 1              # Raspadori
-        assert by[6435].voto == Decimal("7") and by[6435].goals == 1              # Krstovic
-        assert by[2640].voto == Decimal("6") and by[2640].classic_role.upper() == "D"   # Kolasinac
+        assert by[4371].voto == Decimal(7) and by[4371].goals == 1              # Raspadori
+        assert by[6435].voto == Decimal(7) and by[6435].goals == 1              # Krstovic
+        assert by[2640].voto == Decimal(6) and by[2640].classic_role.upper() == "D"   # Kolasinac
         assert set(by[4431].raw) == set(VOTI_HEADER)                              # the source row, as read
         scalvini_votes.add(by[5526].voto)
-    assert scalvini_votes == {Decimal("6"), Decimal("5.5")}
+    assert scalvini_votes == {Decimal(6), Decimal("5.5")}
     assert len(workbook.rows) == sum(len(rows) for rows in workbook.sheets.values())
 
 
@@ -3048,7 +3090,18 @@ def test_record_voti_and_the_views(db, tmp_path, fixture_json, sample_bytes, fix
     result = record_voti(db, 21, 1, workbook, raw, known_ids=known)
     assert result.file_id == 1 and result.inserted == len(workbook.rows) and not result.skipped_duplicate
     assert result.sheets == list(workbook.sheets)
-    assert result.unknown_players == len({r.player_id for r in workbook.rows} - known) > 0
+    # Ruling R6: the fixture's two coach rows (Sarri 688 for Atalanta, Tedesco
+    # D. 5778 for Bologna, one pair per sheet -- 6 rows total) are stored like
+    # any player row but excluded from unknown_players, which measures
+    # listone coverage of players. Neither id is in the listone_sample.
+    coach_ids = {r.player_id for r in workbook.rows if r.classic_role == "ALL"}
+    non_coach_ids = {r.player_id for r in workbook.rows} - coach_ids
+    assert coach_ids == {688, 5778}
+    assert result.unknown_players == len(non_coach_ids - known) > 0
+    assert result.unknown_players == len({r.player_id for r in workbook.rows} - known) - len(coach_ids)
+    assert db.execute("SELECT count(*) FROM player_match WHERE classic_role = 'ALL'").fetchone()[0] == 6
+    assert {r[0] for r in db.execute(
+        "SELECT DISTINCT classic_role FROM player_match WHERE player_id IN (688, 5778)").fetchall()} == {"ALL"}
     assert db.execute("SELECT count(*) FROM v_player_match_current").fetchone()[0] == len(workbook.rows)
     season = db.execute("SELECT sheet, presenze, appearances, media_voto, goals FROM v_player_season "
                         "WHERE player_id = 2640 ORDER BY sheet").fetchall()
@@ -3073,7 +3126,7 @@ def test_record_voti_and_the_views(db, tmp_path, fixture_json, sample_bytes, fix
 
 
 @respx.mock
-async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample_bytes):
+async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample_bytes, placeholder_bytes):
     url = VOTES_URL.format(season_id=21, giornata=1)
     route = respx.get(url).mock(return_value=httpx.Response(200, content=sample_bytes))
     async with httpx.AsyncClient() as http:
@@ -3092,6 +3145,14 @@ async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample
     async with httpx.AsyncClient() as http:
         with pytest.raises(NotPublished):
             await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=1)
+    # Ruling R4: an unplayed giornata answers 200 with the placeholder workbook,
+    # not a 404 -- fetch_voti must treat it as NotPublished too, and write nothing.
+    before = list((tmp_path / "raw" / "voti").glob("*.xlsx"))
+    respx.get(url).mock(return_value=httpx.Response(200, content=placeholder_bytes))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(NotPublished):
+            await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=1)
+    assert list((tmp_path / "raw" / "voti").glob("*.xlsx")) == before
 
 
 @respx.mock
@@ -3114,6 +3175,22 @@ async def test_fetch_voti_range_skips_existing_and_stops_at_the_first_404(tmp_pa
         again = await fetch_voti_range(http, store, cookie=COOKIE, season_id=21, giornate=[1, 2],
                                        existing={1, 2}, refetch=True)
     assert sorted(again.raws) == [1, 2] and again.skipped == [] and again.not_published_from is None
+
+
+@respx.mock
+async def test_fetch_voti_range_stops_at_a_placeholder_workbook(tmp_path, sample_bytes, placeholder_bytes, no_pause):
+    """Ruling R4: the site answers 200 with a placeholder workbook for a giornata
+    that has not been played yet, not a 404 -- the range must stop there just the
+    same, and must not write a raw file for the un-published giornata."""
+    respx.get(url__regex=r".*/votes/21/(?P<g>\d+)$").mock(side_effect=lambda request, g: httpx.Response(
+        200, content=sample_bytes if int(g) <= 2 else placeholder_bytes))
+    store = RawStore(tmp_path / "raw")
+    async with httpx.AsyncClient() as http:
+        fetched = await fetch_voti_range(http, store, cookie=COOKIE, season_id=21, giornate=range(1, 39),
+                                         existing=set(), refetch=False)
+    assert sorted(fetched.raws) == [1, 2] and fetched.skipped == [] and fetched.not_published_from == 3
+    assert list((tmp_path / "raw" / "voti").glob("*-voti-21-03.xlsx")) == []
+    assert len(list((tmp_path / "raw" / "voti").glob("*.xlsx"))) == 2
 
 
 def _seeded(tmp_path, fixture_json, mcp_fixture_json):
@@ -3188,12 +3265,28 @@ matched by name. The layout constants below are what Task 6 of the
 Phase 0b plan observed; a header that differs is a red ingest, never a
 silently-null column. Base voto and event counts only: the fantavoto is
 computed at projection time under the league's own bonus/malus.
+
+A giornata that has not been played yet answers HTTP 200 with a placeholder
+workbook, not a 404 -- one sheet named "Fantacalcio" containing exactly one
+row whose single cell reads "File ancora non disponibile. Riprova più
+tardi" (observed 2026-08-28, captured/voti-21-38.xlsx). fetch_voti treats
+that the same as a 404: NotPublished, and nothing is written to data/raw/.
+
+Each club block ends with one extra row for the coach, whose `Ruolo` is
+"ALL" (e.g. `688 'ALL' 'Sarri'`, `captured/voti-21-01.xlsx`). It has a
+voto like any player row and is stored the same way -- dropping it would
+hardcode "this league does not score the coach", which not every league
+agrees with. A coach id is never in the listone, so it is excluded from
+`unknown_players` (that count measures listone coverage of *players*); a
+consumer that wants players only filters `classic_role <> 'ALL'` --
+Phase 1's projection does this (plan, Task 7).
 """
 
 from __future__ import annotations
 
+import io
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -3204,7 +3297,12 @@ import duckdb
 import httpx
 import openpyxl
 
-from fantaclaude.ingest.http import NotPublished, WebSessionExpired, fetch_bytes, polite_pause
+from fantaclaude.ingest.http import (
+    NotPublished,
+    WebSessionExpired,
+    fetch_bytes,
+    polite_pause,
+)
 from fantaclaude.ingest.raw import RawFile, RawStore
 from fantaclaude.timeutil import to_db
 
@@ -3219,10 +3317,38 @@ COLUMNS = {"Gf": "goals", "Gs": "goals_conceded", "Rp": "pen_saved", "Rs": "pen_
 SENZA_VOTO_TEXT = frozenset({"s.v.", "s.v", "sv", "-", ""})
 SENZA_VOTO_SENTINEL = Decimal(55)          # the voti page's data-value for a player without a voto
 HEADER_SEARCH_ROWS = 20
+# Ruling R6 (Task 7 dispatch): the coach row that closes every club block --
+# stored like any other row, but never in the listone, so excluded from
+# unknown_players (which measures listone coverage of players).
+COACH_ROLE = "ALL"
+# Ruling R4 (Task 7 dispatch): the site's own text for a giornata not yet
+# published, observed verbatim in captured/voti-21-38.xlsx -- a substring
+# match, since it is the whole (and only) cell of the placeholder's one row.
+NOT_PUBLISHED_MARKER = "File ancora non disponibile"
 
 
 class VotiShapeError(ValueError):
     """The workbook is not the voti export this adapter was written against."""
+
+
+def _is_not_published_placeholder(data: bytes) -> bool:
+    """True when `data` is the "not yet published" placeholder workbook, not
+    a genuine voti export -- checked from the raw bytes before anything is
+    stored, so the adapter never persists a placeholder as if it were data.
+
+    Called only once `data` has already passed the xlsx magic-byte check, so
+    a load failure here is a genuine shape surprise and is left to propagate
+    -- same as parse_voti, which does not guard load_workbook either."""
+    workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                for cell in row:
+                    if isinstance(cell, str) and NOT_PUBLISHED_MARKER in cell:
+                        return True
+        return False
+    finally:
+        workbook.close()
 
 
 @dataclass(frozen=True)
@@ -3302,30 +3428,42 @@ def _count(value: Any) -> int:
 
 
 def _parse_sheet(sheet: Any, path: Path) -> list[VotoRow] | None:
-    """The sheet's player rows, or None when it carries no voti table at all."""
+    """The sheet's player rows, or None when it carries no voti table at all.
+
+    The header row is not unique to the top of the sheet: the site repeats it
+    before every club's block (observed in every one of the 20 blocks of
+    captured/voti-21-01.xlsx and voti-20-01.xlsx, 2026-08-28) -- Task 6's
+    probe only looked at the first block and missed the repeat. Every
+    occurrence is validated and skipped, wherever it falls.
+
+    A club-name row is tracked unconditionally, even before the sheet's own
+    first header -- the club whose block opens the sheet has its name row
+    *above* that header, and would otherwise never be recorded as `team`
+    once header_seen flips true.
+    """
     rows: list[VotoRow] = []
     header_seen = False
     team: str | None = None
     width = len(VOTI_HEADER)
     for index, values in enumerate(sheet.iter_rows(values_only=True)):
-        cells = list(values)
-        if not header_seen:
-            texts = [_text(c) for c in cells]
-            if texts[:1] == [VOTI_HEADER[0]] and "Nome" in texts and "Voto" in texts:
-                observed = tuple(t for t in texts if t)
-                if observed != VOTI_HEADER:
-                    raise VotiShapeError(f"{path}: sheet {sheet.title!r}: header {observed} is not {VOTI_HEADER}")
-                header_seen = True
-            elif index >= HEADER_SEARCH_ROWS:
-                return None
+        cells = (list(values) + [None] * width)[:width]
+        texts = [_text(c) for c in cells]
+        if texts[:1] == [VOTI_HEADER[0]] and "Nome" in texts and "Voto" in texts:
+            observed = tuple(t for t in texts if t)
+            if observed != VOTI_HEADER:
+                raise VotiShapeError(f"{path}: sheet {sheet.title!r}: header {observed} is not {VOTI_HEADER}")
+            header_seen = True
             continue
-        cells = (cells + [None] * width)[:width]
         first, rest = cells[0], cells[1:]
         rest_blank = all(_blank(c) for c in rest)
-        if _blank(first) and rest_blank:
-            continue
-        if isinstance(first, str) and rest_blank:
+        if isinstance(first, str) and first.strip() and rest_blank:
             team = first.strip()
+            continue
+        if not header_seen:
+            if index >= HEADER_SEARCH_ROWS:
+                return None
+            continue
+        if _blank(first) and rest_blank:
             continue
         try:
             player_id = int(first)
@@ -3363,6 +3501,11 @@ async def fetch_voti(http: httpx.AsyncClient, store: RawStore, *, cookie: str, s
             # A login page with a 200 is the other way a dead session can look.
             raise WebSessionExpired(f"{url} -> HTTP 200 but an HTML page, not a workbook", url=url, status=200)
         raise VotiShapeError(f"{url}: not an xlsx ({len(data)} bytes)")
+    if _is_not_published_placeholder(data):
+        # Ruling R4: an unplayed giornata answers 200 with the placeholder
+        # workbook, not a 404 -- treat it the same, and store nothing.
+        raise NotPublished(f"{url} -> HTTP 200 but the placeholder workbook (not yet published)",
+                           url=url, status=200)
     return store.write_bytes("voti", data, ext="xlsx", label=f"{season_id}-{giornata:02d}")
 
 
@@ -3370,12 +3513,15 @@ async def fetch_voti(http: httpx.AsyncClient, store: RawStore, *, cookie: str, s
 class VotiFetch:
     raws: dict[int, RawFile]
     skipped: list[int]                  # already on disk and not --refetch
-    not_published_from: int | None      # the first giornata that answered 404; the loop stopped there
+    not_published_from: int | None      # the first giornata the site has not published: a 404 or a placeholder workbook
 
 
 async def fetch_voti_range(http: httpx.AsyncClient, store: RawStore, *, cookie: str, season_id: int,
                            giornate: Iterable[int], existing: set[int], refetch: bool = False) -> VotiFetch:
-    """One season's workbooks, in order, one second apart, stopping at the first 404.
+    """One season's workbooks, in order, one second apart, stopping at the
+    first giornata the site has not published -- a 404, or a 200 carrying
+    the placeholder workbook (Ruling R4): fetch_voti raises NotPublished for
+    both, so this loop needs no extra branch.
 
     A giornata already on disk is skipped unless `refetch`: the files are
     immutable and the site republishes a giornata only to correct it, which
@@ -3424,7 +3570,11 @@ def record_voti(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int, w
 
     `unknown_players` counts ids the current listone does not carry -- in a
     back season that is every player who has since left Serie A, so it is a
-    count in the report rather than a row-by-row warning.
+    count in the report rather than a row-by-row warning. Coach rows
+    (`classic_role == COACH_ROLE`) are excluded from this count: a coach id
+    is never in the listone, so counting it would always inflate "unknown"
+    by one per club and bury the real signal (players signed after the
+    listone snapshot). The coach row itself is still inserted below.
     """
     existing = con.execute(
         "SELECT file_id, sheets FROM voti_files WHERE season_id = ? AND giornata = ? AND sha256 = ?",
@@ -3433,7 +3583,7 @@ def record_voti(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int, w
         return VotiIngestResult(existing[0], season_id, giornata, 0, True, list(existing[1]), 0,
                                 raw.sha256, str(raw.path))
     rows = workbook.rows
-    unknown = {r.player_id for r in rows} - known_ids
+    unknown = {r.player_id for r in rows if r.classic_role != COACH_ROLE} - known_ids
     con.begin()
     try:
         file_id = con.execute(
@@ -3598,17 +3748,19 @@ def ingest_stats_web_cmd(
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `uv run ruff check --fix core -q; uv run pytest core/tests/test_stats_web.py core/tests/test_fixtures.py -q`
-Expected: 9 passed.
+Expected: 10 passed (9 from this task's original count, +1 for Ruling R4's placeholder-range test).
 
 - [ ] **Step 8: Run the whole suite and lint, then commit**
 
 Run: `uv run poe test-core && uv run ruff check core`
-Expected: 152 passed; ruff clean.
+Expected: 153 passed (152 from this task's original count, +1 for Ruling R4); ruff clean.
 
 ```bash
-git add core/src/fantaclaude/ingest/stats_web.py core/src/fantaclaude/commands/ingest.py core/src/fantaclaude/cli/app.py core/tests/fixtures/_extract_voti.py core/tests/fixtures/voti_sample.xlsx core/tests/test_stats_web.py core/tests/test_fixtures.py core/tests/conftest.py
+git add core/src/fantaclaude/ingest/stats_web.py core/src/fantaclaude/commands/ingest.py core/src/fantaclaude/cli/app.py core/tests/fixtures/_extract_voti.py core/tests/fixtures/voti_sample.xlsx core/tests/fixtures/voti_placeholder.xlsx core/tests/test_stats_web.py core/tests/test_fixtures.py core/tests/conftest.py
 git commit -m "feat(ingest): stats-web -- per-giornata voti and event counts from the XLSX export"
 ```
+
+This task's `git add` also includes this plan file (CLAUDE.md: a plan defect found during implementation rides with that task's commit rather than a follow-up `fix(plan):` commit).
 
 ---
 
