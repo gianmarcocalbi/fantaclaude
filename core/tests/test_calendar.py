@@ -28,6 +28,7 @@ from fantaclaude.timeutil import to_db
 from typer.testing import CliRunner
 
 SAMPLE = (FIXTURE_DIR / "calendario_sample.html").read_text(encoding="utf-8")
+TWO_GIORNATE_SAMPLE = (FIXTURE_DIR / "calendario_two_giornate_sample.html").read_text(encoding="utf-8")
 TEAMS = {"milan": "MIL", "venezia": "VEN", "fiorentina": "FIO", "frosinone": "FRO", "monza": "MON",
          "udinese": "UDI", "atalanta": "ATA", "inter": "INT", "juventus": "JUV"}
 
@@ -177,6 +178,28 @@ async def test_fetch_serie_a_writes_one_page_per_giornata(tmp_path, no_pause):
     assert len(rows) == 6 and {r.giornata for r in rows} == {2, 3}
     with pytest.raises(CalendarShapeError, match="giornata 2 twice"):
         load_serie_a([raws[0].path, raws[0].path], season_id=21)
+
+
+def test_load_serie_a_filters_a_page_that_advertises_the_next_giornata(tmp_path):
+    """Ruling R8a: a played giornata's page also shows the next one -- ten
+    giornata-1 matches and ten giornata-2 preview pills on the same real page
+    (observed 2026-08-29, captured/calendario-2026-27-giornata-1.html).
+    load_serie_a must keep only the giornata the page was fetched for, taken
+    from the raw file's own label, not "the one giornata on the page"."""
+    store = RawStore(tmp_path / "raw")
+    raw = store.write_bytes("calendar", TWO_GIORNATE_SAMPLE.encode(), ext="html", label="sa-21-01")
+    rows = load_serie_a([raw.path], season_id=21)
+    assert {r.giornata for r in rows} == {1} and {r.source_id for r in rows} == {"17955", "17956"}
+
+
+def test_load_serie_a_fails_loud_when_the_page_lacks_its_own_giornata(tmp_path):
+    store = RawStore(tmp_path / "raw")
+    raw = store.write_bytes("calendar", TWO_GIORNATE_SAMPLE.encode(), ext="html", label="sa-21-05")
+    with pytest.raises(CalendarShapeError, match="giornata 5 is not on its own page"):
+        load_serie_a([raw.path], season_id=21)
+    not_labelled = store.write_bytes("calendar", TWO_GIORNATE_SAMPLE.encode(), ext="html", label="not-a-page")
+    with pytest.raises(CalendarShapeError, match="not a Serie A page"):
+        load_serie_a([not_labelled.path], season_id=21)
 
 
 @respx.mock

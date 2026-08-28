@@ -20,7 +20,7 @@
 - **Email addresses never reach a tool result or a stored payload.** None of the three sources carries one; the secret scan keeps checking.
 - **League rules are never hardcoded.** Seasons are not either: `model/seasons.py` anchors on one verified pair (`season_id 21 ↔ 2026-27`) and derives every other identifier. `SERIE_A_GIORNATE = 38` is the competition's format, not a league rule.
 - **Field-naming rule** (inherited from the MCP): a column gets a friendly name only for a field whose meaning is confirmed by observation — the observations are listed under "Source facts" below and in each adapter's docstring. Everything else stays inside the `raw` JSON column.
-- **Nothing is overwritten.** New files are `O_EXCL`; every adapter appends a snapshot row and a `v_*_current` view picks the latest; identical content is a no-op reported as `skipped_duplicate`/`skipped_unchanged`.
+- **Nothing is overwritten.** New files are `O_EXCL`; every adapter appends a snapshot row and a `v_*_current` view picks the latest; identical content is a no-op reported as `skipped_duplicate`/`skipped_unchanged`. **One exception, deliberately narrow** (Ruling R11, Task 8 dispatch): `record_advanced(..., force=True)` re-derives an *existing* `advanced_snapshots` row in place (its `matched`/`ambiguous`/`unmatched` counts and `advanced_stats` rows) rather than appending a new one — `advanced_snapshots.sha256` is `UNIQUE`, so a second row for identical content is a constraint violation, not just redundant; only the re-derivable join onto the listone changes, never the raw file's own identity (`snapshot_id`, `sha256`, `fetched_at`, `raw_path`). Reached only via `fantaclaude ingest advanced --rematch`, never the default path.
 - **Unmatched rows are flagged loudly, never silently dropped**: they are stored with `player_id NULL` and a `match_status`, counted in the ingest report, listed by `v_advanced_unmatched`, and surfaced by `doctor`. A Serie A club the listone does not know is an *error*, not a flag.
 - **DuckDB is single-process for writes**; a read-only and a read-write handle cannot coexist in one process. Every command reads what it needs (current season, existing files) read-only, closes, fetches from the network, and only then opens read-write. **Schema changes are additive and forward-migrating**: `apply_schema` upgrades a version-1 file in place; only a *newer* stored version raises.
 - **Exit codes are the contract**: `0` ok, `1` unexpected error, `2` usage, `3` not ready (no database / no `league_settings` / website session missing or rejected / a source skipped by `ingest all`), `4` conflict. `ruff check core` is clean on `main` and must stay clean; the 13 pre-existing findings are all under `mcp/fantacalcio/` and are not this plan's to fix. Import blocks longer than the line limit are wrapped by ruff's isort: after writing a task's files run `uv run ruff check --fix core` once (it only reorders and wraps imports), then `uv run ruff check core` must be silent. A `typer.Option` default on a `list[...]` parameter trips B008 (ruff exempts only immutable annotations), so list-valued options are module-level singletons (`SEASON_OPTION`, …), never inline calls.
@@ -1215,7 +1215,15 @@ git commit -m "feat(ingest): match source names onto listone ids, with a human a
 
 **Interfaces:**
 - Consumes: `RawStore.write(kind, payload, *, label)`, `fetch_bytes`, `polite_pause`, `run_web`, `Matcher`, `resolve_team`, `load_candidates`, `load_teams`, `load_aliases`, `Aliases.players_for/teams_for`, `understat_season`, `back_seasons`, `to_db`, the schema's `advanced_snapshots`/`advanced_stats`.
-- Produces: `fantaclaude.ingest.advanced.{SOURCE, URL, AdvancedShapeError, AdvancedRow, async fetch_advanced(http, store, *, season_id) -> RawFile, load_advanced(path) -> tuple[int, list[AdvancedRow]], AdvancedIngestResult(...).to_dict(), record_advanced(con, season_id, rows, raw, *, candidates, teams, aliases) -> AdvancedIngestResult}`; `fantaclaude.commands.ingest.{NotReady, current_season_id(path=None) -> int, default_seasons(*, back=3) -> list[int], async fetch_advanced_seasons(http, store, seasons) -> dict[int, RawFile], record_advanced_seasons(con, raws, aliases_path) -> list[AdvancedIngestResult]}`; CLI `fantaclaude ingest advanced [--season N]... [--json]`; `cli.app._source_errors()` context manager.
+- Produces: `fantaclaude.ingest.advanced.{SOURCE, URL, AdvancedShapeError, AdvancedRow, async fetch_advanced(http, store, *, season_id) -> RawFile, load_advanced(path) -> tuple[int, list[AdvancedRow]], AdvancedIngestResult(...).to_dict(), record_advanced(con, season_id, rows, raw, *, candidates, teams, aliases, force=False) -> AdvancedIngestResult}` (Ruling R11 adds `force`); `fantaclaude.commands.ingest.{NotReady, current_season_id(path=None) -> int, default_seasons(*, back=3) -> list[int], async fetch_advanced_seasons(http, store, seasons) -> dict[int, RawFile], record_advanced_seasons(con, raws, aliases_path) -> list[AdvancedIngestResult], rematch_advanced_seasons(con, store, seasons, aliases_path) -> list[AdvancedIngestResult]}` (Ruling R11); CLI `fantaclaude ingest advanced [--season N]... [--rematch] [--json]`; `cli.app._source_errors()` context manager.
+
+**One correction found while implementing Task 8 (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with the task whose commit is open when it is found -- Task 8's -- not a follow-up `fix(...)` commit):**
+
+1. *The dedupe short-circuit contradicted its own documented contract.* This task's original `record_advanced` docstring claimed "a re-record after the listone moved (a January transfer) re-matches from the same immutable file -- which is what 'rebuildable from raw' means," but the function dedupes on `raw.sha256` alone and returns the stored counts unconditionally when a snapshot with that hash already exists -- re-matching from the same file was never actually reachable. Traced consequences: the current season self-heals in practice, because Understat's bytes keep changing week to week during the season, but **a back season's ambiguous rows are frozen forever** -- their Understat content stops changing once the season ends, so no alias added afterward, and no listone movement, can ever re-match them through the ordinary `ingest advanced` path. This is why the plan's own Step 8 recovery ("add an `understat:` alias and re-run `ingest advanced` once") does not work as written for anything but the live season. Checked the siblings: `record_fixtures` hashes parsed rows and treats an unknown club as a hard error, so a bad snapshot is never recorded in the first place; `record_voti` keys on `(season, giornata, sha256)` and matches by listone id directly, no alias involved -- the defect is specific to `advanced`.
+
+   Ruling R11 (Task 8 dispatch): `record_advanced` gained `force: bool = False`, which skips the short-circuit and re-runs the matcher against the same raw file. **Discovered while implementing this:** `advanced_snapshots.sha256` is `UNIQUE` (this task's own schema), so a forced re-match cannot insert a second row for identical content -- that is a real constraint, not just the Python-level check. `force=True` therefore re-derives the *existing* snapshot's `matched`/`ambiguous`/`unmatched` counts and replaces its `advanced_stats` rows in place (`UPDATE` + `DELETE`/re-`INSERT`, same `snapshot_id`), rather than appending a new one; the raw file's own identity (`snapshot_id`, `sha256`, `fetched_at`, `raw_path`) is untouched, since nothing about which bytes were fetched, or when, has changed -- only the re-derivable join onto the listone is refreshed. `commands/ingest.py` gained `rematch_advanced_seasons(con, store, seasons, aliases_path)`, which re-records each requested season's most recent on-disk raw file with `force=True` and makes no network call at all; CLI `ingest advanced` gained `--rematch` (a plain bool flag, not a module-level singleton -- unlike `SEASON_OPTION` there is only one `--rematch` per invocation, so it needs no shared default).
+
+   **Known limitation, deliberately deferred to the final whole-branch review, not fixed here:** the real fix is a dedupe key that covers every input that determines the output -- the raw bytes *and* the alias mapping *and* the listone snapshot -- so a change to any of them triggers an automatic re-match, and `--rematch`/`force` become unnecessary. That needs a new column on `advanced_snapshots` (e.g. an aliases-file hash and a listone snapshot id alongside `sha256`), which bumps `SCHEMA_VERSION` and ripples into the migration story and Task 9's doctor check -- explicitly out of scope for Ruling R11's fix, which is deliberately small: make the manual recovery path actually work, not make it unnecessary.
 
 - [ ] **Step 1: Build the Understat fixture from the capture**
 
@@ -1671,6 +1679,105 @@ def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[A
                                 sorted(unresolved), raw.sha256, str(raw.path))
 ```
 
+**Superseded by Ruling R11 (found while implementing Task 8 -- see this task's correction above).** The `record_advanced` above is what this task originally built; its final, corrected form:
+
+```python
+def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[AdvancedRow],
+                    raw: RawFile, *, candidates: list[Candidate], teams: dict[str, str],
+                    aliases: Aliases, force: bool = False) -> AdvancedIngestResult:
+    """One snapshot per distinct raw file; the same bytes twice is a no-op,
+    *unless* `force` -- which re-derives that same snapshot's matches in
+    place, rather than appending a second one.
+
+    Matching happens here, at record time, against the candidates and
+    aliases passed in -- but only the first time a given raw file's content
+    is recorded: the `sha256` short-circuit below means a later alias
+    (Ruling R11, "the dedupe short-circuit contradicts its own documented
+    contract") or a listone that has since moved does **not** get a chance
+    to re-match the same bytes through the ordinary `ingest advanced` path,
+    and never will on its own for a back season, whose Understat content
+    stops changing once the season is over -- the current season eventually
+    self-heals only because Understat's bytes keep moving week to week.
+
+    `force=True` (CLI: `ingest advanced --rematch`) skips the short-circuit
+    and re-runs the matcher against the same immutable file -- but
+    `advanced_snapshots.sha256` is `UNIQUE`, so a second row for identical
+    content is not just redundant, it is a constraint violation: the schema
+    ties one snapshot to one payload, deliberately. So a forced re-match
+    updates the *existing* snapshot's derived `matched`/`ambiguous`/
+    `unmatched` counts and replaces its `advanced_stats` rows in place,
+    rather than inserting a new snapshot_id -- the raw file's identity
+    (snapshot_id, sha256, fetched_at, raw_path) is untouched, since nothing
+    about which bytes were fetched, or when, has changed; only the
+    (re-derivable, not immutable) join onto the listone is refreshed. This
+    is the only way to make an alias or a listone change apply to a raw
+    payload already on disk without a new fetch, and without a schema
+    change to loosen the `UNIQUE` constraint (out of scope for Ruling R11).
+    """
+    existing = con.execute(
+        "SELECT snapshot_id, matched, ambiguous, unmatched FROM advanced_snapshots WHERE sha256 = ?",
+        [raw.sha256]).fetchone()
+    if existing is not None and not force:
+        alias_count = con.execute(
+            "SELECT count(*) FROM advanced_stats WHERE snapshot_id = ? AND match_status = 'alias'",
+            [existing[0]]).fetchone()[0]
+        return AdvancedIngestResult(existing[0], season_id, 0, True, existing[1], alias_count,
+                                    existing[2], existing[3], [], [], raw.sha256, str(raw.path))
+    matcher = Matcher(candidates, aliases.players_for("understat"))
+    team_aliases = aliases.teams_for("understat")
+    names = {c.player_id: c.name for c in candidates}
+    counts: Counter[str] = Counter()
+    ambiguous_names: list[dict[str, Any]] = []
+    unresolved: set[str] = set()
+    records: list[list[Any]] = []
+    for r in rows:
+        shorts: list[str] = []
+        for team in r.teams:
+            short = resolve_team(team, teams, team_aliases)
+            if short is None:
+                unresolved.add(team)          # relegated or foreign in a back season: expected, reported
+            else:
+                shorts.append(short)
+        match = matcher.match(r.player_name, tuple(shorts))
+        counts[match.status] += 1
+        if match.status == AMBIGUOUS:
+            ambiguous_names.append({"name": r.player_name, "teams": list(r.teams),
+                                    "candidates": [{"player_id": pid, "name": names[pid]}
+                                                   for pid in match.candidates]})
+        records.append([None, season_id, r.source_id, r.player_name, list(r.teams), match.player_id,
+                        match.status, list(match.candidates), r.games, r.minutes, r.goals, r.assists,
+                        r.xg, r.xa, r.npg, r.npxg, r.shots, r.key_passes, r.yellow, r.red,
+                        r.xg_chain, r.xg_buildup, r.position, json.dumps(r.raw, ensure_ascii=False)])
+    con.begin()
+    try:
+        if existing is not None:
+            # force=True, re-deriving in place: same snapshot_id, sha256,
+            # fetched_at and raw_path -- only the join is refreshed.
+            snapshot_id = existing[0]
+            con.execute(
+                "UPDATE advanced_snapshots SET matched = ?, ambiguous = ?, unmatched = ? WHERE snapshot_id = ?",
+                [counts["matched"], counts["ambiguous"], counts["unmatched"], snapshot_id])
+            con.execute("DELETE FROM advanced_stats WHERE snapshot_id = ?", [snapshot_id])
+        else:
+            snapshot_id = con.execute(
+                "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, row_count, "
+                "matched, ambiguous, unmatched) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING snapshot_id",
+                [season_id, to_db(raw.fetched_at), SOURCE, str(raw.path), raw.sha256, len(rows),
+                 counts["matched"], counts["ambiguous"], counts["unmatched"]]).fetchone()[0]
+        for record in records:
+            record[0] = snapshot_id
+        con.executemany(
+            "INSERT INTO advanced_stats VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "?, ?, ?, ?::JSON)", records)
+    except Exception:
+        con.rollback()
+        raise
+    con.commit()
+    return AdvancedIngestResult(snapshot_id, season_id, len(rows), False, counts["matched"], counts["alias"],
+                                counts["ambiguous"], counts["unmatched"], ambiguous_names,
+                                sorted(unresolved), raw.sha256, str(raw.path))
+```
+
 - [ ] **Step 5: Extend `commands/ingest.py`**
 
 Replace the import block of `core/src/fantaclaude/commands/ingest.py` (everything between the module docstring and `async def fetch_all`) with:
@@ -1756,6 +1863,28 @@ def record_advanced_seasons(con: duckdb.DuckDBPyConnection, raws: dict[int, RawF
                                        candidates=candidates, teams=teams, aliases=aliases))
     return results
 ```
+
+**Added by Ruling R11 (Task 8 dispatch), alongside `record_advanced_seasons` above -- the zero-network re-derive path `ingest advanced --rematch` calls:**
+
+```python
+def rematch_advanced_seasons(con: duckdb.DuckDBPyConnection, store: RawStore, seasons: list[int],
+                             aliases_path: Path) -> list[AdvancedIngestResult]:
+    aliases = load_aliases(aliases_path)
+    candidates, teams = load_candidates(con), load_teams(con)
+    results = []
+    for season_id in sorted(seasons):
+        paths = store.list("advanced", ext="json", label=str(season_id))
+        if not paths:
+            raise NotReady(f"no advanced/{season_id} raw file on disk yet -- run `fantaclaude ingest advanced` first")
+        path = paths[-1]                       # the most recent fetch for this season
+        raw = _raw_file_from_disk(path, "advanced")
+        loaded_season, rows = load_advanced(path)
+        results.append(record_advanced(con, loaded_season, rows, raw, candidates=candidates, teams=teams,
+                                       aliases=aliases, force=True))
+    return results
+```
+
+(`_raw_file_from_disk` is Ruling R8b's helper -- see Task 8 -- reconstructing a `RawFile` from a path `RawStore` already wrote, by parsing the fetch stamp back out of its own name.)
 
 - [ ] **Step 6: Add the CLI command**
 
@@ -1864,7 +1993,7 @@ git commit -m "feat(ingest): advanced -- Understat season totals matched onto th
 ### Task 5: The `calendar` adapter — Serie A giornate and every European tie of an Italian club
 
 **Files:**
-- Create: `core/src/fantaclaude/ingest/calendar.py`, `core/tests/fixtures/_extract_calendar.py`, `core/tests/fixtures/calendario_sample.html`, `core/tests/fixtures/uefa_sample.json`, `core/tests/test_calendar.py`
+- Create: `core/src/fantaclaude/ingest/calendar.py`, `core/tests/fixtures/_extract_calendar.py`, `core/tests/fixtures/calendario_sample.html`, `core/tests/fixtures/calendario_two_giornate_sample.html` (Ruling R8a), `core/tests/fixtures/uefa_sample.json`, `core/tests/test_calendar.py`
 - Modify: `core/src/fantaclaude/commands/ingest.py`, `core/src/fantaclaude/cli/app.py`, `core/tests/test_fixtures.py`
 
 **Interfaces:**
@@ -1873,25 +2002,43 @@ git commit -m "feat(ingest): advanced -- Understat season totals matched onto th
 
 Scores are not modelled: `results` is Phase 3. A fixture row is the schedule — competition, round, kickoff (UTC), the two clubs and, for Serie A clubs, their listone short code — and a snapshot is appended only when the schedule changed (hash over the parsed rows, not over the pages, which carry ads and timestamps).
 
+**One correction found while implementing Task 8 (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with the task whose commit is open when it is found — here, Task 8's — not a follow-up `fix(...)` commit):**
+
+1. *"One page must be one giornata" is false for a played giornata.* This task's original `load_serie_a` raised `CalendarShapeError` unless every event on a page shared one giornata number. Task 8's exactly-once live run fetched the real season-21 giornata-1 page and hit exactly that: `captured/calendario-2026-27-giornata-1.html` carries ten giornata-1 matches (`size-large` pills, the giornata already played) *and* ten giornata-2 preview matches (`size-compact` pills, the site's "up next"). The giornata-2 capture this task was built from (`captured/calendario-2026-27-giornata-2.html`) never showed this, because giornata 3 had not been announced yet when it was taken — Task 5's own probe only ever saw one giornata per page and generalised from that single sample. Ruling R8a (Task 8 dispatch): `load_serie_a` now filters each page down to the giornata it was fetched for — read from the raw file's own label (`fetch_serie_a` writes `"sa-<season>-<giornata>"`), not inferred from the page's content — instead of demanding the page carry exactly one. A page missing its own requested giornata still raises `CalendarShapeError` loud, so a genuine layout change is not swallowed; the old `seen`/duplicate-giornata guard is kept as a defensive check but is no longer load-bearing, since filtering removes cross-page duplication by construction. `_extract_calendar.py` gained a second capture (`captured/calendario-2026-27-giornata-1.html`, copied verbatim, nothing to scrub) and now also emits `calendario_two_giornate_sample.html` (two giornata-1 matches, two giornata-2 preview matches, from that one real page); `test_calendar.py` gained `test_load_serie_a_filters_a_page_that_advertises_the_next_giornata` and `test_load_serie_a_fails_loud_when_the_page_lacks_its_own_giornata`.
+
 - [ ] **Step 1: Build the two fixtures from the captures**
 
 Create `core/tests/fixtures/_extract_calendar.py`:
 
 ```python
-"""One-shot: build calendario_sample.html and uefa_sample.json from the captures.
+"""One-shot: build calendario_sample.html, calendario_two_giornate_sample.html
+and uefa_sample.json from the captures.
 
 Run from the workspace root:  uv run python core/tests/fixtures/_extract_calendar.py
 
 calendario_sample.html keeps the three large pills of giornata 2, 2026-27
 (Milan-Venezia 17971, Fiorentina-Frosinone 17967, Monza-Udinese 17972)
 inside a minimal document; feeding it twice exercises the dedupe the page's
-compact pills need. uefa_sample.json is what fetch_uefa writes, for two
-pages: UCL 2025-26 (two Italian league-phase matches, one Juventus match to
-trip the unresolved-club error against the 17-player listone, one Paris-
-Arsenal match to be filtered out) and UECL 2026-27 (Atalanta's qualifying
-play-off, both legs). Matches are slimmed the way the raw column is
-(translations, player events, referees, related matches and logo URLs
-dropped) so the fixture stays small. Public schedules, nothing to scrub.
+compact pills need.
+
+calendario_two_giornate_sample.html is built from the season 21 giornata-1
+page (captured 2026-08-28, the fetch that first surfaced Ruling R8a): a page
+whose giornata has already been played also advertises the next one, so the
+real page carries ten giornata-1 matches and ten giornata-2 matches, not one
+giornata as Task 5 assumed from the giornata-2 capture alone (giornata 2
+hadn't been played yet when that one was taken, so it never showed a third
+giornata). This sample keeps two matches of each: Atalanta-Sassuolo (17955)
+and Bologna-Lazio (17956) for giornata 1, Atalanta-Bologna (17965) and
+Cagliari-Inter (17966) for giornata 2 -- enough to exercise "filter to the
+giornata this page was fetched for" without a 6000-line fixture.
+
+uefa_sample.json is what fetch_uefa writes, for two pages: UCL 2025-26 (two
+Italian league-phase matches, one Juventus match to trip the unresolved-club
+error against the 17-player listone, one Paris-Arsenal match to be filtered
+out) and UECL 2026-27 (Atalanta's qualifying play-off, both legs). Matches
+are slimmed the way the raw column is (translations, player events,
+referees, related matches and logo URLs dropped) so the fixture stays small.
+Public schedules, nothing to scrub.
 """
 
 import json
@@ -1899,12 +2046,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PAGE = ROOT / "captured" / "calendario-2026-27-giornata-2.html"
+PAGE1 = ROOT / "captured" / "calendario-2026-27-giornata-1.html"
 UCL = ROOT / "captured" / "uefa-ucl-2026-page0.json"
 UECL = ROOT / "captured" / "uefa-uecl-2027-page0.json"
 OUT_HTML = Path(__file__).with_name("calendario_sample.html")
+OUT_TWO_GIORNATE_HTML = Path(__file__).with_name("calendario_two_giornate_sample.html")
 OUT_JSON = Path(__file__).with_name("uefa_sample.json")
 
 SERIE_A_IDS = ("17971", "17967", "17972")
+TWO_GIORNATE_IDS = ("17955", "17956", "17965", "17966")     # giornata 1 x2, giornata 2 x2, one page
 UCL_IDS = ("2048058", "2047774", "2047742", "2047770")
 UECL_IDS = ("2049260", "2049284")
 DROP = {"playerEvents", "referees", "relatedMatches", "translations"}
@@ -1918,25 +2068,38 @@ def slim(value):
     return value
 
 
-def main() -> None:
-    html = PAGE.read_text(encoding="utf-8")
+def blocks_for(html: str, match_ids) -> list[str]:
     blocks = []
-    for match_id in SERIE_A_IDS:
+    for match_id in match_ids:
         anchor = html.index(f"/{match_id}\"")
         start = html.rfind('<li class="match', 0, anchor)
         end = html.index("</li>", anchor) + len("</li>")
         block = html[start:end]
-        assert block.count("SportsEvent") == 1 and "size-large" in block, match_id
+        assert block.count("SportsEvent") == 1, match_id
         blocks.append(block)
-    OUT_HTML.write_text('<!doctype html>\n<html><body>\n<ul class="match-list">\n' + "\n".join(blocks)
-                        + "\n</ul>\n</body></html>\n", encoding="utf-8")
+    return blocks
+
+
+def write_page(out: Path, blocks: list[str]) -> None:
+    out.write_text('<!doctype html>\n<html><body>\n<ul class="match-list">\n' + "\n".join(blocks)
+                   + "\n</ul>\n</body></html>\n", encoding="utf-8")
+
+
+def main() -> None:
+    blocks = blocks_for(PAGE.read_text(encoding="utf-8"), SERIE_A_IDS)
+    write_page(OUT_HTML, blocks)
+
+    two_giornate_blocks = blocks_for(PAGE1.read_text(encoding="utf-8"), TWO_GIORNATE_IDS)
+    write_page(OUT_TWO_GIORNATE_HTML, two_giornate_blocks)
+
     pages = []
     for path, competition, season_id, ids in ((UCL, "UCL", 20, UCL_IDS), (UECL, "UECL", 21, UECL_IDS)):
         matches = {str(m["id"]): m for m in json.loads(path.read_text(encoding="utf-8"))}
         pages.append({"competition": competition, "season_id": season_id, "offset": 0,
                       "matches": [slim(matches[i]) for i in ids]})
     OUT_JSON.write_text(json.dumps(pages, ensure_ascii=False, sort_keys=True, indent=1) + "\n", encoding="utf-8")
-    print(f"wrote {len(blocks)} pills ({OUT_HTML.stat().st_size} bytes) and "
+    print(f"wrote {len(blocks)} pills ({OUT_HTML.stat().st_size} bytes), "
+          f"{len(two_giornate_blocks)} two-giornate pills ({OUT_TWO_GIORNATE_HTML.stat().st_size} bytes) and "
           f"{sum(len(p['matches']) for p in pages)} UEFA matches ({OUT_JSON.stat().st_size} bytes)")
 
 
@@ -1945,7 +2108,7 @@ if __name__ == "__main__":
 ```
 
 Run: `uv run python core/tests/fixtures/_extract_calendar.py`
-Expected: `wrote 3 pills (8537 bytes) and 6 UEFA matches (<under 60000> bytes)`.
+Expected (as amended by Ruling R8a, Task 8 dispatch): `wrote 3 pills (8537 bytes), 4 two-giornate pills (11167 bytes) and 6 UEFA matches (<under 60000> bytes)`.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -2427,19 +2590,41 @@ async def fetch_serie_a(http: httpx.AsyncClient, store: RawStore, *, season_id: 
     return raws
 
 
+# Ruling R8a (Task 8 dispatch): "one page must be one giornata" is false for a
+# played giornata -- the real page also advertises the next one. Filter each
+# page to the giornata it was fetched for (the raw file's own label), instead
+# of demanding the page carry exactly one.
+_SA_LABEL = re.compile(r"-sa-(?P<season>\d+)-(?P<giornata>\d+)\.\w+$")
+
+
 def load_serie_a(paths: list[Path], *, season_id: int) -> list[FixtureRow]:
+    """Filter each page down to the giornata fetch_serie_a fetched it for.
+
+    Observed 2026-08-29: a page whose giornata has already been played also
+    advertises the next one (captured/calendario-2026-27-giornata-1.html
+    carries ten giornata-1 matches and ten giornata-2 preview pills) -- "one
+    page, one giornata" does not hold in general. Only "the giornata the page
+    was fetched for is on it" does, and that giornata is the file's own label
+    (fetch_serie_a writes "sa-<season>-<giornata>"), not something to infer
+    from the page's content. A page missing its own giornata is still a
+    genuine layout change and raises loud, same as before.
+    """
     rows: list[FixtureRow] = []
     seen: set[int] = set()
     for path in paths:
+        match = _SA_LABEL.search(path.name)
+        if not match or int(match.group("season")) != season_id:
+            raise CalendarShapeError(f"{path}: not a Serie A page written by fetch_serie_a")
+        requested = int(match.group("giornata"))
+        if requested in seen:
+            raise CalendarShapeError(f"{path}: giornata {requested} twice in one load")
+        seen.add(requested)
         page = parse_serie_a_page(path.read_text(encoding="utf-8"), season_id=season_id)
-        giornate = {r.giornata for r in page}
-        if len(giornate) != 1:
-            raise CalendarShapeError(f"{path}: one page must be one giornata, found {sorted(giornate)}")
-        giornata = giornate.pop()
-        if giornata in seen:
-            raise CalendarShapeError(f"{path}: giornata {giornata} twice in one load")
-        seen.add(giornata)
-        rows.extend(page)
+        wanted = [row for row in page if row.giornata == requested]
+        if not wanted:
+            raise CalendarShapeError(
+                f"{path}: giornata {requested} is not on its own page -- found {sorted({r.giornata for r in page})}")
+        rows.extend(wanted)
     return rows
 
 
@@ -2848,20 +3033,21 @@ git commit -m "docs(spec): record the fantacalcio.it website session and the vot
 ### Task 7: The `stats_web` adapter — per-giornata voti and event counts from the XLSX export
 
 **Files:**
-- Create: `core/src/fantaclaude/ingest/stats_web.py`, `core/tests/fixtures/_extract_voti.py`, `core/tests/fixtures/voti_sample.xlsx`, `core/tests/fixtures/voti_placeholder.xlsx` (Ruling R4), `core/tests/test_stats_web.py`
+- Create: `core/src/fantaclaude/ingest/stats_web.py`, `core/tests/fixtures/_extract_voti.py`, `core/tests/fixtures/voti_sample.xlsx`, `core/tests/fixtures/voti_placeholder.xlsx` (Ruling R4), `core/tests/fixtures/voti_not_yet_rated.xlsx` (Ruling R9), `core/tests/test_stats_web.py`
 - Modify: `core/src/fantaclaude/commands/ingest.py`, `core/src/fantaclaude/cli/app.py`, `core/tests/test_fixtures.py`, `core/tests/conftest.py`
 
 **Interfaces:**
 - Consumes: Task 6's observations (reconciled into `VOTI_HEADER`, `COLUMNS`, `parse_voto` and `_parse_sheet` before this task starts), `RawStore.write_bytes`, `fetch_bytes`, `polite_pause`, `run_web`, `web_cookie`, `SERIE_A_GIORNATE`, `to_db`, the schema's `voti_files`/`player_match` and the views over them, `SEASON_OPTION`, `_seasons_or_exit`, `_source_errors`.
-- Produces: `fantaclaude.ingest.stats_web.{SOURCE, VOTES_URL, VOTI_HEADER, COLUMNS, VotiShapeError, VotoRow, VotiWorkbook(sheets).rows, parse_voto(value) -> tuple[Decimal | None, bool], parse_voti(path) -> VotiWorkbook, async fetch_voti(http, store, *, cookie, season_id, giornata) -> RawFile, VotiFetch(raws, skipped, not_published_from), async fetch_voti_range(http, store, *, cookie, season_id, giornate, existing, refetch=False) -> VotiFetch, VotiIngestResult(...).to_dict(), record_voti(con, season_id, giornata, workbook, raw, *, known_ids) -> VotiIngestResult}`; `fantaclaude.commands.ingest.{existing_giornate(path, seasons) -> dict[int, set[int]], async fetch_voti_seasons(http, store, *, cookie, seasons, giornate, existing, refetch) -> dict[int, VotiFetch], record_voti_files(con, fetched) -> list[VotiIngestResult]}`; CLI `fantaclaude ingest stats-web [--season N]... [--giornata N]... [--refetch] [--json]`; `cli.app.GIORNATA_OPTION`; conftest fixture `fixture_file(name) -> Path` (any extension).
+- Produces: `fantaclaude.ingest.stats_web.{SOURCE, VOTES_URL, VOTI_HEADER, COLUMNS, VotiShapeError, VotoRow, VotiWorkbook(sheets).rows, parse_voto(value) -> tuple[Decimal | None, bool], parse_voti(path) -> VotiWorkbook, async fetch_voti(http, store, *, cookie, season_id, giornata) -> RawFile, VotiFetch(raws, skipped, not_published_from), async fetch_voti_range(http, store, *, cookie, season_id, giornate, existing, refetch=False) -> VotiFetch, VotiIngestResult(...).to_dict(), record_voti(con, season_id, giornata, workbook, raw, *, known_ids) -> VotiIngestResult, is_not_yet_rated_workbook(path) -> bool}` (Ruling R9); `fantaclaude.commands.ingest.{existing_giornate(store, seasons) -> dict[int, set[int]]}` (Ruling R8b: reads `RawStore`, not the database — see Task 8) `{async fetch_voti_seasons(http, store, *, cookie, seasons, giornate, existing, refetch) -> dict[int, VotiFetch], record_voti_files(con, store, fetched, giornate) -> tuple[list[VotiIngestResult], dict[int, list[int]]]}` (Rulings R8b/R9 — see Task 8); CLI `fantaclaude ingest stats-web [--season N]... [--giornata N]... [--refetch] [--json]`; `cli.app.GIORNATA_OPTION`; conftest fixture `fixture_file(name) -> Path` (any extension).
 
 The identity join is the file's `Cod.` column — the fantacalcio.it player id, the listone's `id` (Task 6 measured the share). Nothing here is matched by name. Only the base voto and the event counts are stored; the fantavoto is computed at projection time under the league's own bonus/malus and never stored (spec, "Fantavoto is computed, never stored"). Every sheet of the workbook is a voto source and is kept under its sheet name; which one this league scores with is a `league_settings` question for Phase 1 (`calculate.sourcev` is the candidate key, observed `1`).
 
-**Three corrections found while implementing this task (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with that task's commit; the third is a review finding, Ruling R6 of the task-review dispatch, resolved the same way):**
+**Four corrections found while implementing this task, the fourth while implementing Task 8 (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with the task whose commit is open when it is found — the third is a review finding, Ruling R6 of the task-review dispatch, resolved the same way; the fourth rides with Task 8's commit, not a follow-up one):**
 
 1. *An unplayed giornata is a 200, not a 404.* `fetch_voti`'s original text stopped `fetch_voti_range` at the first `404`. Against the real site an unplayed giornata answers HTTP `200` with a placeholder workbook instead — one sheet named `Fantacalcio` with exactly one row reading "File ancora non disponibile. Riprova più tardi" (`captured/voti-21-38.xlsx`). `stats_web.py` now carries `NOT_PUBLISHED_MARKER` and `_is_not_published_placeholder(data)`; `fetch_voti` raises `NotPublished(url, 200)` for it *before* `store.write_bytes`, so a placeholder is never written to `data/raw/` and never counted as an already-fetched giornata by `existing_giornate`. `fetch_voti_range` needed no structural change: its `except NotPublished` already produces the right `not_published_from`. `_extract_voti.py` also emits `core/tests/fixtures/voti_placeholder.xlsx`, machine-extracted from `captured/voti-21-38.xlsx`; `test_fixtures.py` and the fetch-range tests were extended accordingly (one more test than the original count below).
 2. *The header row repeats before every club's block, not just the sheet's first.* Task 6's probe read only the first block (Atalanta, at the top of the sheet) and recorded "header on row 6, players from row 7" as if that held for the whole sheet. Dumping the full captured workbook (`captured/voti-21-01.xlsx`, `voti-20-01.xlsx`) shows the site repeats the `Cod.`/`Ruolo`/… header before all 20 clubs, not once. `_parse_sheet` now validates and skips a header row wherever it occurs, and tracks a club's name row unconditionally (even before the sheet's own first header) so the club that opens the sheet — whose name row sits *above* that header — is not missed. `_extract_voti.py` was fixed the same way: its team-row detection now runs regardless of whether the sheet's header has been seen yet, so `voti_sample.xlsx` keeps Atalanta's real player rows (it previously kept none, because `keep_block` was never set for the club preceding the header) alongside Bologna's own repeated header, faithfully mirroring the site.
 3. *A club's coach row (`Ruolo == "ALL"`) was stored undocumented and untested, and inflated `unknown_players`.* Each club block ends with one extra row for the coach (e.g. `688 'ALL' 'Sarri'`, `captured/voti-21-01.xlsx`); `_parse_sheet` has no special case for it, so it parses exactly like a player row and was landing in `player_match` undocumented. Measured against the real capture and the live listone (read-only): 20 coach rows vs 319 player rows, zero id collision with the listone (no correctness risk to `player_match` or the views over it), but `unknown_players` coverage read 92.0% counting coaches vs 97.8% over players only — 20 of 27 "unknown" ids were coaches, burying the real signal (players signed after the listone snapshot). Resolution: the coach row is still stored (dropping it would hardcode "this league does not score the coach", which the plan's Global Constraints forbid and not every league agrees with); `stats_web.py`'s module docstring now documents it and adds `COACH_ROLE = "ALL"`; `record_voti` excludes `classic_role == COACH_ROLE` rows from `unknown_players` (a coach id is never in the listone, so counting it only ever inflates the metric) while still inserting the row into `player_match`. `v_player_season` and `v_player_form` (Task 1's versioned schema) are unchanged — zero id collision means no correctness gain, and changing them here would ripple into Task 8's doctor checks. **A consumer that wants players only filters `classic_role <> 'ALL'`** — this is Phase 1's job when it projects a player from `player_match`, not this task's.
+4. *A giornata that has not been rated yet is a third workbook shape, not covered by Ruling R4's placeholder.* Found during Task 8's exactly-once live run: `data/raw/voti/voti-21-03.xlsx` (season 21, giornata 3, two rounds into a season whose auction had not happened yet) passed `_is_not_published_placeholder` — it is not the single-sheet, single-row `NOT_PUBLISHED_MARKER` text — but also carried no header row and no player row in any of its three sheets, so `parse_voti` raised `VotiShapeError("no sheet carries the voti table")` on every run until the giornata is actually rated. Ruling R9 (Task 8 dispatch): the site serves a third shape for "on the calendar but not yet rated" — every sheet is exactly the title line (`"Voti <kind> N° giornata di campionato"`) plus the three fixed disclaimer lines, and nothing else. `stats_web.py` gained `NOT_RATED_TITLE_PREFIX`, `NOT_RATED_DISCLAIMER`, `_is_not_yet_rated(data) -> bool` (matched narrowly and exactly against that fixed block — any row beyond it, in any sheet, and it is not this shape) and `is_not_yet_rated_workbook(path) -> bool`, its record-time twin. `fetch_voti` now raises `NotPublished` for it too, alongside the R4 placeholder, so it is never stored again; `commands.ingest.record_voti_files` (Ruling R8b's function — see Task 8) now checks `is_not_yet_rated_workbook` on every on-disk file before parsing it, and skips-and-counts rather than raising when it matches, returning `(results, not_yet_rated)` instead of a bare list. `_extract_voti.py` gained a third capture (`captured/voti-21-03.xlsx`, copied verbatim, nothing to scrub) and now also emits `voti_not_yet_rated.xlsx`; `test_stats_web.py` gained `test_is_not_yet_rated_workbook_is_narrow` and `test_record_voti_files_counts_an_on_disk_shell_without_raising`, and its fetch test was extended to cover the shell alongside the placeholder.
 
 - [ ] **Step 1: Build the workbook fixture from the capture**
 
@@ -2869,7 +3055,11 @@ Create `core/tests/fixtures/_extract_voti.py`:
 
 ```python
 """One-shot: build voti_sample.xlsx from captured/voti-21-01.xlsx (giornata 1, 2026-27),
-and voti_placeholder.xlsx from captured/voti-21-38.xlsx (the "not yet published" workbook).
+voti_placeholder.xlsx from captured/voti-21-38.xlsx (the "not yet published" 404-style
+placeholder), and voti_not_yet_rated.xlsx from captured/voti-21-03.xlsx (Ruling R9: a
+third, distinct "not published" shape -- a giornata that is on the calendar but has not
+been rated yet answers with the normal three sheet names and the normal title/disclaimer
+block, then nothing else at all: no club row, no header, no data).
 
 Run from the workspace root:  uv run python core/tests/fixtures/_extract_voti.py
 
@@ -2892,6 +3082,11 @@ The placeholder is copied verbatim: one sheet, one cell, the site's own
 "not yet published" text -- Ruling R4 of Task 7, since the site answers a
 200 with this workbook for a giornata that has not been played yet, not a
 404. Nothing to scrub there either.
+
+voti_not_yet_rated.xlsx is also copied verbatim: three sheets, four rows
+each (a title line naming the giornata, then the same three disclaimer
+lines every workbook carries), nothing else. Public boilerplate, nothing to
+scrub.
 """
 
 from pathlib import Path
@@ -2903,6 +3098,8 @@ CAPTURE = ROOT / "captured" / "voti-21-01.xlsx"
 OUT = Path(__file__).with_name("voti_sample.xlsx")
 PLACEHOLDER_CAPTURE = ROOT / "captured" / "voti-21-38.xlsx"
 PLACEHOLDER_OUT = Path(__file__).with_name("voti_placeholder.xlsx")
+NOT_YET_RATED_CAPTURE = ROOT / "captured" / "voti-21-03.xlsx"
+NOT_YET_RATED_OUT = Path(__file__).with_name("voti_not_yet_rated.xlsx")
 TEAMS = {"atalanta", "bologna"}
 HEADER_FIRST = "Cod."
 
@@ -2951,13 +3148,24 @@ def main() -> None:
     print(f"wrote {len(placeholder_out.sheetnames)} sheet(s) {placeholder_out.sheetnames}, "
          f"{PLACEHOLDER_OUT.stat().st_size} bytes")
 
+    not_yet_rated = openpyxl.load_workbook(NOT_YET_RATED_CAPTURE, read_only=True, data_only=True)
+    not_yet_rated_out = openpyxl.Workbook()
+    not_yet_rated_out.remove(not_yet_rated_out.active)
+    for sheet in not_yet_rated.worksheets:
+        target = not_yet_rated_out.create_sheet(sheet.title)
+        for row in sheet.iter_rows(values_only=True):
+            target.append(list(row))
+    not_yet_rated_out.save(NOT_YET_RATED_OUT)
+    print(f"wrote {len(not_yet_rated_out.sheetnames)} sheet(s) {not_yet_rated_out.sheetnames}, "
+         f"{NOT_YET_RATED_OUT.stat().st_size} bytes")
+
 
 if __name__ == "__main__":
     main()
 ```
 
 Run: `uv run python core/tests/fixtures/_extract_voti.py`
-Expected: `wrote 3 sheet(s) ['Fantacalcio', 'Statistico', 'Italia'], 108 rows, <under 15000> bytes` and `wrote 1 sheet(s) ['Fantacalcio'], <under 6000> bytes` (the placeholder, Ruling R4 of the Task 7 dispatch).
+Expected (as amended by Ruling R9, Task 8 dispatch): `wrote 3 sheet(s) ['Fantacalcio', 'Statistico', 'Italia'], 108 rows, <under 15000> bytes`, `wrote 1 sheet(s) ['Fantacalcio'], <under 6000> bytes` (the placeholder, Ruling R4 of the Task 7 dispatch) and `wrote 3 sheet(s) ['Fantacalcio', 'Statistico', 'Italia'], <under 8000> bytes` (the not-yet-rated shell, Ruling R9).
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -3649,6 +3857,77 @@ def record_voti_files(con: duckdb.DuckDBPyConnection, fetched: dict[int, VotiFet
     return results
 ```
 
+**Superseded by Rulings R8b and R9 (found while implementing Task 8 — see this task's corrections above and Task 8's own).** `existing_giornate` and `record_voti_files` above are what this task originally built and is what Task 8 consumed unmodified at first; the exactly-once live run then showed the database and the raw store can disagree (R8b) and that a third, not-yet-rated workbook shape exists (R9). Both functions were rewritten in place, riding with Task 8's commit, to their final shape:
+
+```python
+_VOTI_LABEL = re.compile(r"-voti-(?P<season>\d+)-(?P<giornata>\d+)\.xlsx$")
+
+
+def _voti_on_disk(store: RawStore, season_id: int) -> dict[int, Path]:
+    """Every giornata of `season_id` with a workbook already in data/raw/voti/,
+    by the file's own label -- not by what the database has recorded, which
+    can disagree with disk exactly when a run fetched but failed to record."""
+    found: dict[int, Path] = {}
+    for path in store.list("voti", ext="xlsx"):
+        match = _VOTI_LABEL.search(path.name)
+        if match and int(match.group("season")) == season_id:
+            found[int(match.group("giornata"))] = path
+    return found
+
+
+def _raw_file_from_disk(path: Path, kind: str) -> RawFile:
+    """Reconstruct the RawFile a prior run's write() returned, for a file
+    RawStore already wrote: the fetch stamp is the name's own prefix, and the
+    hash is cheap to recompute -- nothing about a raw file is ever mutable."""
+    stamp, _, _ = path.name.partition("-")
+    fetched_at = datetime.strptime(stamp, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=UTC)
+    return RawFile(path, RawStore.sha256_of(path), fetched_at, kind)
+
+
+def existing_giornate(store: RawStore, seasons: list[int]) -> dict[int, set[int]]:
+    """Which giornate of each season already have a workbook on disk (data/raw/voti/),
+    so fetch_voti_seasons does not re-download a file already sitting there --
+    that decision must be made from the raw store, not the database: a run
+    that fetched successfully and then failed to record leaves disk and
+    database disagreeing, and re-downloading everything already on disk is
+    exactly the hazard this function exists to avoid (Ruling R8b)."""
+    return {season: set(_voti_on_disk(store, season)) for season in seasons}
+
+
+def record_voti_files(con: duckdb.DuckDBPyConnection, store: RawStore, fetched: dict[int, VotiFetch],
+                      giornate: list[int]) -> tuple[list[VotiIngestResult], dict[int, list[int]]]:
+    """Record every on-disk workbook for the fetched seasons and the
+    requested giornate range, not only what this run downloaded (Ruling
+    R8b): a giornata skipped at fetch time because it was already on disk
+    must still be recorded, or a fetch-succeeded-record-failed run never
+    finishes recovering. record_voti's sha256 dedupe makes an
+    already-recorded file a cheap no-op either way.
+
+    A file that turns out to be the not-yet-rated shell (Ruling R9) is
+    counted and returned in the second element, never recorded and never
+    raised: a giornata already on disk from before this ruling existed, or
+    fetched again and found to still be unrated, is exactly the same fact
+    `fetch_voti` now refuses to store in the first place -- nothing is
+    silently dropped, but it is not a VotiIngestResult either, since nothing
+    was recorded."""
+    known = {int(r[0]) for r in con.execute("SELECT player_id FROM v_players_current").fetchall()}
+    wanted = set(giornate)
+    results: list[VotiIngestResult] = []
+    not_yet_rated: dict[int, list[int]] = {}
+    for season_id in sorted(fetched):
+        on_disk = _voti_on_disk(store, season_id)
+        for giornata in sorted(g for g in on_disk if g in wanted):
+            path = on_disk[giornata]
+            if is_not_yet_rated_workbook(path):
+                not_yet_rated.setdefault(season_id, []).append(giornata)
+                continue
+            raw = fetched[season_id].raws.get(giornata) or _raw_file_from_disk(path, "voti")
+            results.append(record_voti(con, season_id, giornata, parse_voti(raw.path), raw, known_ids=known))
+    return results, not_yet_rated
+```
+
+`fetch_voti_seasons` above is unchanged. The import block also gained `re`, `datetime`, `UTC` and `is_not_yet_rated_workbook` (from `fantaclaude.ingest.stats_web`); Task 8's `fetch_everything`/`record_everything` and CLI commands (`ingest all`, `ingest stats-web`, `ingest advanced`, `ingest calendar`) were adjusted to pass `store` through and thread the new `(results, not_yet_rated)` tuple where they call `record_voti_files` — see Task 8.
+
 - [ ] **Step 6: Add the CLI command**
 
 In `core/src/fantaclaude/cli/app.py`, after `COMPETITION_OPTION`:
@@ -3772,9 +4051,18 @@ This task's `git add` also includes this plan file (CLAUDE.md: a plan defect fou
 
 **Interfaces:**
 - Consumes: every `fetch_*`/`record_*` above, `web_cookie`, `default_seasons`, `existing_giornate`, `run_with_api`, `run_web`, `SCHEMA_VERSION`, `load_aliases`, the views.
-- Produces: `fantaclaude.commands.ingest.{AllFetched(listone, advanced, calendar, stats_web, skipped), async fetch_everything(api, http, store, *, seasons, cookie, existing_voti, league=None) -> AllFetched, record_everything(con, fetched, aliases_path) -> dict[str, Any]}`; `fantaclaude.commands.doctor.run_doctor` reporting seventeen checks — the Phase 0a eleven plus `web_session`, `player_match`, `advanced`, `fixtures`, `aliases` (Task 9 adds `kb_profiles`); CLI `fantaclaude ingest all` covering every source, exit `3` when a source had to be skipped; the README section "The website session".
+- Produces: `fantaclaude.commands.ingest.{AllFetched(season_id, listone, advanced, calendar, stats_web, skipped), async fetch_everything(api, http, store, *, seasons, cookie, existing_voti, league=None) -> AllFetched, record_everything(con, store, fetched, aliases_path) -> dict[str, Any], ensure_schema(path=None) -> int | None}` (Ruling R7 adds `ensure_schema`, and `store` to `record_everything` and to `existing_giornate`/`record_voti_files` — see the corrections below; the `| None` is Finding F2, task-review dispatch); `fantaclaude.commands.doctor.run_doctor` reporting sixteen checks — the Phase 0a eleven plus `web_session`, `player_match`, `advanced`, `fixtures`, `aliases` (Task 9 adds `kb_profiles` as the seventeenth; Ruling R2, Task 8 dispatch: the plan's own prose said seventeen here, its test said sixteen — the test is binding); CLI `fantaclaude ingest all` covering every source, exit `3` when a source had to be skipped; the README section "The website session".
 
 `ingest all` is idempotent and complete: it runs every source whose prerequisites are met, records everything it fetched, reports what it had to skip and why, and exits `3` if anything was skipped — so a skill sees "not everything is fresh" without parsing prose. The only skippable source is `stats_web` (no cookie); a rejected cookie is an error the run stops on, after the other sources are already recorded.
+
+**Four corrections found while implementing this task, all surfaced by the exactly-once live run against the real database (CLAUDE.md: a plan defect found during implementation is fixed in the working tree and rides with the task whose commit is open when it is found — here, this task's — not a follow-up `fix(...)` commit):**
+
+1. *A stale schema version crashed the first read-only pre-read.* `apply_schema` only ever ran on the write connection each ingest command opens after its fetch. The live database was still at schema version 1 (Phase 0a's, before this phase's `voti_files`/`advanced_stats`/`fixtures` tables existed), and `ingest_all_cmd`/`ingest_stats_web_cmd`'s pre-fetch call to `existing_giornate` (originally reading `voti_files`, a v2-only table) crashed with `duckdb.CatalogException` before any network call. Ruling R7: added `ensure_schema(path=None) -> int | None` to `commands/ingest.py` — opens read-write, applies the schema, closes, sequential with the pre-read's own read-only handle so the "no two handles open at once" constraint holds. (Finding F2, task-review dispatch, later widened the return type to `int | None`: a no-op, not a write, when the database file does not exist yet -- `--season` bypasses `_seasons_or_exit`'s own existence check, so this call was the only thing standing between a fresh workspace and a phantom database.) Called once, right after `_seasons_or_exit` (which already guarantees a database with a `league_settings` snapshot exists), in `ingest_all_cmd`, `ingest_stats_web_cmd`, and — for consistency, since a future pre-read could add the same hazard — `ingest_advanced_cmd` and `ingest_calendar_cmd`. `doctor` was left untouched: it reads read-only and reports "schema version 1 -> migrates forward"; reporting is its job, migrating is not. New regression test: `test_cli_ingest_all_migrates_a_stale_v1_database` (`test_ingest_all.py`), built the same way `test_schema.py`'s `test_a_version_1_file_is_migrated_forward_in_place` builds its synthetic v1 state.
+2. *"One page must be one giornata" is false for a played giornata* — Task 5's `load_serie_a`. See Task 5's own corrections section; the fix rides with this task's commit since it touches an earlier task's file (Ruling R8a).
+3. *`existing_giornate` read the wrong source, and the record step covered only what this run fetched.* `existing_giornate`'s docstring said "already on disk" but it queried `voti_files` in the database; after the schema-v1 crash above was fixed, the live run fetched all 117 voti workbooks successfully and then failed to record most of them (Ruling R8a's calendar bug, next), so a second attempt with the old `existing_giornate` would have re-downloaded all 117 — authenticated requests against a real account, for files already held, invisible until it happened. Ruling R8b: the **fetch skip** is now decided from the raw store (`existing_giornate(store, seasons)`, via a new `_voti_on_disk(store, season_id)` helper reading `RawStore.list("voti", ext="xlsx")` and parsing each file's own label), not the database; the **record step** (`record_voti_files(con, store, fetched, giornate)`) now covers every on-disk workbook for the requested seasons/giornate, not only what this run downloaded, reconstructing a `RawFile` for one already on disk (`_raw_file_from_disk`, parsing the fetch stamp back out of the file's own name) when needed. Together these make a fetch-succeeded-record-failed run fully recoverable with zero new downloads. New regression test: `test_cli_ingest_all_recovers_a_fetch_succeeded_record_failed_run_without_redownloading` (`test_ingest_all.py`).
+4. *A giornata not yet rated is a third workbook shape.* See Task 7's own corrections section (Ruling R9); the fix rides with this task's commit for the same reason as R8a.
+
+The recovery live run (after R7/R8a/R8b/R9) confirmed all four: schema migrated to version 2 in place; the second `ingest all` attempt made zero new requests to the voti endpoint (the raw voti count never moved off 117); `load_serie_a` correctly filtered the real two-giornata page; and `voti-21-03.xlsx` (season 21, giornata 3, not yet rated) was counted and reported instead of raising `VotiShapeError`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5032,6 +5320,6 @@ git commit -m "feat(kb): team profiles with validated front-matter, the fanta-kb
 
 **Placeholder scan:** no `TBD`, `TODO`, "implement later", "add validation", "handle edge cases", "similar to Task N"; every code step carries its code, and the one step that is not code (Task 9, Step 8, the bootstrap research) names its inputs, its template, and the two commands that prove it done. Task 6's Step 4 tells the executor exactly which constants to reconcile in Task 7 and where.
 
-**Type consistency:** `RawStore.write(kind, payload, *, label=None, fetched_at=None)` / `write_bytes(kind, data, *, ext, label=None, fetched_at=None)` / `list(kind, *, ext="json", label=None)`; `fetch_bytes(http, url, *, method, headers, params, data)`; `Matcher(candidates, aliases).match(name, teams)`; `resolve_team(name, teams, aliases)`; `Aliases.players_for/teams_for`; `record_advanced(con, season_id, rows, raw, *, candidates, teams, aliases)`; `record_fixtures(con, competition, season_id, rows, raws, *, teams, team_aliases)`; `record_voti(con, season_id, giornata, workbook, raw, *, known_ids)`; `fetch_voti_range(http, store, *, cookie, season_id, giornate, existing, refetch)`; `current_season_id(path)`, `default_seasons(*, back, path)`, `existing_giornate(path, seasons)`; `fetch_everything(api, http, store, *, seasons, cookie, existing_voti, league)` / `record_everything(con, fetched, aliases_path)`; `run_doctor(paths, *, now)` returning the seventeen `NAMES`; `load_profile(path)` / `load_profiles(kb_dir)` — used with the same names and signatures in every task that touches them. The `SEASON_OPTION` / `COMPETITION_OPTION` / `GIORNATA_OPTION` singletons are defined once (Tasks 4, 5, 7) and shared.
+**Type consistency:** `RawStore.write(kind, payload, *, label=None, fetched_at=None)` / `write_bytes(kind, data, *, ext, label=None, fetched_at=None)` / `list(kind, *, ext="json", label=None)`; `fetch_bytes(http, url, *, method, headers, params, data)`; `Matcher(candidates, aliases).match(name, teams)`; `resolve_team(name, teams, aliases)`; `Aliases.players_for/teams_for`; `record_advanced(con, season_id, rows, raw, *, candidates, teams, aliases, force=False)` (Ruling R11 adds `force`; `rematch_advanced_seasons(con, store, seasons, aliases_path)` is the zero-network caller behind `ingest advanced --rematch` — see Task 4's corrections); `record_fixtures(con, competition, season_id, rows, raws, *, teams, team_aliases)`; `record_voti(con, season_id, giornata, workbook, raw, *, known_ids)`; `fetch_voti_range(http, store, *, cookie, season_id, giornate, existing, refetch)`; `current_season_id(path)`, `default_seasons(*, back, path)`, `existing_giornate(store, seasons)` (Ruling R8b: reads the raw store, not the database), `ensure_schema(path=None) -> int | None` (Ruling R7, Finding F2: a no-op when the database file does not exist); `fetch_everything(api, http, store, *, seasons, cookie, existing_voti, league)` / `record_everything(con, store, fetched, aliases_path)`; `run_doctor(paths, *, now)` returning the sixteen `NAMES` (Task 9 adds `kb_profiles` as the seventeenth); `load_profile(path)` / `load_profiles(kb_dir)` — used with the same names and signatures in every task that touches them. The `SEASON_OPTION` / `COMPETITION_OPTION` / `GIORNATA_OPTION` singletons are defined once (Tasks 4, 5, 7) and shared.
 
 **Dry run:** every code block of Tasks 1–5 and 7–9 was placed into the tree from this document by a script on 2026-08-28, ruff-fixed and run (Task 7 against a synthetic workbook in the assumed layout, since the real capture is Task 6's): all tests pass except `test_committed_profiles_load`, which the bootstrap in Task 9 turns green. The per-task counts in the "Expected" lines are the measured ones.

@@ -137,17 +137,40 @@ class AdvancedIngestResult:
 
 def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[AdvancedRow],
                     raw: RawFile, *, candidates: list[Candidate], teams: dict[str, str],
-                    aliases: Aliases) -> AdvancedIngestResult:
-    """Append one snapshot per distinct raw file; the same bytes twice is a no-op.
+                    aliases: Aliases, force: bool = False) -> AdvancedIngestResult:
+    """One snapshot per distinct raw file; the same bytes twice is a no-op,
+    *unless* `force` -- which re-derives that same snapshot's matches in
+    place, rather than appending a second one.
 
-    Matching happens here, at record time, against the *current* listone: a
-    re-record after the listone moved (a January transfer) re-matches from the
-    same immutable file -- which is what "rebuildable from raw" means.
+    Matching happens here, at record time, against the candidates and
+    aliases passed in -- but only the first time a given raw file's content
+    is recorded: the `sha256` short-circuit below means a later alias
+    (Ruling R11, "the dedupe short-circuit contradicts its own documented
+    contract") or a listone that has since moved does **not** get a chance
+    to re-match the same bytes through the ordinary `ingest advanced` path,
+    and never will on its own for a back season, whose Understat content
+    stops changing once the season is over -- the current season eventually
+    self-heals only because Understat's bytes keep moving week to week.
+
+    `force=True` (CLI: `ingest advanced --rematch`) skips the short-circuit
+    and re-runs the matcher against the same immutable file -- but
+    `advanced_snapshots.sha256` is `UNIQUE`, so a second row for identical
+    content is not just redundant, it is a constraint violation: the schema
+    ties one snapshot to one payload, deliberately. So a forced re-match
+    updates the *existing* snapshot's derived `matched`/`ambiguous`/
+    `unmatched` counts and replaces its `advanced_stats` rows in place,
+    rather than inserting a new snapshot_id -- the raw file's identity
+    (snapshot_id, sha256, fetched_at, raw_path) is untouched, since nothing
+    about which bytes were fetched, or when, has changed; only the
+    (re-derivable, not immutable) join onto the listone is refreshed. This
+    is the only way to make an alias or a listone change apply to a raw
+    payload already on disk without a new fetch, and without a schema
+    change to loosen the `UNIQUE` constraint (out of scope for Ruling R11).
     """
     existing = con.execute(
         "SELECT snapshot_id, matched, ambiguous, unmatched FROM advanced_snapshots WHERE sha256 = ?",
         [raw.sha256]).fetchone()
-    if existing is not None:
+    if existing is not None and not force:
         alias_count = con.execute(
             "SELECT count(*) FROM advanced_stats WHERE snapshot_id = ? AND match_status = 'alias'",
             [existing[0]]).fetchone()[0]
@@ -180,11 +203,20 @@ def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[A
                         r.xg_chain, r.xg_buildup, r.position, json.dumps(r.raw, ensure_ascii=False)])
     con.begin()
     try:
-        snapshot_id = con.execute(
-            "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, row_count, "
-            "matched, ambiguous, unmatched) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING snapshot_id",
-            [season_id, to_db(raw.fetched_at), SOURCE, str(raw.path), raw.sha256, len(rows),
-             counts["matched"], counts["ambiguous"], counts["unmatched"]]).fetchone()[0]
+        if existing is not None:
+            # force=True, re-deriving in place: same snapshot_id, sha256,
+            # fetched_at and raw_path -- only the join is refreshed.
+            snapshot_id = existing[0]
+            con.execute(
+                "UPDATE advanced_snapshots SET matched = ?, ambiguous = ?, unmatched = ? WHERE snapshot_id = ?",
+                [counts["matched"], counts["ambiguous"], counts["unmatched"], snapshot_id])
+            con.execute("DELETE FROM advanced_stats WHERE snapshot_id = ?", [snapshot_id])
+        else:
+            snapshot_id = con.execute(
+                "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, row_count, "
+                "matched, ambiguous, unmatched) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING snapshot_id",
+                [season_id, to_db(raw.fetched_at), SOURCE, str(raw.path), raw.sha256, len(rows),
+                 counts["matched"], counts["ambiguous"], counts["unmatched"]]).fetchone()[0]
         for record in records:
             record[0] = snapshot_id
         con.executemany(

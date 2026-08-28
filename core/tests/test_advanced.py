@@ -109,6 +109,48 @@ def test_record_advanced_matches_flags_and_dedupes(db, tmp_path, fixture_json):
     assert db.execute("SELECT goals FROM v_advanced_current WHERE source_id = '7006'").fetchone()[0] == 18
 
 
+def test_record_advanced_force_re_matches_the_same_file(db, tmp_path, fixture_json):
+    """Ruling R11: record_advanced's sha256 short-circuit means a later
+    alias never gets a chance to re-match the same raw content -- force=True
+    (ingest advanced --rematch's mechanism) must skip it and re-derive the
+    match, and a plain re-record (force=False, the default) must stay a
+    no-op even after that -- it dedupes on the same sha256 either way.
+
+    advanced_snapshots.sha256 is UNIQUE, so a forced re-match cannot append
+    a second snapshot for identical content (a real DB constraint, not just
+    the Python-level short-circuit) -- it re-derives the *same* snapshot_id's
+    matched/ambiguous/unmatched counts and advanced_stats rows in place. The
+    raw file's own identity (snapshot_id, sha256, fetched_at, raw_path) does
+    not change; only the join onto the listone does."""
+    _listone(db, tmp_path, fixture_json)
+    store = RawStore(tmp_path / "raw")
+    raw = store.write("advanced", fixture_json("understat_sample"), label="20")
+    season_id, rows = load_advanced(raw.path)
+    no_alias = Aliases()
+    first = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
+                            teams=load_teams(db), aliases=no_alias)
+    assert first.snapshot_id == 1 and not first.skipped_duplicate
+    assert db.execute("SELECT player_id FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()[0] is None
+
+    still_a_noop = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
+                                   teams=load_teams(db), aliases=no_alias, force=False)
+    assert still_a_noop.skipped_duplicate and still_a_noop.snapshot_id == 1
+    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+
+    # An alias added *after* the first recording: force=True is the only way
+    # to make it apply to the same, already-recorded raw file.
+    aliased = Aliases(players={"understat": {"Josep Martínez": 2764}})
+    forced = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
+                             teams=load_teams(db), aliases=aliased, force=True)
+    assert not forced.skipped_duplicate and forced.snapshot_id == 1            # same snapshot, re-derived in place
+    assert forced.alias == 1                                                   # the one alias added above
+    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1   # not a new row: UNIQUE(sha256)
+    assert db.execute("SELECT count(*) FROM advanced_stats").fetchone()[0] == 10      # replaced in place, not appended
+    current = db.execute(
+        "SELECT player_id, match_status FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()
+    assert current == (2764, "alias")
+
+
 @respx.mock
 async def test_fetch_advanced_posts_the_form_and_wraps_the_payload(tmp_path, fixture_json):
     payload = fixture_json("understat_sample")["payload"]
@@ -190,8 +232,133 @@ def test_cli_ingest_advanced(monkeypatch, tmp_path, fixture_json, mcp_fixture_js
     assert failed.exit_code == ExitCode.ERROR and "503" in failed.stderr
 
 
+@respx.mock
+def test_cli_ingest_advanced_rematch_re_derives_without_any_network_call(monkeypatch, tmp_path, fixture_json,
+                                                                        mcp_fixture_json):
+    """Ruling R11: --rematch must apply a newly-added alias to a season's
+    raw file already on disk, with zero network -- this is the plan's Step 8
+    recovery ("add an understat: alias and re-run ingest advanced once")
+    actually working, including for a back season whose Understat content
+    will never change again on its own."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    aliases_file = tmp_path / "kb" / "rules" / "aliases.yml"
+    aliases_file.parent.mkdir(parents=True)
+    aliases_file.write_text("understat: {}\nunderstat_teams:\n  AC Milan: Milan\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _listone(con, tmp_path, fixture_json)
+    _league(con, mcp_fixture_json)
+    con.close()
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json=fixture_json("understat_sample")["payload"]))
+
+    async def no_pause(seconds=None):
+        pass
+
+    monkeypatch.setattr("fantaclaude.commands.ingest.polite_pause", no_pause)
+    first = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20", "--json"])
+    assert first.exit_code == ExitCode.OK, first.output
+    before = json.loads(first.stdout)["advanced"][0]
+    assert before["ambiguous"] == 1 and before["alias"] == 0                  # Josep Martínez: no alias yet
+    assert route.call_count == 1
+
+    # The alias is added *after* the season is already recorded -- the
+    # scenario the plan's Step 8 recovery describes.
+    aliases_file.write_text("understat:\n  Josep Martínez: 2764\nunderstat_teams:\n  AC Milan: Milan\n")
+
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20", "--rematch", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert route.call_count == 1                                              # zero new network calls
+    after = json.loads(result.stdout)["advanced"][0]
+    assert after["ambiguous"] == 0 and after["alias"] == 1 and after["skipped_duplicate"] is False
+    assert after["snapshot_id"] == before["snapshot_id"]                       # re-derived in place, not a new one
+
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+    current = con.execute(
+        "SELECT player_id, match_status FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()
+    assert current == (2764, "alias")
+    con.close()
+
+
+def test_cli_ingest_advanced_rematch_without_a_raw_file_is_not_ready(monkeypatch, tmp_path, fixture_json,
+                                                                     mcp_fixture_json):
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _listone(con, tmp_path, fixture_json)
+    _league(con, mcp_fixture_json)
+    con.close()
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20", "--rematch"])
+    assert result.exit_code == ExitCode.NOT_READY and "no advanced/20 raw file" in result.stderr
+
+
+def test_cli_ingest_advanced_rematch_creates_no_phantom_database(monkeypatch, tmp_path):
+    """Regression: the --rematch branch re-opened Finding F2's phantom
+    database -- connect() there is read-write and creates the file before
+    rematch_advanced_seasons ever gets a chance to raise NotReady for a
+    workspace that has no database (and so no season to rematch) at all."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20", "--rematch"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
+
+
+def test_cli_ingest_advanced_rematch_wraps_a_malformed_aliases_file(monkeypatch, tmp_path, fixture_json,
+                                                                    mcp_fixture_json):
+    """Regression: --rematch ran outside _source_errors(), so a malformed
+    kb/rules/aliases.yml (AliasError, a ValueError) escaped as a traceback
+    instead of the exit-1 "source shape unexpected" message every other
+    command gives it -- and hand-editing that file is the only reason to
+    run --rematch."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.raw import RawStore
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _listone(con, tmp_path, fixture_json)
+    _league(con, mcp_fixture_json)
+    con.close()
+    RawStore(tmp_path / "data" / "raw").write(
+        "advanced", {"season_id": 20, "understat_season": 2025, "payload": fixture_json("understat_sample")["payload"]},
+        label="20")
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: [1, 2]\n")     # valid YAML, but not a mapping -> AliasError
+
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20", "--rematch"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "source shape unexpected" in result.stderr and "understat must be a mapping" in result.stderr
+    assert (tmp_path / "data" / "fanta.duckdb").is_file()             # the already-seeded db is untouched, not phantom
+
+
 def test_cli_ingest_advanced_without_a_database_is_not_ready(monkeypatch, tmp_path):
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
     result = CliRunner().invoke(app, ["ingest", "advanced"])
     assert result.exit_code == ExitCode.NOT_READY and "sync-league" in result.stderr
     assert not (tmp_path / "data" / "fanta.duckdb").exists()
+
+
+@respx.mock
+def test_cli_ingest_advanced_with_explicit_season_creates_no_phantom_database(monkeypatch, tmp_path):
+    """Finding F2: --season bypasses _seasons_or_exit's database check --
+    it short-circuits to list(season) without ever calling current_season_id,
+    so ensure_schema() is the only thing standing between a fresh workspace
+    and a phantom database. connect(path) read-write creates the file; if
+    ensure_schema() called it unconditionally, a failed fetch here would
+    leave a fully-schema'd, empty database behind -- the same contract
+    test_a_failed_ingest_leaves_no_database_behind protects for `ingest listone`."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    respx.post(URL).mock(return_value=httpx.Response(503, text="down"))
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"

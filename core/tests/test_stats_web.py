@@ -1,3 +1,4 @@
+import io
 import json
 from decimal import Decimal
 
@@ -6,16 +7,18 @@ import openpyxl
 import pytest
 import respx
 from fantaclaude.cli.app import ExitCode, app
-from fantaclaude.commands.ingest import existing_giornate
+from fantaclaude.commands.ingest import existing_giornate, record_voti_files
 from fantaclaude.ingest.http import NotPublished, WebSessionExpired
 from fantaclaude.ingest.listone_api import load_listone, record_listone
 from fantaclaude.ingest.raw import RawStore
 from fantaclaude.ingest.stats_web import (
     VOTES_URL,
     VOTI_HEADER,
+    VotiFetch,
     VotiShapeError,
     fetch_voti,
     fetch_voti_range,
+    is_not_yet_rated_workbook,
     parse_voti,
     parse_voto,
     record_voti,
@@ -43,6 +46,11 @@ def sample_bytes(fixture_file):
 @pytest.fixture
 def placeholder_bytes(fixture_file):
     return fixture_file("voti_placeholder.xlsx").read_bytes()
+
+
+@pytest.fixture
+def not_yet_rated_bytes(fixture_file):
+    return fixture_file("voti_not_yet_rated.xlsx").read_bytes()
 
 
 def test_parse_voto_conventions():
@@ -98,6 +106,81 @@ def test_parse_voti_fails_loud_on_layout_drift(tmp_path, fixture_file):
         parse_voti(path)
 
 
+def test_is_not_yet_rated_workbook_is_narrow(tmp_path, not_yet_rated_bytes):
+    """Ruling R9: the not-yet-rated shell is matched exactly against the
+    fixed title-and-disclaimer block -- one stray row beyond it, in any
+    sheet, and it is not the shell any more. parse_voti must still fail
+    loud on that near miss, the same as any other genuine layout change."""
+    shell = tmp_path / "shell.xlsx"
+    shell.write_bytes(not_yet_rated_bytes)
+    assert is_not_yet_rated_workbook(shell)
+
+    wb = openpyxl.load_workbook(shell)
+    wb["Fantacalcio"].append(["something unexpected"])
+    near_miss = tmp_path / "near_miss.xlsx"
+    wb.save(near_miss)
+    assert not is_not_yet_rated_workbook(near_miss)
+    with pytest.raises(VotiShapeError, match="no sheet"):
+        parse_voti(near_miss)
+
+
+def test_is_not_yet_rated_workbook_rejects_a_workbook_with_no_sheets(tmp_path, monkeypatch):
+    """Finding F10: a workbook with zero worksheets must not be classified as
+    "not yet rated" -- the for loop over an empty worksheets list never
+    runs, so the old code fell through to `return True` for any malformed
+    file that happens to have no sheets at all. openpyxl refuses to *save* a
+    workbook with no visible sheet (IndexError), so a truly empty one is
+    only reachable via a corrupted or hand-crafted file -- simulated here by
+    stubbing load_workbook rather than fighting that save-time guard."""
+    class _NoSheets:
+        worksheets: tuple = ()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("fantaclaude.ingest.stats_web.openpyxl.load_workbook", lambda *a, **k: _NoSheets())
+    path = tmp_path / "no_sheets.xlsx"
+    path.write_bytes(b"not a real workbook, load_workbook is stubbed above")
+    assert not is_not_yet_rated_workbook(path)
+
+
+def test_record_voti_files_counts_an_on_disk_shell_without_raising(db, tmp_path, not_yet_rated_bytes):
+    """Ruling R9: a not-yet-rated workbook already on disk (fetched before
+    this ruling existed, or refetched and still unrated) must be counted
+    and reported by record_voti_files, never raised past it and never
+    written to voti_files -- the same "fetched but unrecorded" divergence
+    Ruling R8b closed, for a different cause. A near miss on the same disk
+    must still raise, so the narrow match holds at the integration level too."""
+    store = RawStore(tmp_path / "raw")
+    store.write_bytes("voti", not_yet_rated_bytes, ext="xlsx", label="21-03")
+    fetched = {21: VotiFetch(raws={}, skipped=[3], not_published_from=None)}
+    results, not_yet_rated = record_voti_files(db, store, fetched, [3])
+    assert results == [] and not_yet_rated == {21: [3]}
+    assert db.execute("SELECT count(*) FROM voti_files").fetchone()[0] == 0
+
+    wb = openpyxl.load_workbook(io.BytesIO(not_yet_rated_bytes))
+    wb["Fantacalcio"].append(["something unexpected"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    store.write_bytes("voti", buf.getvalue(), ext="xlsx", label="21-04")
+    with pytest.raises(VotiShapeError, match="no sheet"):
+        record_voti_files(db, store, {21: VotiFetch(raws={}, skipped=[3, 4], not_published_from=None)}, [3, 4])
+
+
+def test_existing_giornate_excludes_a_not_yet_rated_shell(tmp_path, sample_bytes, not_yet_rated_bytes):
+    """Finding F3: existing_giornate must not count a not-yet-rated shell as
+    "already on disk" -- fetch_voti_range treats existing_giornate's set as
+    "do not re-download," so counting the shell would permanently suppress
+    that giornata once the site actually rates it: nothing would ever ask
+    for it again. record_voti_files (a separate call, on _voti_on_disk
+    directly) still sees it and keeps reporting it as not-yet-rated."""
+    store = RawStore(tmp_path / "raw")
+    store.write_bytes("voti", sample_bytes, ext="xlsx", label="21-01")
+    store.write_bytes("voti", sample_bytes, ext="xlsx", label="21-02")
+    store.write_bytes("voti", not_yet_rated_bytes, ext="xlsx", label="21-03")
+    assert existing_giornate(store, [21]) == {21: {1, 2}}                 # not 3
+
+
 def _known(db, tmp_path, fixture_json) -> set[int]:
     raw = RawStore(tmp_path / "raw").write("listone", fixture_json("listone_sample"))
     record_listone(db, load_listone(raw.path), raw)
@@ -148,7 +231,7 @@ def test_record_voti_and_the_views(db, tmp_path, fixture_json, sample_bytes, fix
 
 
 @respx.mock
-async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample_bytes, placeholder_bytes):
+async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample_bytes, placeholder_bytes, not_yet_rated_bytes):
     url = VOTES_URL.format(season_id=21, giornata=1)
     route = respx.get(url).mock(return_value=httpx.Response(200, content=sample_bytes))
     async with httpx.AsyncClient() as http:
@@ -171,6 +254,14 @@ async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample
     # not a 404 -- fetch_voti must treat it as NotPublished too, and write nothing.
     before = list((tmp_path / "raw" / "voti").glob("*.xlsx"))
     respx.get(url).mock(return_value=httpx.Response(200, content=placeholder_bytes))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(NotPublished):
+            await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=1)
+    assert list((tmp_path / "raw" / "voti").glob("*.xlsx")) == before
+    # Ruling R9: a giornata that is on the calendar but has not been rated
+    # yet answers 200 with the title-and-disclaimer shell, not the
+    # placeholder above -- also NotPublished, also nothing written.
+    respx.get(url).mock(return_value=httpx.Response(200, content=not_yet_rated_bytes))
     async with httpx.AsyncClient() as http:
         with pytest.raises(NotPublished):
             await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=1)
@@ -244,7 +335,7 @@ def test_cli_ingest_stats_web(monkeypatch, tmp_path, fixture_json, mcp_fixture_j
     assert [(f["season_id"], f["giornata"], f["skipped_duplicate"]) for f in payload["files"]] == [(21, 1, False), (21, 2, False)]
     assert payload["skipped"] == {"21": []} and payload["not_published_from"] == {"21": 3}
     assert len(list((tmp_path / "data" / "raw" / "voti").glob("*-voti-21-*.xlsx"))) == 2
-    assert existing_giornate(tmp_path / "data" / "fanta.duckdb", [21]) == {21: {1, 2}}
+    assert existing_giornate(RawStore(tmp_path / "data" / "raw"), [21]) == {21: {1, 2}}
 
     again = CliRunner().invoke(app, ["ingest", "stats-web", "--season", "21"])
     assert again.exit_code == ExitCode.OK and "skipped 1-2" in again.stdout and "not published from 3" in again.stdout

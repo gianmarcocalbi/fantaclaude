@@ -1,5 +1,9 @@
 """One-shot: build voti_sample.xlsx from captured/voti-21-01.xlsx (giornata 1, 2026-27),
-and voti_placeholder.xlsx from captured/voti-21-38.xlsx (the "not yet published" workbook).
+voti_placeholder.xlsx from captured/voti-21-38.xlsx (the "not yet published" 404-style
+placeholder), and voti_not_yet_rated.xlsx from captured/voti-21-03.xlsx (Ruling R9: a
+third, distinct "not published" shape -- a giornata that is on the calendar but has not
+been rated yet answers with the normal three sheet names and the normal title/disclaimer
+block, then nothing else at all: no club row, no header, no data).
 
 Run from the workspace root:  uv run python core/tests/fixtures/_extract_voti.py
 
@@ -22,6 +26,11 @@ The placeholder is copied verbatim: one sheet, one cell, the site's own
 "not yet published" text -- Ruling R4 of Task 7, since the site answers a
 200 with this workbook for a giornata that has not been played yet, not a
 404. Nothing to scrub there either.
+
+voti_not_yet_rated.xlsx is also copied verbatim: three sheets, four rows
+each (a title line naming the giornata, then the same three disclaimer
+lines every workbook carries), nothing else. Public boilerplate, nothing to
+scrub.
 """
 
 from pathlib import Path
@@ -33,6 +42,8 @@ CAPTURE = ROOT / "captured" / "voti-21-01.xlsx"
 OUT = Path(__file__).with_name("voti_sample.xlsx")
 PLACEHOLDER_CAPTURE = ROOT / "captured" / "voti-21-38.xlsx"
 PLACEHOLDER_OUT = Path(__file__).with_name("voti_placeholder.xlsx")
+NOT_YET_RATED_CAPTURE = ROOT / "captured" / "voti-21-03.xlsx"
+NOT_YET_RATED_OUT = Path(__file__).with_name("voti_not_yet_rated.xlsx")
 TEAMS = {"atalanta", "bologna"}
 HEADER_FIRST = "Cod."
 
@@ -80,6 +91,17 @@ def main() -> None:
     placeholder_out.save(PLACEHOLDER_OUT)
     print(f"wrote {len(placeholder_out.sheetnames)} sheet(s) {placeholder_out.sheetnames}, "
          f"{PLACEHOLDER_OUT.stat().st_size} bytes")
+
+    not_yet_rated = openpyxl.load_workbook(NOT_YET_RATED_CAPTURE, read_only=True, data_only=True)
+    not_yet_rated_out = openpyxl.Workbook()
+    not_yet_rated_out.remove(not_yet_rated_out.active)
+    for sheet in not_yet_rated.worksheets:
+        target = not_yet_rated_out.create_sheet(sheet.title)
+        for row in sheet.iter_rows(values_only=True):
+            target.append(list(row))
+    not_yet_rated_out.save(NOT_YET_RATED_OUT)
+    print(f"wrote {len(not_yet_rated_out.sheetnames)} sheet(s) {not_yet_rated_out.sheetnames}, "
+         f"{NOT_YET_RATED_OUT.stat().st_size} bytes")
 
 
 if __name__ == "__main__":

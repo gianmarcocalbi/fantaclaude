@@ -201,19 +201,37 @@ async def fetch_serie_a(http: httpx.AsyncClient, store: RawStore, *, season_id: 
     return raws
 
 
+_SA_LABEL = re.compile(r"-sa-(?P<season>\d+)-(?P<giornata>\d+)\.\w+$")
+
+
 def load_serie_a(paths: list[Path], *, season_id: int) -> list[FixtureRow]:
+    """Filter each page down to the giornata fetch_serie_a fetched it for.
+
+    Observed 2026-08-29: a page whose giornata has already been played also
+    advertises the next one (captured/calendario-2026-27-giornata-1.html
+    carries ten giornata-1 matches and ten giornata-2 preview pills) -- "one
+    page, one giornata" does not hold in general. Only "the giornata the page
+    was fetched for is on it" does, and that giornata is the file's own label
+    (fetch_serie_a writes "sa-<season>-<giornata>"), not something to infer
+    from the page's content. A page missing its own giornata is still a
+    genuine layout change and raises loud, same as before.
+    """
     rows: list[FixtureRow] = []
     seen: set[int] = set()
     for path in paths:
+        match = _SA_LABEL.search(path.name)
+        if not match or int(match.group("season")) != season_id:
+            raise CalendarShapeError(f"{path}: not a Serie A page written by fetch_serie_a")
+        requested = int(match.group("giornata"))
+        if requested in seen:
+            raise CalendarShapeError(f"{path}: giornata {requested} twice in one load")
+        seen.add(requested)
         page = parse_serie_a_page(path.read_text(encoding="utf-8"), season_id=season_id)
-        giornate = {r.giornata for r in page}
-        if len(giornate) != 1:
-            raise CalendarShapeError(f"{path}: one page must be one giornata, found {sorted(giornate)}")
-        giornata = giornate.pop()
-        if giornata in seen:
-            raise CalendarShapeError(f"{path}: giornata {giornata} twice in one load")
-        seen.add(giornata)
-        rows.extend(page)
+        wanted = [row for row in page if row.giornata == requested]
+        if not wanted:
+            raise CalendarShapeError(
+                f"{path}: giornata {requested} is not on its own page -- found {sorted({r.giornata for r in page})}")
+        rows.extend(wanted)
     return rows
 
 

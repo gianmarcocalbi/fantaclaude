@@ -97,6 +97,51 @@ def _is_not_published_placeholder(data: bytes) -> bool:
         workbook.close()
 
 
+# Ruling R9 (Task 8): a giornata on the calendar that has not been rated yet
+# is a third shape, distinct from both the placeholder above and a genuine
+# voti export -- observed 2026-08-29, captured/voti-21-03.xlsx (season 21's
+# giornata 3, two rounds into a season whose auction has not happened yet).
+# Every sheet carries only the title-and-disclaimer block every workbook
+# opens with, and then nothing else: no club row, no header, no player row.
+# Matched narrowly, exactly against that fixed block: any extra row, in any
+# sheet -- a header, a club, a player, or anything unrecognised -- and this
+# is not it, so parse_voti's "no sheet carries the voti table" keeps failing
+# loud on a genuine layout change instead of this silently swallowing it.
+NOT_RATED_TITLE_PREFIX = "Voti "
+NOT_RATED_DISCLAIMER = ("Solo su www.fantacalcio.it i voti ufficiali per la tua lega",
+                        "QUESTO FILE NON PUO' ESSERE RIPRODOTTO NE' PUBBLICATO SU ALTRI SITI INTERNET",
+                        "E' DA CONSIDERARSI AD USO PERSONALE ESCLUSIVO DEGLI ISCRITTI DI FANTACALCIO.IT")
+
+
+def _is_not_yet_rated(data: bytes) -> bool:
+    """True when every sheet is exactly the title line plus the three fixed
+    disclaimer lines, and nothing else -- see the ruling above."""
+    workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        if not workbook.worksheets:
+            return False        # Finding F10: no sheets is a malformed file, never "not yet rated"
+        for sheet in workbook.worksheets:
+            rows = [[cell for cell in row if not _blank(cell)] for row in sheet.iter_rows(values_only=True)]
+            if len(rows) != 1 + len(NOT_RATED_DISCLAIMER):
+                return False
+            title, *disclaimer = rows
+            if len(title) != 1 or not str(title[0]).startswith(NOT_RATED_TITLE_PREFIX):
+                return False
+            if [d[0] if len(d) == 1 else None for d in disclaimer] != list(NOT_RATED_DISCLAIMER):
+                return False
+        return True
+    finally:
+        workbook.close()
+
+
+def is_not_yet_rated_workbook(path: Path) -> bool:
+    """The record-time twin of `_is_not_yet_rated`, for a file already on
+    disk -- a workbook fetched before this ruling existed, or refetched
+    after the site answered this shape again, is not re-derived from a live
+    request, so this reads the same bytes back off `path`."""
+    return _is_not_yet_rated(path.read_bytes())
+
+
 @dataclass(frozen=True)
 class VotoRow:
     sheet: str
@@ -251,6 +296,13 @@ async def fetch_voti(http: httpx.AsyncClient, store: RawStore, *, cookie: str, s
         # Ruling R4: an unplayed giornata answers 200 with the placeholder
         # workbook, not a 404 -- treat it the same, and store nothing.
         raise NotPublished(f"{url} -> HTTP 200 but the placeholder workbook (not yet published)",
+                           url=url, status=200)
+    if _is_not_yet_rated(data):
+        # Ruling R9: a giornata on the calendar that has not been rated yet
+        # answers 200 with the title-and-disclaimer shell, not the
+        # placeholder above -- treat it the same way: not published, store
+        # nothing.
+        raise NotPublished(f"{url} -> HTTP 200 but the not-yet-rated shell (no header, no rows)",
                            url=url, status=200)
     return store.write_bytes("voti", data, ext="xlsx", label=f"{season_id}-{giornata:02d}")
 

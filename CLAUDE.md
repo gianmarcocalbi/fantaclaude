@@ -56,6 +56,9 @@ default that says otherwise.
   `@`-shaped string, no `eyJhbGci` JWT prefix — never on the literal value. A
   scanner that embeds the secret it scans for commits that secret.
 - Email addresses must never reach a tool result.
+- `FANTACALCIO_WEB_COOKIE` in `.env` is the fantacalcio.it website session. It
+  is copied from a browser, never obtained by code, and no command may print
+  it — `doctor` says "set", nothing more.
 
 ## Credentials and the live API
 
@@ -84,3 +87,11 @@ needed, never repeatedly "to check". Everything else in the CLI is local.
 local-state captures the test fixtures were extracted from; regenerate a
 fixture with its `_extract*.py` script, never by hand. `data/` is gitignored
 and rebuildable from `data/raw/`.
+
+`fantaclaude ingest advanced|calendar|stats-web` read public web hosts. They
+are polite by construction (one request at a time, a pause between pages, no
+retries) and must stay so: never add a retry loop, never run them "to check",
+and never fetch during the auction. The golden fixtures under
+`core/tests/fixtures/` are extracted from files in `captured/` by the
+`_extract_*.py` scripts; when a source changes shape, capture again and
+regenerate — never edit a fixture by hand.
