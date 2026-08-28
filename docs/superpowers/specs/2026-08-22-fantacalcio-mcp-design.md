@@ -146,16 +146,19 @@ This league is Mantra: `lega.tipo = 2`, `leghe[].tipo_gioco = 2`,
 | 8 | Ds | 66 | 14 | T | 58 |
 | 9 | Dc | 108 | 15 | A | 53 |
 | 10 | E | 93 | 16 | Pc | 58 |
-| 11 | M | 68 | 19 | **unidentified** | 12 |
+| 11 | M | 68 | 19 | B | 12 |
 
 Derived by cross-tabulating each code against `fcrle` and checking known
 players (Svilar `Por`, Bastoni `Dc`, Lautaro/Hojlund `Pc`, Calhanoglu `M/C`,
 Dimarco `E/T`, Pulisic `W/A`).
 
-**Code 19 is deliberately unnamed.** All 12 holders are full-backs and always
-carry exactly three roles (`[19,Ds,E]`, `[19,Dd,E]`, `[19,Dd,Ds]`). A
-both-flanks marker is plausible but unobserved, so it stays raw under the
-naming rule.
+**Code 19 is `B` (braccetto), confirmed 2026-08-24.** All 12 holders are
+full-backs carrying exactly three roles (`[19,Ds,E]`, `[19,Dd,E]`, `[19,Dd,Ds]`);
+Carlos Augusto (`id` 5877, `marle` `[19, 8, 10]`) renders on his public
+fantacalcio.it page as the badges `B` "Braccetto", `Ds`, `E` — the observation the
+naming rule requires. The regolamento's role legend lists `B` among the defensive
+roles, and the official module table uses it in every back-three scheme's third
+slot (`Dc/B`).
 
 **266 of 539 players hold more than one Mantra role**, so role is an assignment
 against a module slot, not a player property — an `E/T` fills one or the other,
@@ -277,6 +280,14 @@ JWTs keyed by league alias. A file, not memory — stdio servers are spawned and
 killed constantly by the client, and in-memory caching would mean a login
 round-trip on every Claude Code restart. `exp` is checked before every use, so
 an expired token triggers a proactive re-login rather than a failed call.
+
+**Cross-process:** the cache is shared by every process that imports this
+module (the MCP server and the `fantaclaude` CLI). A `flock` sidecar
+(`tokens.json.lock`) is held around every login-and-write, the cache is
+re-read once the lock is held so the loser of a race uses the winner's token,
+and `login-attempt.json` records the last attempt (kind, time, error type) so
+the cooldown and the never-retry rule for `ATH018` hold across processes, not
+per instance.
 
 **Failure handling:** a `401`/`403` triggers exactly one re-login and one
 retry, then fails with the server's own error message. No retry loop — repeated

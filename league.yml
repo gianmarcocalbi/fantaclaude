@@ -1,0 +1,27 @@
+# league.yml -- only what the league API cannot express. Never override what
+# it can: a key that duplicates an API value must agree with it, or
+# `fantaclaude sync-league` fails loud (exit 4). Every leaf carries
+# value / source / verified_on (an ISO date); `note` is optional.
+auction:
+  platform:
+    value: FantaAstaLive
+    source: admin
+    verified_on: 2026-08-23
+  mode:
+    value: unknown        # draft | rilanci -- ask the admin when asking for the session code
+    source: admin
+    verified_on: 2026-08-24
+    note: FantaAstaLive offers DRAFT and A RILANCI; the admin has not said which
+  date:
+    value: 2026-09-05
+    source: admin
+    verified_on: 2026-08-22
+    note: approximate
+roster:
+  min_goalkeepers:
+    value: 2
+    source: admin
+    verified_on: 2026-08-24
+    note: stated verbally; equals the API's minrl[0], and the cross-check keeps it that way
+# nick -> participant dossier, filled by `fanta-kb interview` (Phase 1)
+participants: {}

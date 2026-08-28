@@ -8,7 +8,7 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 EXPECTED = {
     "profile", "league_profile", "league_status", "competitions", "my_team",
     "teams", "roster_settings", "lineup_settings", "calculation_settings",
-    "participants", "invitees", "server_time", "login",
+    "participants", "invitees", "server_time", "login", "players",
 }
 
 
@@ -62,3 +62,11 @@ def test_login_fixture_carries_league_tokens(fixture_json):
     data = fixture_json("login")["data"]
     assert data["leghe"], "login fixture must contain at least one league"
     assert {"alias", "jwt", "id", "id_squadra"} <= set(data["leghe"][0])
+
+
+def test_players_fixture_carries_confirmed_fields(fixture_json):
+    rows = fixture_json("players")["players"]
+    assert len(rows) == 3
+    for row in rows:
+        assert {"id", "name", "tname", "tid", "fcrle", "marle", "icsma", "acsma"} <= set(row)
+    assert any(19 in row["marle"] for row in rows), "the B (code 19) case must be represented"

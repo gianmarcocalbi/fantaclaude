@@ -68,3 +68,19 @@ person's account.
 - `ATH018` is a bad-password configuration error and must never be retried.
 - Do not run `mcp/fantacalcio/scripts/smoke.py` casually; each run authenticates
   against the live service.
+
+## Workspace and tests
+
+The repository is a uv workspace: `core/` (package `fantaclaude`) and
+`mcp/fantacalcio/` (package `fantacalcio_mcp`) share one `uv.lock` and one
+`.venv` at the root. `uv run poe test` runs both suites; neither touches the
+network.
+
+`fantaclaude sync-league` and `fantaclaude ingest …` call the live league API
+with the real account — the same rule as `smoke.py`: run once when data is
+needed, never repeatedly "to check". Everything else in the CLI is local.
+
+`captured/` (gitignored) holds the 2026-08-23 listone and FantaAstaLive
+local-state captures the test fixtures were extracted from; regenerate a
+fixture with its `_extract*.py` script, never by hand. `data/` is gitignored
+and rebuildable from `data/raw/`.

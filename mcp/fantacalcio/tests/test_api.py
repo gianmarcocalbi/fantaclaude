@@ -556,3 +556,13 @@ async def test_recovery_cooldown_expires_and_allows_a_later_recovery(tmp_path,
             with pytest.raises((ApiError, AuthError)):
                 await api.server_time()
     assert login_route.call_count == 3   # window elapsed: one more recovery allowed
+
+
+async def test_players_hits_the_listone_endpoint_with_league_token(api, fixture_json, valid_token):
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.get("/onboarding/v1/league/players").mock(
+            return_value=httpx.Response(200, json=fixture_json("players")))
+        payload = await api.players()
+    assert route.called
+    assert route.calls[0].request.headers["Authorization"] == f"Bearer {valid_token}"
+    assert [p["id"] for p in payload["players"]] == [3, 254, 5877]

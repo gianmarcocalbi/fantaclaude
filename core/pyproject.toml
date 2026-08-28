@@ -1,0 +1,30 @@
+[project]
+name = "fantaclaude"
+version = "0.1.0"
+description = "Fantacalcio Mantra assistant: data spine, valuation, auction copilot"
+requires-python = ">=3.14.7"
+dependencies = [
+    "duckdb>=1.5.5",
+    "typer>=0.27.1",
+    "pyyaml>=6.0.3",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "fantacalcio-mcp",
+]
+
+[project.scripts]
+fantaclaude = "fantaclaude.cli.app:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+fantacalcio-mcp = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

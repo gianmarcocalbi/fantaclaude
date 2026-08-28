@@ -1,0 +1,182 @@
+{
+ "players": [
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 21,
+   "fvmfc": 1,
+   "fvmma": 1,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 387733,
+   "bmcsh": 0,
+   "id": 3,
+   "fcrle": 1,
+   "icsfc": 1,
+   "icsma": 1,
+   "acsfc": 1,
+   "acsma": 1,
+   "age": 30,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    6
+   ],
+   "name": "Radunovic",
+   "tname": "Cagliari",
+   "stnme": "CAG",
+   "leag": "ITA",
+   "naty": "Serbia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 133,
+   "fvmma": 133,
+   "mspv": 1,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 369570,
+   "bmcsh": 1,
+   "id": 254,
+   "fcrle": 2,
+   "icsfc": 32,
+   "icsma": 30,
+   "acsfc": 32,
+   "acsma": 30,
+   "age": 29,
+   "agrd": 6.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    10,
+    14
+   ],
+   "name": "Dimarco",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Italia",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    6.0
+   ],
+   "l5frfc": [
+    6.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  },
+  {
+   "lid": 21,
+   "trnsf": 0,
+   "trsfd": 0,
+   "quotd": 1,
+   "tid": 9,
+   "fvmfc": 14,
+   "fvmma": 15,
+   "mspv": 0,
+   "mspvi": 0,
+   "mspva": 0,
+   "wid": 1032200,
+   "bmcsh": 0,
+   "id": 5877,
+   "fcrle": 2,
+   "icsfc": 7,
+   "icsma": 8,
+   "acsfc": 7,
+   "acsma": 8,
+   "age": 27,
+   "agrd": 0.0,
+   "fagrd": 0.0,
+   "aagr": 0.0,
+   "faagr": 0.0,
+   "agit": 0.0,
+   "fagit": 0.0,
+   "marle": [
+    19,
+    8,
+    10
+   ],
+   "name": "Carlos Augusto",
+   "tname": "Inter",
+   "stnme": "INT",
+   "leag": "ITA",
+   "naty": "Brasile",
+   "shtnu": "0",
+   "vers": "v=692",
+   "l5sub": [
+    ""
+   ],
+   "l5rfc": [
+    56.0
+   ],
+   "l5frfc": [
+    0.0
+   ],
+   "l5rit": [
+    56.0
+   ],
+   "l5frit": [
+    0.0
+   ],
+   "l5ral": [
+    56.0
+   ],
+   "l5fral": [
+    0.0
+   ]
+  }
+ ],
+ "timestamp": 1787517550778
+}

@@ -1,0 +1,9 @@
+# preferences.yml -- the user's computation-affecting choices. Versioned in
+# git because they feed model_hash: a preference that changes a number cannot
+# live somewhere unversioned. Read by Phase 1 (valuation); Phase 0a only
+# checks that it parses.
+risk_appetite: balanced              # cautious | balanced | aggressive
+max_budget_share_per_role: {}        # e.g. {Pc: 0.35}
+excluded_clubs: []
+target_composition:                  # a starting point the optimiser may depart from
+  Por: 2
