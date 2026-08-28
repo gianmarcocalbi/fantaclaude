@@ -57,3 +57,20 @@ def test_query_returns_rows_and_refuses_writes(monkeypatch, tmp_path, fixture_js
 
     plain = runner.invoke(app, ["query", "--sql", "SELECT count(*) AS n FROM v_players_current"])
     assert plain.exit_code == ExitCode.OK and "17" in plain.stdout
+
+
+def test_unavailable_database_is_reported_not_raised(monkeypatch, tmp_path, fixture_json):
+    """A writer holds the handle for the whole of sync-league's HTTP fetch. A
+    reader arriving in that window must be told to retry, not handed a
+    traceback on the exit code reserved for "this crashed"."""
+    _seeded_workspace(monkeypatch, tmp_path, fixture_json)
+    holder = connect(tmp_path / "data" / "fanta.duckdb")   # read-write, as a writer would
+    try:
+        runner = CliRunner()
+        for argv in (["query", "--json", "--sql", "select 1"], ["schema", "--json"]):
+            result = runner.invoke(app, argv)
+            assert result.exit_code == ExitCode.NOT_READY, (argv, result.output)
+            assert result.stdout == "", argv
+            assert "database" in result.stderr.lower(), argv
+    finally:
+        holder.close()

@@ -111,6 +111,19 @@ def _database_checks(path: Path, now: datetime) -> list[Check]:
             checks.append(Check("listone", False, "no snapshot -- run `fantaclaude ingest listone`"))
         else:
             checks.append(Check("listone", True, f"{row[1]} players, {_age(row[0], now)}"))
+    except duckdb.Error as exc:
+        # The file can exist and still not carry the schema: connect() creates
+        # it before apply_schema runs, and the DDL is applied statement by
+        # statement without a transaction, so an interrupted first sync-league
+        # leaves exactly this state. Report the checks that did not run rather
+        # than raising out of doctor -- the eleven names are a contract.
+        done = {c.name for c in checks}
+        for name in ("database", "extensions", "league_settings", "listone"):
+            if name in done:
+                continue
+            detail = (f"database at {path} is unusable: {exc}" if name == "database"
+                      else "skipped: database unusable")
+            checks.append(Check(name, False, detail))
     finally:
         con.close()
     return checks

@@ -72,6 +72,21 @@ def test_expired_token_cache_is_flagged(tmp_path, fixture_json, mcp_fixture_json
     assert not checks["token_cache"].ok and "expired" in checks["token_cache"].detail
 
 
+def test_schema_less_database_is_reported_not_raised(tmp_path):
+    """connect() creates the file before apply_schema runs and the DDL is not
+    transactional, so an interrupted first sync-league leaves a valid DuckDB
+    file with no schema. doctor must report that, not raise out of every check."""
+    import duckdb
+
+    (tmp_path / "data").mkdir()
+    duckdb.connect(str(tmp_path / "data" / "fanta.duckdb")).close()
+    checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
+    assert [c.name for c in checks] == NAMES
+    by = {c.name: c for c in checks}
+    assert not by["database"].ok and not by["extensions"].ok
+    assert not by["league_settings"].ok and not by["listone"].ok
+
+
 def test_doctor_cli_exit_codes(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
     result = CliRunner().invoke(app, ["doctor", "--json"])

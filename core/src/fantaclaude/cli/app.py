@@ -158,6 +158,8 @@ def ingest_all_cmd(
 
 
 def _open_read_only():
+    import duckdb
+
     from fantaclaude.db.connection import DatabaseMissing, connect
 
     try:
@@ -165,6 +167,13 @@ def _open_read_only():
     except DatabaseMissing as exc:
         typer.echo(f"no database at {exc} -- run `fantaclaude sync-league` or "
                    f"`fantaclaude ingest listone` first", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    except duckdb.Error as exc:
+        # A writer holds the file for the duration of its work. "Not ready" is
+        # the honest answer -- exit 1 means "this crashed", and a caller that
+        # cannot tell a transient lock from a bug will retry the wrong thing.
+        typer.echo(f"database is not available right now (a writer may hold it): {exc}",
+                   err=True)
         raise typer.Exit(code=ExitCode.NOT_READY)
 
 
