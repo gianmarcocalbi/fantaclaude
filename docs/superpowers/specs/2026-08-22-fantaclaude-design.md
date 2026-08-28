@@ -609,7 +609,7 @@ downstream knows where data came from.
 | adapter | source | status |
 | --- | --- | --- |
 | `listone_api` | `/onboarding/v1/league/players` through `fantacalcio_mcp.api` — Classic role, Mantra role codes, Classic and Mantra quotazioni | Phase 0a |
-| `stats_web` | fantacalcio.it voti and quotazioni XLSX (`/api/v1/Excel/votes\|prices/<season>/<giornata>`, behind the **website** login) | Phase 0b — see backfill note |
+| `stats_web` | fantacalcio.it voti XLSX, `/api/v1/Excel/votes/<season>/<giornata>`, sent the **website** cookie from .env | Phase 0b |
 | `advanced` | FBref / Understat xG, xA, minutes per 90 | Phase 0b |
 | `calendar` | Serie A fixtures **plus European midweek ties per team** | Phase 0b |
 | `news` | probabili formazioni, infortuni, squalifiche | Phase 3 |
@@ -1518,16 +1518,43 @@ often than to bad models.
    said (two goalkeepers mandatory, composition otherwise free — confirmed verbally
    on 2026-08-24)? Both are answerable before the rehearsal, and both now matter more
    than they did: with manual entry removed, no session code means no live board.
-5. **Are per-giornata voti available as XLSX? Mostly answered 2026-08-24.** They
+5. **~~Are per-giornata voti available as XLSX?~~ Resolved 2026-08-29.** They
    are: the voti page links `fantacalcio.it/api/v1/Excel/votes/<season>/<giornata>`,
    and the quotazioni page `…/api/v1/Excel/prices/<season>/<giornata>`, so
    `stats_web` should be an authenticated XLSX download rather than an HTML scraper.
    Both answer `401` without a session for every season probed (17 through 21), so
    the download needs the **fantacalcio.it website login** — a different session
    from the league API's `apileague` token, and one more credential to keep in
-   `.env`. What remains is a check only the account holder can run: log in on the
-   site and confirm the three back seasons (18, 19, 20) are served rather than
-   gated to the current one.
+   `.env`. The session is carried by two cookies, `fantacalcio.it` and
+   `client.fantacalcio.it` (both host-only on `www.fantacalcio.it`), alongside
+   load-balancer stickiness (`AWSALB`/`AWSALBCORS`) and a run of consent/analytics
+   cookies that carry no session; the pair lasts about a week (observed expiry
+   2026-09-04, roughly seven days after capture), so the capture has to be
+   repeated on that cadence. The cookie header is captured from a browser by the
+   account holder and pasted into `.env` as `FANTACALCIO_WEB_COOKIE` — code
+   sends it and never obtains it; there is no login code in this repo. All three
+   seasons probed answered `200 … xlsx`: the current season (21, 2026-27) and
+   two of the three back seasons spot-checked, 20 (2025-26) and 18 (2023-24) —
+   so the back catalogue is served, not gated to the current season. A giornata
+   not yet played (21/38, the season's last) also answers `200`, not `404`:
+   the body is a one-sheet placeholder workbook whose only cell reads "File
+   ancora non disponibile. Riprova più tardi" rather than a voti table — an
+   adapter has to detect this by shape, not by status code. Every real workbook
+   carries three sheets in the same order — `Fantacalcio`, `Statistico`,
+   `Italia`, one per voto source — each laid out identically: four title and
+   disclaimer rows, then the header row on row 6,
+   `Cod., Ruolo, Nome, Voto, Gf, Gs, Rp, Rs, Rf, Au, Amm, Esp, Ass`, then player
+   rows grouped under club blocks, each opened by a row carrying only the club
+   name (every other cell blank); a senza-voto reads `6*`. `Cod.` is the
+   fantacalcio.it player id, and it is the join key `stats_web` relies on to
+   land in the current listone: 92% of giornata 1 2026-27's codes match, against
+   67% for 2025-26 and 41% for 2023-24 — falling off as expected, since players
+   leave Serie A over the intervening seasons. Recorded 2026-08-28: the voti
+   HTML page (`/voti-fantacalcio-serie-a/<season>/<giornata>`) is public — no
+   session required — and carries the same data keyed by the fantacalcio.it
+   player id, with `55` as its senza-voto sentinel; the spec's original
+   "premium HTML" premise for that page was wrong, but it stands as the
+   fallback source should the XLSX export ever be withdrawn.
 6. **~~Is there a player-database endpoint?~~ Resolved 2026-08-23.** Yes:
    `/onboarding/v1/league/players`, mapped in the MCP spec ("The listone") — Classic
    role, Mantra role codes and separate Mantra quotazioni. It is Phase 0a's listone
