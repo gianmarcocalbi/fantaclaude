@@ -5,7 +5,7 @@ import json
 
 from conftest import FIXTURE_DIR
 
-SECRET_KEYS = {"parola", "password", "token", "jwt", "email", "app_key"}
+SECRET_KEYS = {"parola", "password", "token", "jwt", "email", "app_key", "cookie"}
 
 
 def _keys_at_any_depth(value) -> set[str]:
@@ -22,7 +22,8 @@ def _keys_at_any_depth(value) -> set[str]:
 
 
 def test_expected_fixtures_exist():
-    assert (FIXTURE_DIR / "listone_sample.json").is_file()
+    for name in ("listone_sample.json", "understat_sample.json"):
+        assert (FIXTURE_DIR / name).is_file(), name
 
 
 def test_fixtures_contain_no_secrets():

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import contextmanager
 from enum import IntEnum
 
 import typer
@@ -167,8 +168,91 @@ def ingest_all_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
 ) -> None:
-    """Refresh every source (only the listone in Phase 0a)."""
+    """Refresh every source (listone; advanced, calendar and stats-web join in Task 8)."""
     _run_ingest(["all"], json_, league)
+
+
+# Module-level singletons for list-valued options: ruff's B008 exempts only
+# immutable annotations, and `list[int] | None` is not one.
+SEASON_OPTION = typer.Option(
+    None, "--season", help="Season id(s), e.g. 20; default: the current season and the three before it.")
+
+
+@contextmanager
+def _source_errors():
+    """Map the web sources' errors to the exit-code contract.
+
+    An expired website session is "not ready" (3): the fix is a new cookie,
+    not a bug. Anything else a source does wrong is an error (1).
+    """
+    from fantaclaude.ingest.http import SourceError, WebSessionExpired
+
+    try:
+        yield
+    except WebSessionExpired as exc:
+        typer.echo(f"website session rejected: {exc} -- re-capture FANTACALCIO_WEB_COOKIE "
+                   f"(core/README.md, 'The website session')", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    except SourceError as exc:
+        typer.echo(f"source failed: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+
+
+def _seasons_or_exit(season: list[int] | None) -> list[int]:
+    from fantaclaude.commands.ingest import NotReady, default_seasons
+
+    try:
+        return list(season) if season else default_seasons()
+    except NotReady as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+
+
+def _render_advanced(payload: dict) -> str:
+    lines = []
+    for r in payload["advanced"]:
+        if r["skipped_duplicate"]:
+            lines.append(f"advanced {r['season_id']}: duplicate of snapshot {r['snapshot_id']} -- nothing new "
+                         f"({r['matched']} matched, {r['ambiguous']} ambiguous, {r['unmatched']} unmatched)")
+            continue
+        lines.append(f"advanced {r['season_id']}: snapshot {r['snapshot_id']}, {r['inserted']} rows -- "
+                     f"{r['matched']} matched, {r['alias']} alias, {r['ambiguous']} ambiguous, "
+                     f"{r['unmatched']} unmatched ({r['raw_path']})")
+        for a in r["ambiguous_names"]:
+            options = ", ".join(f"{c['player_id']} {c['name']}" for c in a["candidates"])
+            lines.append(f"  ambiguous: {a['name']} ({', '.join(a['teams'])}) -> {options}")
+        if r["unresolved_teams"]:
+            lines.append(f"  clubs not in the listone: {', '.join(r['unresolved_teams'])}")
+    return "\n".join(lines)
+
+
+@ingest_app.command("advanced")
+def ingest_advanced_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    season: list[int] | None = SEASON_OPTION,
+) -> None:
+    """Understat season totals (games, minutes, xG, xA) for Serie A, matched onto the listone."""
+    from fantaclaude.commands.ingest import (
+        fetch_advanced_seasons,
+        record_advanced_seasons,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+
+    seasons = _seasons_or_exit(season)
+    store = RawStore(raw_dir())
+    with _source_errors():
+        raws = run_web(lambda http: fetch_advanced_seasons(http, store, seasons))
+    con = connect()
+    try:
+        apply_schema(con)
+        results = record_advanced_seasons(con, raws, aliases_path())
+    finally:
+        con.close()
+    emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
 
 
 def _open_read_only():

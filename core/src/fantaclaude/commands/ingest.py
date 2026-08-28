@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import duckdb
+import httpx
 from fantacalcio_mcp.api import FantacalcioAPI
 
+from fantaclaude.db.connection import DatabaseMissing, connect
+from fantaclaude.ingest.advanced import (
+    AdvancedIngestResult,
+    fetch_advanced,
+    load_advanced,
+    record_advanced,
+)
+from fantaclaude.ingest.http import polite_pause
 from fantaclaude.ingest.listone_api import (
     IngestResult,
     fetch_listone,
     load_listone,
     record_listone,
 )
+from fantaclaude.ingest.names import load_aliases, load_candidates, load_teams
 from fantaclaude.ingest.raw import RawFile, RawStore
+from fantaclaude.model.seasons import back_seasons
 
 
 async def fetch_all(api: FantacalcioAPI, store: RawStore, *,
@@ -42,3 +55,54 @@ async def ingest_all(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection, store:
                      league: str | None = None) -> dict[str, IngestResult]:
     # Phase 0b adds stats_web, calendar and advanced here.
     return {"listone": await ingest_listone(api, con, store, league=league)}
+
+
+class NotReady(RuntimeError):
+    """No database, or no league_settings snapshot: the season is unknown."""
+
+
+def current_season_id(path: Path | None = None) -> int:
+    """The season the league is in, from the latest league_settings snapshot.
+
+    Read-only and closed before returning: the caller fetches from the network
+    next and opens read-write only to record, so no lock spans a request.
+    """
+    try:
+        con = connect(path, read_only=True)
+    except DatabaseMissing:
+        raise NotReady("no database -- run `fantaclaude sync-league` first") from None
+    try:
+        row = con.execute("SELECT season_id FROM v_league_settings_current").fetchone()
+    finally:
+        con.close()
+    if row is None or row[0] is None:
+        raise NotReady("no league_settings snapshot -- run `fantaclaude sync-league` first")
+    return int(row[0])
+
+
+def default_seasons(*, back: int = 3, path: Path | None = None) -> list[int]:
+    """The current season and the `back` before it, oldest first."""
+    current = current_season_id(path)
+    return [*back_seasons(current, back), current]
+
+
+async def fetch_advanced_seasons(http: httpx.AsyncClient, store: RawStore,
+                                 seasons: list[int]) -> dict[int, RawFile]:
+    raws: dict[int, RawFile] = {}
+    for index, season_id in enumerate(seasons):
+        if index:
+            await polite_pause()
+        raws[season_id] = await fetch_advanced(http, store, season_id=season_id)
+    return raws
+
+
+def record_advanced_seasons(con: duckdb.DuckDBPyConnection, raws: dict[int, RawFile],
+                            aliases_path: Path) -> list[AdvancedIngestResult]:
+    aliases = load_aliases(aliases_path)
+    candidates, teams = load_candidates(con), load_teams(con)
+    results = []
+    for season_id in sorted(raws):
+        loaded_season, rows = load_advanced(raws[season_id].path)
+        results.append(record_advanced(con, loaded_season, rows, raws[season_id],
+                                       candidates=candidates, teams=teams, aliases=aliases))
+    return results
