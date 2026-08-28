@@ -58,14 +58,27 @@ async def fetch_snapshot(api: FantacalcioAPI, *, league: str | None = None) -> L
                                   lineup=lineup, calculate=calculate, teams=teams)
 
 
-async def sync_league(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection,
-                      league_yml: dict[str, Provenanced] | None, *,
-                      league: str | None = None,
-                      fetched_at: datetime | None = None) -> SyncReport:
-    """Fetch the rules, refuse loudly if league.yml disagrees with them,
-    otherwise append a snapshot when the rules hash moved."""
+async def prepare_sync(api: FantacalcioAPI, league_yml: dict[str, Provenanced] | None, *,
+                       league: str | None = None) -> tuple[LeagueSnapshot, list[Conflict]]:
+    """Everything that needs the network and nothing that needs the database.
+
+    Split out so a caller can hold the database open only for the write. The
+    fetch is six round-trips plus a possible login; DuckDB is single-writer, so
+    opening before this runs locks the file for the whole of it -- and creates
+    it, which makes an empty database indistinguishable from an unbuilt one.
+    """
     snap = await fetch_snapshot(api, league=league)
-    conflicts = cross_check(league_yml, snap) if league_yml else []
+    return snap, (cross_check(league_yml, snap) if league_yml else [])
+
+
+def apply_sync(con: duckdb.DuckDBPyConnection | None, snap: LeagueSnapshot,
+               conflicts: list[Conflict], *,
+               fetched_at: datetime | None = None) -> SyncReport:
+    """Record the snapshot, or report the conflict without touching the row.
+
+    `con` may be None when conflicts are present: a refusal records nothing, so
+    the caller need not have opened the database at all.
+    """
     if conflicts:
         return SyncReport(snap.league_id, snap.season_id, snap.team_count, snap.rules_hash,
                           changed=False, snapshot_id=None, previous_hash=None,
@@ -74,3 +87,18 @@ async def sync_league(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection,
     return SyncReport(snap.league_id, snap.season_id, snap.team_count, snap.rules_hash,
                       changed=result.changed, snapshot_id=result.snapshot_id,
                       previous_hash=result.previous_hash, diff=result.diff)
+
+
+async def sync_league(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection,
+                      league_yml: dict[str, Provenanced] | None, *,
+                      league: str | None = None,
+                      fetched_at: datetime | None = None) -> SyncReport:
+    """Fetch the rules, refuse loudly if league.yml disagrees with them,
+    otherwise append a snapshot when the rules hash moved.
+
+    For a caller that already owns a connection. The CLI composes
+    prepare_sync/apply_sync instead, so it opens the database only once there
+    is something to write.
+    """
+    snap, conflicts = await prepare_sync(api, league_yml, league=league)
+    return apply_sync(con, snap, conflicts, fetched_at=fetched_at)

@@ -49,3 +49,31 @@ def test_cli_sync_league_json_and_exit_codes(monkeypatch, tmp_path, fake_api):
     result = runner.invoke(app, ["sync-league"])
     assert result.exit_code == ExitCode.CONFLICT
     assert "budget" in result.stdout and "1000" in result.stdout and "500" in result.stdout
+
+
+def test_a_failed_fetch_leaves_no_database_behind(monkeypatch, tmp_path):
+    """The database must not exist until there is something to record. A file
+    created before the first network call survives the failure and then answers
+    "schema v1, 0 rows" -- so a skill can no longer tell "nothing ingested yet"
+    from "ingested and empty"."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+
+    def boom(fn):
+        raise RuntimeError("no credentials")
+
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", boom)
+    result = CliRunner().invoke(app, ["sync-league", "--json"])
+    assert result.exit_code != ExitCode.OK
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
+
+
+def test_a_league_yml_conflict_leaves_no_database_behind(monkeypatch, tmp_path, fake_api):
+    """Exit 4 records nothing -- including the file itself."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "league.yml").write_text(
+        "budget: {value: 1000, source: admin, verified_on: 2026-08-24}\n")
+    api = fake_api()
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = CliRunner().invoke(app, ["sync-league"])
+    assert result.exit_code == ExitCode.CONFLICT
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"

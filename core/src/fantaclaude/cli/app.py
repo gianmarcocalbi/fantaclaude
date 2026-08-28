@@ -81,19 +81,26 @@ def sync_league_cmd(
 ) -> None:
     """Refresh league_settings from the league API: profile, status, the three settings payloads and the team list."""
     from fantaclaude.api_client import run_with_api
-    from fantaclaude.commands.sync_league import sync_league
+    from fantaclaude.commands.sync_league import apply_sync, prepare_sync
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
     from fantaclaude.league.league_yml import load_league_yml
     from fantaclaude.paths import league_yml_path
 
     entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
-    con = connect()
-    try:
-        apply_schema(con)
-        report = run_with_api(lambda api: sync_league(api, con, entries, league=league))
-    finally:
-        con.close()
+    # Fetch before opening the database. connect() creates the file, and DuckDB
+    # is single-writer: opening first would hold the lock across six round-trips
+    # and leave an empty-but-valid database behind if any of them failed.
+    snap, conflicts = run_with_api(lambda api: prepare_sync(api, entries, league=league))
+    if conflicts:
+        report = apply_sync(None, snap, conflicts)
+    else:
+        con = connect()
+        try:
+            apply_schema(con)
+            report = apply_sync(con, snap, conflicts)
+        finally:
+            con.close()
     emit(report.to_dict(), json_=json_, render=_render_sync)
     if report.conflicts:
         raise typer.Exit(code=ExitCode.CONFLICT)
@@ -116,20 +123,27 @@ def _render_ingest(payload: dict) -> str:
 
 def _run_ingest(names: list[str], json_: bool, league: str | None) -> None:
     from fantaclaude.api_client import run_with_api
-    from fantaclaude.commands.ingest import ingest_all, ingest_listone
+    from fantaclaude.commands.ingest import fetch_all, record_all
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.listone_api import fetch_listone
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.paths import raw_dir
 
     store = RawStore(raw_dir())
+    # Fetch into data/raw/ first; open the database only to record. Same reason
+    # as sync-league: the write lock should not span the network call, and a
+    # failed first run must not leave an empty database that looks ingested.
+    if names == ["all"]:
+        raws = run_with_api(lambda api: fetch_all(api, store, league=league))
+    else:
+        # Only what was asked for: every fetch is a live call against a real
+        # account, so `ingest listone` must not pull the other sources too.
+        raws = {"listone": run_with_api(lambda api: fetch_listone(api, store, league=league))}
     con = connect()
     try:
         apply_schema(con)
-        if names == ["all"]:
-            results = run_with_api(lambda api: ingest_all(api, con, store, league=league))
-        else:
-            results = {"listone": run_with_api(lambda api: ingest_listone(api, con, store, league=league))}
+        results = record_all(con, raws)
     finally:
         con.close()
     payload = {name: r.to_dict() for name, r in results.items()}

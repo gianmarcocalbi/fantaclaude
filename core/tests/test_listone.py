@@ -132,3 +132,16 @@ def test_cli_ingest_listone_json(monkeypatch, tmp_path, fake_api, fixture_json):
     assert list((tmp_path / "data" / "raw" / "listone").glob("*-listone.json"))
     result = CliRunner().invoke(app, ["ingest", "all"])
     assert result.exit_code == ExitCode.OK and "listone" in result.stdout and "duplicate" in result.stdout
+
+
+def test_a_failed_ingest_leaves_no_database_behind(monkeypatch, tmp_path):
+    """Same contract as sync-league: no file until there is a snapshot."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+
+    def boom(fn):
+        raise RuntimeError("no credentials")
+
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", boom)
+    result = CliRunner().invoke(app, ["ingest", "listone"])
+    assert result.exit_code != ExitCode.OK
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
