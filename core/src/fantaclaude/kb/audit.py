@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,12 @@ def parse_front_matter(text: str) -> FrontMatter | None:
     if not isinstance(data, dict):
         raise FrontMatterError("front-matter is not a mapping")
     updated = data.get("updated")
+    # PyYAML yields a datetime for `2026-08-20T10:00:00`, and datetime is a
+    # date subclass -- so it passes the check below and then cannot be compared
+    # to the plain date the audit works in. Normalise rather than reject: the
+    # author meant a day, and a TTL is measured in days.
+    if isinstance(updated, datetime):
+        updated = updated.date()
     if updated is not None and not isinstance(updated, date):
         raise FrontMatterError("updated must be an ISO date")
     ttl = data.get("ttl")
@@ -88,7 +94,7 @@ def audit(kb_dir: Path, today: date) -> list[AuditEntry]:
                 entries.append(AuditEntry(rel, "invalid", f"missing {missing}"))
                 continue
             days = ttl_days(fm.ttl)
-        except (FrontMatterError, OSError, UnicodeDecodeError) as exc:
+        except (FrontMatterError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             entries.append(AuditEntry(rel, "invalid", str(exc)))
             continue
         detail = f"updated {fm.updated}, ttl {fm.ttl}"

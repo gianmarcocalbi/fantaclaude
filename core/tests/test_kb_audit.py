@@ -56,6 +56,31 @@ def test_audit_survives_an_unreadable_file(tmp_path):
     assert statuses["profile.md"] == "ok"
 
 
+def test_audit_survives_malformed_front_matter_yaml(tmp_path):
+    """A YAML syntax error is one document's problem, not the whole audit's."""
+    kb = tmp_path / "kb" / "rules"
+    kb.mkdir(parents=True)
+    (kb / "good.md").write_text(FM.format(updated="2026-08-20", ttl="30d", confidence="high", source="admin"))
+    (kb / "broken.md").write_text("---\nsource: [unclosed\nttl: 7d\nupdated: 2026-08-20\n---\n")
+    statuses = {e.path: e.status for e in audit(tmp_path / "kb", date(2026, 8, 28))}
+    assert statuses == {"rules/broken.md": "invalid", "rules/good.md": "ok"}
+
+
+def test_updated_as_a_datetime_is_normalised_not_fatal(tmp_path):
+    """PyYAML yields a datetime for `2026-08-20T10:00:00`, which is a `date`
+    subclass -- so it passes the type check and then cannot be compared to one."""
+    kb = tmp_path / "kb" / "rules"
+    kb.mkdir(parents=True)
+    (kb / "good.md").write_text(FM.format(updated="2026-08-20", ttl="30d", confidence="high", source="admin"))
+    (kb / "stamped.md").write_text(
+        FM.format(updated="2026-08-01T10:00:00", ttl="7d", confidence="high", source="admin"))
+    statuses = {e.path: e.status for e in audit(tmp_path / "kb", date(2026, 8, 28))}
+    assert statuses == {"rules/good.md": "ok", "rules/stamped.md": "expired"}
+    fm = parse_front_matter(FM.format(updated="2026-08-20T10:00:00", ttl="7d",
+                                      confidence="high", source="admin"))
+    assert fm.updated == date(2026, 8, 20) and type(fm.updated) is date
+
+
 def test_committed_tree_and_the_cli(monkeypatch, tmp_path):
     monkeypatch.delenv("FANTACALCIO_HOME", raising=False)
     from fantaclaude.paths import kb_dir
