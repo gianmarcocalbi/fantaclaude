@@ -10,6 +10,7 @@ import asyncio
 import base64
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import tempfile
@@ -108,6 +109,10 @@ class Auth:
         # and the MCP server both drive this class), and a stamp records the
         # last attempt so the cooldown holds for a process that was not the
         # one to try. See _cross_process_lock and _recent_shared_attempt.
+        # Tokens the server has already answered 401 to. The cache on disk can
+        # be older than memory when a write failed, so re-reading it under the
+        # lock could otherwise hand back a token we know is dead.
+        self._rejected_tokens: list[str] = []
         self._lock_path = cache_path.with_name(cache_path.name + ".lock")
         self._stamp_path = cache_path.with_name("login-attempt.json")
         self._http = http
@@ -219,6 +224,32 @@ class Auth:
         except OSError:
             pass
 
+    def _credential_id(self) -> str:
+        """A stable, non-reversible tag for the credentials in play.
+
+        The attempt stamp bounds *those* credentials: an ATH018 means this
+        password is wrong, not that logins are barred, so a corrected password
+        must not inherit the refusal. Hashed and truncated rather than stored
+        plainly -- FANTACALCIO_USERNAME is an email address for this service,
+        and an email must never reach a stored payload.
+        """
+        material = "\x00".join((self._credentials.username or "",
+                                 self._credentials.password or "",
+                                 self._credentials.token or ""))
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+    def _note_rejected(self, token: str | None) -> None:
+        if token and token not in self._rejected_tokens:
+            self._rejected_tokens.append(token)
+            del self._rejected_tokens[:-8]      # bounded; only the recent past matters
+
+    def _usable(self, token: str | None, failed_token: str | None) -> bool:
+        """A token worth returning: not the one that just failed, not one an
+        earlier 401 disproved, and not expired."""
+        return (token is not None and token != failed_token
+                and token not in self._rejected_tokens
+                and not _cache_token_expired(token))
+
     def _discard_stamp_file(self) -> None:
         try:
             self._stamp_path.unlink(missing_ok=True)
@@ -325,6 +356,9 @@ class Auth:
         # the delta to sit in [0, cooldown) rejects a future timestamp and
         # NaN alike (any comparison with NaN is False, so "not (...)"
         # returns None) instead of trusting either.
+        cred = data.get("cred")
+        if cred is not None and cred != self._credential_id():
+            return None      # another credential's attempt; says nothing about ours
         delta = time.time() - float(data["at"])
         if not (0.0 <= delta < self._login_cooldown_seconds):
             return None
@@ -347,6 +381,7 @@ class Auth:
             "kind": kind,
             "error_type": type(error).__name__ if error is not None else None,
             "message": str(error)[:500] if error is not None else None,
+            "cred": self._credential_id(),
         }).encode("utf-8")
         try:
             self._secure_cache_dir()
@@ -489,6 +524,12 @@ class Auth:
         login's exception type identically -- see `_maybe_login`'s
         docstring for why that matters.
         """
+        if not self._credentials.can_login:
+            # login() would refuse this before opening a socket. A local
+            # configuration fact is not a failed attempt: stamping it would
+            # arm a *network* cooldown -- for this process and every other --
+            # over a request that was never made.
+            await self.login()
         self._last_login_at = time.time()
         try:
             await self.login()
@@ -539,8 +580,12 @@ class Auth:
         """
         now = time.time()
         recent = self._recent_shared_attempt()
-        if recent is not None and recent[1] is not None:
-            raise recent[1]              # any recent failure, whatever its kind
+        if isinstance(recent[1] if recent else None, ConfigurationError):
+            # ATH018 is a permanent fact about the password: whichever kind of
+            # login found it, retrying now would just find it again. A
+            # transient failure (5xx, a dropped connection) says nothing about
+            # whether this 401 can be recovered, and must not bar the attempt.
+            raise recent[1]
         if ((self._last_recovery_login_at is not None
                 and now - self._last_recovery_login_at < self._login_cooldown_seconds)
                 or (recent is not None and recent[0] == "recovery")):
@@ -652,15 +697,14 @@ class Auth:
         them, not just the first, and not downgraded to something
         generic.
         """
+        self._note_rejected(failed_token)
         async with self._login_lock:
-            if (self._account_jwt is not None and self._account_jwt != failed_token
-                    and not _cache_token_expired(self._account_jwt)):
+            if self._usable(self._account_jwt, failed_token):
                 return self._account_jwt
 
             async with self._cross_process_lock():
                 self._load_cache()
-                if (self._account_jwt is not None and self._account_jwt != failed_token
-                        and not _cache_token_expired(self._account_jwt)):
+                if self._usable(self._account_jwt, failed_token):
                     return self._account_jwt     # another process already recovered
 
                 if self._recovery_attempted_for != failed_token:
@@ -733,6 +777,7 @@ class Auth:
         `AuthError`, instead of only the one waiter that happened to run
         the login noticing the ambiguity.
         """
+        self._note_rejected(failed_token)
         if self._credentials.token and not self._credentials.can_login:
             if is_expired(self._credentials.token):
                 raise AuthError(
@@ -750,15 +795,13 @@ class Auth:
             # otherwise a "fresher" token identical to failed_token would
             # look stale forever and every waiter would fall through to
             # recover.
-            if (current is not None and current.jwt != failed_token
-                    and not _cache_token_expired(current.jwt)):
+            if current is not None and self._usable(current.jwt, failed_token):
                 return current.jwt
 
             async with self._cross_process_lock():
                 self._load_cache()
                 current = self._pick(alias)
-                if (current is not None and current.jwt != failed_token
-                        and not _cache_token_expired(current.jwt)):
+                if current is not None and self._usable(current.jwt, failed_token):
                     return current.jwt           # another process already recovered
 
                 if self._recovery_attempted_for != failed_token:

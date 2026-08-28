@@ -623,7 +623,8 @@ async def test_failed_login_in_one_instance_holds_the_cooldown_for_another(tmp_p
     assert route.call_count == 1
     stamp_path = tmp_path / "login-attempt.json"
     stamp = json.loads(stamp_path.read_text())
-    assert set(stamp) == {"at", "kind", "error_type", "message"}
+    assert set(stamp) == {"at", "kind", "error_type", "message", "cred"}
+    assert "u" not in stamp["cred"] and len(stamp["cred"]) == 16   # hashed, not the username
     assert stamp["kind"] == "login" and stamp["error_type"] == "ConfigurationError"
     assert "eyJhbGci" not in stamp_path.read_text()
     assert stamp_path.stat().st_mode & 0o777 == 0o600
@@ -752,3 +753,83 @@ async def test_ordinary_login_honours_a_failed_recovery_stamp_from_another_proce
             with pytest.raises(ConfigurationError, match="ATH018"):
                 await auth.token_for()
     assert not route.called
+
+
+# ---- the stamp must bound only real, attributable network attempts --------
+# The cross-process stamp exists to stop two processes hammering /login. It
+# must not refuse a login that would plainly succeed: a different credential,
+# an attempt that never left the machine, or a recovery after a transient blip.
+
+
+async def test_a_corrected_password_is_not_blocked_by_the_previous_stamp(tmp_path, login_response):
+    """ATH018 means *those* credentials are bad, not that logins are barred."""
+    cache = tmp_path / "tokens.json"
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(return_value=httpx.Response(
+            400, json={"code": "ATH018", "message": "Invalid username or password"}))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            with pytest.raises(ConfigurationError, match="ATH018"):
+                await Auth(Credentials("u", "wrong"), cache, http, "K", BASE).token_for()
+            route.mock(return_value=httpx.Response(200, json=login_response))
+            token = await Auth(Credentials("u", "corrected"), cache, http, "K", BASE).token_for()
+    assert route.call_count == 2
+    assert decode_claims(token)["l_id"] == "2578630"
+
+
+async def test_a_local_preflight_failure_does_not_arm_the_cooldown(tmp_path, login_response):
+    """Token-only mode cannot log in; that error never reaches the server, so
+    it is a configuration fact about this process, not a failed attempt."""
+    cache = tmp_path / "tokens.json"
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(
+            return_value=httpx.Response(200, json=login_response))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            with pytest.raises(AuthError):
+                await Auth(Credentials(token=league_jwt()), cache, http, "K", BASE).account_token()
+            assert route.call_count == 0
+            assert not (tmp_path / "login-attempt.json").exists()
+            await Auth(Credentials("u", "p"), cache, http, "K", BASE).token_for()
+    assert route.call_count == 1
+
+
+async def test_recovery_is_not_blocked_by_a_transient_ordinary_failure(tmp_path, login_response):
+    """A 5xx says the server blinked, not that the password is wrong. Only a
+    ConfigurationError (ATH018) is a permanent fact worth propagating."""
+    cache = tmp_path / "tokens.json"
+    stale = league_jwt(exp_offset=3_600)       # valid, but a different string
+    cache.write_text(_cache_with(stale))
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/onboarding/v1/login").mock(
+            return_value=httpx.Response(503, text="upstream down"))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE)
+            with pytest.raises(AuthError):
+                await auth.account_token()
+            route.mock(return_value=httpx.Response(200, json=login_response))
+            recovered = await auth.refresh_if_stale(stale)
+    assert route.call_count == 2
+    assert recovered != stale
+
+
+async def test_recovery_never_returns_a_token_the_server_already_rejected(tmp_path, login_response):
+    """On a filesystem where the cache cannot be written, the fresh token lives
+    only in memory. Re-reading the cache under the lock must not hand back the
+    stale token a 401 already disproved."""
+    cache = tmp_path / "tokens.json"
+    rejected = league_jwt(exp_offset=3_600)    # valid, but a different string
+    cache.write_text(_cache_with(rejected))
+    with respx.mock(base_url=BASE) as mock:
+        mock.post("/onboarding/v1/login").mock(
+            return_value=httpx.Response(200, json=login_response))
+        async with httpx.AsyncClient(base_url=BASE) as http:
+            # a short cooldown so the recovery clock can lapse without sleeping
+            # the full 60 s -- this test is about token resurrection, not the
+            # cooldown, which test_recovery_cooldown_expires... already pins.
+            auth = Auth(Credentials("u", "p"), cache, http, "K", BASE, login_cooldown=0.05)
+            auth._save_cache = lambda: None            # read-only filesystem
+            auth._discard_cache_file = lambda: None
+            assert await auth.token_for() == rejected
+            fresh = await auth.refresh_if_stale(rejected)
+            assert fresh != rejected
+            await asyncio.sleep(0.06)                  # both cooldown clocks lapse
+            assert await auth.refresh_if_stale(fresh) != rejected
