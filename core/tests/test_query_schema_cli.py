@@ -2,7 +2,7 @@ import json
 
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.db.connection import connect
-from fantaclaude.db.schema import apply_schema
+from fantaclaude.db.schema import SCHEMA_VERSION, apply_schema
 from fantaclaude.ingest.listone_api import load_listone, record_listone
 from fantaclaude.ingest.raw import RawStore
 from typer.testing import CliRunner
@@ -32,7 +32,7 @@ def test_schema_lists_views_and_row_counts(monkeypatch, tmp_path, fixture_json):
     payload = json.loads(result.stdout)
     by = {t["name"]: t for t in payload["tables"]}
     assert by["players"]["rows"] == 17 and by["v_players_current"]["kind"] == "view"
-    assert payload["version"] == 1
+    assert payload["version"] == SCHEMA_VERSION
     plain = CliRunner().invoke(app, ["schema"])
     assert "view v_players_current" in plain.stdout
 
