@@ -41,3 +41,7 @@ def league_yml_path() -> Path:
 
 def preferences_yml_path() -> Path:
     return workspace_root() / "preferences.yml"
+
+
+def aliases_path() -> Path:
+    return kb_dir() / "rules" / "aliases.yml"

@@ -1,6 +1,6 @@
 """Immutable, dated raw files: what every adapter's fetch() writes.
 
-data/raw/<kind>/<UTC stamp>-<kind>.json, created O_EXCL so nothing is ever
+data/raw/<kind>/<UTC stamp>-<kind>[-<label>].<ext>, created O_EXCL so nothing is ever
 overwritten, fsynced, and hashed -- the spine is rebuildable from these.
 """
 
@@ -29,13 +29,25 @@ class RawStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def write(self, kind: str, payload: Any, *, fetched_at: datetime | None = None) -> RawFile:
+    def write(self, kind: str, payload: Any, *, label: str | None = None,
+              fetched_at: datetime | None = None) -> RawFile:
+        data = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=1).encode("utf-8")
+        return self.write_bytes(kind, data, ext="json", label=label, fetched_at=fetched_at)
+
+    def write_bytes(self, kind: str, data: bytes, *, ext: str, label: str | None = None,
+                    fetched_at: datetime | None = None) -> RawFile:
+        """data/raw/<kind>/<UTC stamp>-<kind>[-<label>].<ext>, O_EXCL and fsynced.
+
+        `label` names what the file is *of* -- a season, a giornata, a page --
+        so a directory listing reads without opening anything; the stamp keeps
+        two fetches of the same thing apart.
+        """
         fetched_at = fetched_at or utc_now()
         folder = self.root / kind
         folder.mkdir(parents=True, exist_ok=True)
         stamp = fetched_at.strftime("%Y%m%dT%H%M%S%fZ")    # microseconds keep two writes apart
-        path = folder / f"{stamp}-{kind}.json"
-        data = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=1).encode("utf-8")
+        suffix = f"-{label}" if label else ""
+        path = folder / f"{stamp}-{kind}{suffix}.{ext}"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
@@ -43,9 +55,11 @@ class RawStore:
             os.fsync(fh.fileno())
         return RawFile(path, hashlib.sha256(data).hexdigest(), fetched_at, kind)
 
-    def list(self, kind: str) -> list[Path]:
+    def list(self, kind: str, *, ext: str = "json", label: str | None = None) -> list[Path]:
+        """Every file of `kind` and `ext`, or only those of one `label`."""
         folder = self.root / kind
-        return sorted(folder.glob(f"*-{kind}.json")) if folder.is_dir() else []
+        pattern = f"*-{kind}-{label}.{ext}" if label else f"*-{kind}*.{ext}"
+        return sorted(folder.glob(pattern)) if folder.is_dir() else []
 
     @staticmethod
     def sha256_of(path: Path) -> str:
