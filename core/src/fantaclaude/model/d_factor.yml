@@ -1,0 +1,25 @@
+# The Mantra D-Factor table -- LEAGUE DATA, not a constant.
+#
+# fantacalcio.it's Mantra regolamento (https://www.fantacalcio.it/regolamenti/sistema-mantra,
+# read 2026-08-29) defines the mechanism -- the five best voti among Dc, B, Dd,
+# Ds, E, M with at least three true defenders (Dc, B, Dd, Ds), optionally the
+# goalkeeper as a sixth ("5+1"), averaged and mapped to points -- but publishes
+# no thresholds: the leghe-private regolamento says the platform "proposes the
+# most common version" and lets each league customise the output. The table
+# is therefore read off THIS league's settings page (Leghe > la lega >
+# Impostazioni > Calcolo > Modificatori/D-Factor) by the account holder, once
+# the admin activates it, and transcribed here with the date. Until then it
+# is empty, and `fantaclaude rank` refuses to run while the D-Factor is
+# active (settings/calculate.smodd non-null) and this list is empty.
+#
+# Shape when filled (the numbers below are NOT the league's -- illustrative only):
+#   bands:
+#     - {min: 7.0, points: 6}     # average voto >= 7.0 -> +6
+#     - {min: 6.5, points: 3}
+#   with_goalkeeper: false        # true for the "5+1" variant
+#   source: "Leghe > Impostazioni > Calcolo > D-Factor"
+#   verified_on: 2026-09-01
+source: null
+verified_on: null
+with_goalkeeper: false
+bands: []
