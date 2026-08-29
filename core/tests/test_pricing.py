@@ -1,3 +1,4 @@
+import json
 import time
 
 import numpy as np
@@ -109,6 +110,8 @@ def test_excluding_a_player_raises_everyone_else_at_his_class_and_removes_him():
     assert dc[0].player_id not in after.prices
     for p in dc[1:]:
         assert after.prices[p.player_id].band.p50 >= before.prices[p.player_id].band.p50
+    # weakly for the class, strictly for the man who inherits his slot: without the best Dc the second is worth more
+    assert after.prices[dc[1].player_id].band.p50 > before.prices[dc[1].player_id].band.p50
     assert all(after.prices[p.player_id].band.p50 >= 0 for p in pool if p.role_class != "Dc")
 
 
@@ -155,10 +158,18 @@ def test_a_budget_share_caps_a_class():
 
 
 def test_the_reserve_keeps_one_credit_per_unfilled_slot():
-    board = price_board(state(roster_min=23), CFG)
-    bought = sum(board.composition.values())
-    assert board.reserve == max(0, 23 - bought) and board.budget == 500 - board.reserve
-    assert all(p.band.p75 <= board.budget for p in board.prices.values())
+    """Reserving credits shrinks the budget, which can buy fewer players,
+    which needs a larger reserve: the board is only coherent if the reserve
+    it prints covers the slots the completion it prints leaves unfilled."""
+    filled = price_board(state(roster_min=23), CFG)
+    assert filled.reserve == 0 and filled.budget == 500          # the completion already reaches the minimum
+    for roster_min in (25, 30, 35, 40):
+        board = price_board(state(roster_min=roster_min), CFG)
+        bought = sum(board.composition.values())
+        assert board.reserve > 0, roster_min                      # the completion falls short of the minimum
+        assert board.reserve >= roster_min - bought, (roster_min, board.reserve, bought)
+        assert board.budget == 500 - board.reserve
+        assert all(p.band.p75 <= board.budget for p in board.prices.values())
 
 
 def test_the_roster_maximum_binds_through_a_slot_price():
@@ -179,6 +190,21 @@ def test_a_pool_class_the_weights_do_not_know_is_refused():
     bad = small_pool() + (player(999, "Xy", 50, 3),)
     with pytest.raises(ValueError, match="Xy"):
         price_board(state(bad), CFG)
+
+
+def test_a_board_is_valid_json_even_where_a_branch_is_impossible():
+    """-inf is a real answer inside -- no completion exists without him, or
+    his class has no slot left -- and JSON has no such number, so a board
+    reports the impossible branch as null rather than -Infinity."""
+    saturated = price_board(state(owned=tuple(OwnedPlayer(i, "Por", 50.0) for i in range(CFG.max_goalkeepers))), CFG)
+    por = by_class(small_pool(), "Por")[0]
+    assert saturated.prices[por.player_id].buy_value == float("-inf")          # inside, the branch is impossible
+    d = json.loads(json.dumps(saturated.to_dict(), allow_nan=False))           # outside, it is null
+    assert d["prices"][str(por.player_id)]["buy_value"] is None
+    assert d["prices"][str(por.player_id)]["walk_value"] == saturated.completion_value
+    keeperless = price_board(state(tuple(p for p in small_pool() if p.role_class != "Por")), CFG)
+    assert keeperless.completion_value == float("-inf")                        # two goalkeepers are a hard minimum
+    assert json.loads(json.dumps(keeperless.to_dict(), allow_nan=False))["completion_value"] is None
 
 
 def test_explain_reads_back_the_trace():

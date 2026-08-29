@@ -32,13 +32,16 @@ departure from it is reported. A completion that cannot meet a hard
 minimum is worth -inf, which is what drives the last needed Dc's price to
 the credits available. A class budget share caps both what the completion
 may spend on the class and what any of its players may be priced at. One
-credit is reserved for every roster slot the completion leaves unfilled;
-when the completion would exceed the roster maximum, a slot price (the
-shadow price of a roster place, found by bisection) is charged per player
-until it fits, and reported.
+credit is reserved for every roster slot the completion leaves unfilled,
+iterated to the running maximum so the reserve and the completion it pays
+for agree; when the completion would exceed the roster maximum, a slot
+price (the shadow price of a roster place, found by bisection) is charged
+per player until it fits, and reported.
 
 Pure: no I/O, no clock, numpy inside, frozen dataclasses at the edges.
-Every tunable is in PricingConfig, loaded from pricing.yml elsewhere.
+Every tunable is in PricingConfig, loaded from pricing.yml elsewhere. A
+-inf inside is an impossible branch, and `to_dict` reports it as None so a
+board is valid JSON for whoever stores it.
 """
 
 from __future__ import annotations
@@ -52,6 +55,13 @@ import numpy as np
 
 NEG = -math.inf
 SLOT_PRICE_STEPS = 12
+
+
+def _json(x: float) -> float | None:
+    """-inf is a real answer inside (no completion exists, or no slot is left
+    for the class) and not a number JSON has: a board is written to a JSON
+    column, so `to_dict` reports the impossible branch as None."""
+    return x if math.isfinite(x) else None
 
 
 @dataclass(frozen=True)
@@ -132,7 +142,7 @@ class PlayerPrice:
     def to_dict(self) -> dict[str, Any]:
         return {"player_id": self.player_id, "role_class": self.role_class, "band": self.band.to_dict(),
                 "expected_price": self.expected_price, "rank_weight": self.rank_weight,
-                "walk_value": self.walk_value, "buy_value": self.buy_value, "exact": self.exact}
+                "walk_value": _json(self.walk_value), "buy_value": _json(self.buy_value), "exact": self.exact}
 
 
 @dataclass(frozen=True)
@@ -152,7 +162,7 @@ class BoardPricing:
         return {"prices": {str(k): v.to_dict() for k, v in self.prices.items()}, "inflation": self.inflation,
                 "expected_prices": {str(k): v for k, v in self.expected_prices.items()},
                 "composition": self.composition, "credits_by_class": self.credits_by_class,
-                "completion_value": self.completion_value, "reserve": self.reserve, "budget": self.budget,
+                "completion_value": _json(self.completion_value), "reserve": self.reserve, "budget": self.budget,
                 "slot_price": self.slot_price, "targets_departed": list(self.targets_departed)}
 
 
@@ -336,14 +346,16 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
         raise ValueError("credits cannot be negative")
     inflation, expected = _expected_prices(state, cfg)
     slots = max(0, state.roster_max - len(state.owned))
-    classes = _classes(state, cfg, expected, state.credits)
-    solution = _fit_roster(classes, state.credits, slots)
-    bought = sum(solution.composition.values())
-    reserve = min(state.credits, max(0, state.roster_min - len(state.owned) - bought))
-    budget = state.credits - reserve
-    if reserve:                     # the reserve is the free completion's shortfall; the completion inside the
-                                    # reduced budget may then buy a different number, and is what is reported
-        classes = _classes(state, cfg, expected, budget)
+    reserve, budget = 0, state.credits
+    classes = _classes(state, cfg, expected, budget)
+    solution = _fit_roster(classes, budget, slots)
+    while True:                     # the reserve and the completion it pays for have to agree: reserving credits
+        short = state.roster_min - len(state.owned) - sum(solution.composition.values())   # shrinks the budget,
+        need = min(state.credits, max(reserve, short))                    # which can buy fewer players, which
+        if need <= reserve:                                               # reserves more. Taking the running
+            break                                                         # maximum makes that non-decreasing and
+        reserve, budget = need, state.credits - need                      # bounded by roster_min, so it settles
+        classes = _classes(state, cfg, expected, budget)                  # (2-3 solves) instead of oscillating.
         solution = _fit_roster(classes, budget, slots)
     penalty = solution.penalty
     by_class = {c.name: c for c in classes}
