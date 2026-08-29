@@ -4279,8 +4279,43 @@ def test_record_run_writes_immutable_rows_and_the_views_follow(tmp_path, fixture
         assert again.run_id == result.run_id + "-2"                        # a second run in the same second is kept, not clobbered
         record_run(con, again)
         assert con.execute("SELECT run_id FROM v_valuations_current LIMIT 1").fetchone()[0] == again.run_id
+        # the superseded run is still there, whole: a second run appends, it never edits the first
+        assert con.execute("SELECT count(*) FROM valuations WHERE run_id = ?", [result.run_id]).fetchone()[0] == 17
+        assert con.execute("SELECT count(*) FROM valuation_runs").fetchone()[0] == 2
     finally:
         con.close()
+
+
+def test_excluded_clubs_refuses_rather_than_quietly_restamping_the_run(tmp_path, fixture_json, mcp_fixture_json):
+    """It is hashed into model_hash with the rest of preferences but excludes nobody:
+    honouring it silently would spend the reproducibility chain to buy nothing."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    with pytest.raises(PreferencesError, match="excluded_clubs"):
+        run(tmp_path, preferences={**PREFS, "excluded_clubs": ["Inter"]})
+    assert PREFS["excluded_clubs"] == []            # the shipped default, and it must still run
+    result, con = run(tmp_path)
+    con.close()
+    assert len(result.projections) == 17
+
+
+def test_a_filtered_run_records_the_scenarios_it_actually_ran(tmp_path, fixture_json, mcp_fixture_json):
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    prefs = {**PREFS, "scenarios": {"aggressive-attack": {"risk_appetite": "aggressive"},
+                                    "value-hunting": {"risk_appetite": "cautious"}}}
+    full, con = run(tmp_path, preferences=prefs)
+    con.close()
+    filtered, con = run(tmp_path, preferences=prefs, scenario_names=["value-hunting"])
+    con.close()
+    assert full.config["scenarios"] == ["balanced", "aggressive-attack", "value-hunting"] == list(full.boards)
+    assert filtered.config["scenarios"] == ["value-hunting"] and set(filtered.boards) == {"value-hunting"}
+    # the preferences that define all three are still recorded whole; only the model_hash
+    # must not move, so a filtered run stays comparable to a full one of the same model
+    assert filtered.config["preferences"] == full.config["preferences"]
+    assert filtered.model_hash == full.model_hash and filtered.inputs_hash == full.inputs_hash
+    # VOR, tiers and divergence are the pool's, not the filter's
+    assert filtered.vor == full.vor and filtered.tiers == full.tiers and filtered.implied == full.implied
+    with pytest.raises(PreferencesError, match="value-hunting"):
+        run(tmp_path, preferences=prefs, scenario_names=["no-such-plan"])
 
 
 def test_new_run_id_and_model_version():
@@ -4651,6 +4686,17 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
                              "bands -- transcribe the league's table first (Phase 1 plan, Task 10)")
     bm = BonusMalus.from_calculate(ctx.calculate)
     sheet = voto_sheet(ctx.calculate)
+    # excluded_clubs is hashed into model_hash with the rest of preferences, so a
+    # non-empty list would mint a new model_hash, a new run_id and an immutable run
+    # incomparable to every earlier one -- while still pricing every player of those
+    # clubs, because dropping them from the pool is price_board's `excluded`, which
+    # would leave board.prices no longer covering every projection. Refusing is the
+    # honest answer until Phase 2 wires it through the exports too.
+    excluded = preferences.get("excluded_clubs") or []
+    if excluded:
+        raise PreferencesError(f"preferences.yml: excluded_clubs {list(excluded)} is not honoured in Phase 1 -- it would "
+                               f"change model_hash without changing a single price. Leave it empty; club exclusion lands "
+                               f"with the live pool in Phase 2")
     scenarios = load_scenarios(preferences)
     if scenario_names:
         unknown = sorted(set(scenario_names) - {s.name for s in scenarios})
@@ -4686,8 +4732,13 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     replacement = replacement_levels(pool, reference.expected_prices, pricing_cfg)
     vor = {p.player_id: max(0.0, p.value_p50 - replacement[p.role_class]) for p in pool}
     hashes = (model_hash(projection_cfg, pricing_cfg, preferences, d_factor), inputs_hash(con, profiles=profiles, notes=notes))
+    # The scenarios actually run, beside the preferences that define them all: a
+    # filtered run priced one board, and its immutable config must say so rather than
+    # let preferences.scenarios imply three. It is deliberately not in model_hash --
+    # the model is the same, so a filtered run stays comparable to a full one.
     config = {"projection": projection_cfg.to_dict(), "pricing": pricing_cfg.to_dict(), "preferences": preferences,
-              "d_factor": d_factor.to_dict(), "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
+              "scenarios": [s.name for s in scenarios], "d_factor": d_factor.to_dict(),
+              "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
               "modifiers": status.to_dict()}
     summary = {"players": len(pool), "team_count": ctx.team_count, "budget": ctx.budget,
                "market_credits": ctx.team_count * ctx.budget, "giornate_played": history.giornate_played,
@@ -4741,7 +4792,7 @@ def record_run(con: duckdb.DuckDBPyConnection, run: ValuationRun) -> None:
 - [ ] **Step 5: Run the valuation tests**
 
 Run: `uv run pytest core/tests/test_valuation.py -q`
-Expected: 9 passed. `test_run_valuation_projects_prices_and_stamps` asserts `giornate_remaining == 37` because `_ready_workspace` records one giornata of season 21; `test_missing_profiles...` rewrites `test_kb_profiles.PROFILE`'s penalty taker to `Nobody`, a name no club carries, hence the warning — `Calhanoglu` himself is listone id 2194 and resolves, but only within Inter's own players, so in `test_run_valuation...` the other seven clubs warn instead.
+Expected: 11 passed. `test_run_valuation_projects_prices_and_stamps` asserts `giornate_remaining == 37` because `_ready_workspace` records one giornata of season 21; `test_missing_profiles...` rewrites `test_kb_profiles.PROFILE`'s penalty taker to `Nobody`, a name no club carries, hence the warning — `Calhanoglu` himself is listone id 2194 and resolves, but only within Inter's own players, so in `test_run_valuation...` the other seven clubs warn instead.
 
 - [ ] **Step 6: Write the failing export tests**
 
@@ -4959,7 +5010,7 @@ after every `rank` you intend to keep. Read them back with
 - [ ] **Step 9: Run the tests, lint, full suite, commit**
 
 Run: `uv run pytest core/tests/test_valuation.py -q && uv run ruff check --fix core && uv run ruff check core && uv run poe test`
-Expected: 10 passed; ruff silent; core 287 passed.
+Expected: 12 passed; ruff silent; core 287 passed.
 
 ```bash
 git add core/src/fantaclaude/analysis/valuation.py core/src/fantaclaude/analysis/exports.py core/tests/test_valuation.py preferences.yml records/README.md

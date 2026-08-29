@@ -213,8 +213,43 @@ def test_record_run_writes_immutable_rows_and_the_views_follow(tmp_path, fixture
         assert again.run_id == result.run_id + "-2"                        # a second run in the same second is kept, not clobbered
         record_run(con, again)
         assert con.execute("SELECT run_id FROM v_valuations_current LIMIT 1").fetchone()[0] == again.run_id
+        # the superseded run is still there, whole: a second run appends, it never edits the first
+        assert con.execute("SELECT count(*) FROM valuations WHERE run_id = ?", [result.run_id]).fetchone()[0] == 17
+        assert con.execute("SELECT count(*) FROM valuation_runs").fetchone()[0] == 2
     finally:
         con.close()
+
+
+def test_excluded_clubs_refuses_rather_than_quietly_restamping_the_run(tmp_path, fixture_json, mcp_fixture_json):
+    """It is hashed into model_hash with the rest of preferences but excludes nobody:
+    honouring it silently would spend the reproducibility chain to buy nothing."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    with pytest.raises(PreferencesError, match="excluded_clubs"):
+        run(tmp_path, preferences={**PREFS, "excluded_clubs": ["Inter"]})
+    assert PREFS["excluded_clubs"] == []            # the shipped default, and it must still run
+    result, con = run(tmp_path)
+    con.close()
+    assert len(result.projections) == 17
+
+
+def test_a_filtered_run_records_the_scenarios_it_actually_ran(tmp_path, fixture_json, mcp_fixture_json):
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    prefs = {**PREFS, "scenarios": {"aggressive-attack": {"risk_appetite": "aggressive"},
+                                    "value-hunting": {"risk_appetite": "cautious"}}}
+    full, con = run(tmp_path, preferences=prefs)
+    con.close()
+    filtered, con = run(tmp_path, preferences=prefs, scenario_names=["value-hunting"])
+    con.close()
+    assert full.config["scenarios"] == ["balanced", "aggressive-attack", "value-hunting"] == list(full.boards)
+    assert filtered.config["scenarios"] == ["value-hunting"] and set(filtered.boards) == {"value-hunting"}
+    # the preferences that define all three are still recorded whole; only the model_hash
+    # must not move, so a filtered run stays comparable to a full one of the same model
+    assert filtered.config["preferences"] == full.config["preferences"]
+    assert filtered.model_hash == full.model_hash and filtered.inputs_hash == full.inputs_hash
+    # VOR, tiers and divergence are the pool's, not the filter's
+    assert filtered.vor == full.vor and filtered.tiers == full.tiers and filtered.implied == full.implied
+    with pytest.raises(PreferencesError, match="value-hunting"):
+        run(tmp_path, preferences=prefs, scenario_names=["no-such-plan"])
 
 
 def test_new_run_id_and_model_version():

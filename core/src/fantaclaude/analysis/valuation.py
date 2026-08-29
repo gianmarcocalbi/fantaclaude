@@ -338,6 +338,17 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
                              "bands -- transcribe the league's table first (Phase 1 plan, Task 10)")
     bm = BonusMalus.from_calculate(ctx.calculate)
     sheet = voto_sheet(ctx.calculate)
+    # excluded_clubs is hashed into model_hash with the rest of preferences, so a
+    # non-empty list would mint a new model_hash, a new run_id and an immutable run
+    # incomparable to every earlier one -- while still pricing every player of those
+    # clubs, because dropping them from the pool is price_board's `excluded`, which
+    # would leave board.prices no longer covering every projection. Refusing is the
+    # honest answer until Phase 2 wires it through the exports too.
+    excluded = preferences.get("excluded_clubs") or []
+    if excluded:
+        raise PreferencesError(f"preferences.yml: excluded_clubs {list(excluded)} is not honoured in Phase 1 -- it would "
+                               f"change model_hash without changing a single price. Leave it empty; club exclusion lands "
+                               f"with the live pool in Phase 2")
     scenarios = load_scenarios(preferences)
     if scenario_names:
         unknown = sorted(set(scenario_names) - {s.name for s in scenarios})
@@ -373,8 +384,13 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     replacement = replacement_levels(pool, reference.expected_prices, pricing_cfg)
     vor = {p.player_id: max(0.0, p.value_p50 - replacement[p.role_class]) for p in pool}
     hashes = (model_hash(projection_cfg, pricing_cfg, preferences, d_factor), inputs_hash(con, profiles=profiles, notes=notes))
+    # The scenarios actually run, beside the preferences that define them all: a
+    # filtered run priced one board, and its immutable config must say so rather than
+    # let preferences.scenarios imply three. It is deliberately not in model_hash --
+    # the model is the same, so a filtered run stays comparable to a full one.
     config = {"projection": projection_cfg.to_dict(), "pricing": pricing_cfg.to_dict(), "preferences": preferences,
-              "d_factor": d_factor.to_dict(), "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
+              "scenarios": [s.name for s in scenarios], "d_factor": d_factor.to_dict(),
+              "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
               "modifiers": status.to_dict()}
     summary = {"players": len(pool), "team_count": ctx.team_count, "budget": ctx.budget,
                "market_credits": ctx.team_count * ctx.budget, "giornate_played": history.giornate_played,
