@@ -25,6 +25,8 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "respx>=0.23.1",
     "ruff>=0.16.4",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.0",
 ]
 
 [tool.poe.tasks]
@@ -35,3 +37,5 @@ test-core = "pytest core/tests -c core/pyproject.toml -q"
 test = ["test-mcp", "test-core"]
 lint = "ruff check core mcp/fantacalcio"
 fmt = "ruff format core mcp/fantacalcio"
+docs-serve = "mkdocs serve -f site/mkdocs.yml"
+docs-build = "mkdocs build -f site/mkdocs.yml -d site/_build --strict"
