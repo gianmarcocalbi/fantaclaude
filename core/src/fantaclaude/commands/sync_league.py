@@ -32,6 +32,7 @@ class SyncReport:
     snapshot_id: int | None
     previous_hash: str | None
     diff: list[Change] = field(default_factory=list)
+    superseded_runs: int = 0
     conflicts: list[Conflict] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +42,7 @@ class SyncReport:
             "changed": self.changed, "snapshot_id": self.snapshot_id,
             "previous_hash": self.previous_hash,
             "diff": [{"path": c.path, "before": c.before, "after": c.after} for c in self.diff],
+            "superseded_runs": self.superseded_runs,
             "conflicts": [{"key": c.key, "league_yml": c.league_yml, "api": c.api}
                           for c in self.conflicts],
         }
@@ -84,9 +86,13 @@ def apply_sync(con: duckdb.DuckDBPyConnection | None, snap: LeagueSnapshot,
                           changed=False, snapshot_id=None, previous_hash=None,
                           conflicts=conflicts)
     result = record_snapshot(con, snap, fetched_at=fetched_at)
+    superseded = 0
+    if result.changed:
+        superseded = con.execute("SELECT count(*) FROM valuation_runs WHERE rules_hash <> ?",
+                                 [snap.rules_hash]).fetchone()[0]
     return SyncReport(snap.league_id, snap.season_id, snap.team_count, snap.rules_hash,
                       changed=result.changed, snapshot_id=result.snapshot_id,
-                      previous_hash=result.previous_hash, diff=result.diff)
+                      previous_hash=result.previous_hash, diff=result.diff, superseded_runs=int(superseded))
 
 
 async def sync_league(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection,

@@ -18,12 +18,22 @@ import yaml
 from fantacalcio_mcp.auth import AuthError, is_expired
 from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
+from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.ingest.names import AliasError, load_aliases
+from fantaclaude.kb.notes import NoteError, load_player_notes, misplaced_notes
+from fantaclaude.kb.participants import ParticipantError, load_participants
 from fantaclaude.kb.profiles import ProfileError, load_profiles
 from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
+from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
 from fantaclaude.model.modules import ModuleTableError, load_modules
+from fantaclaude.model.scoring import (
+    BonusMalus,
+    ScoringError,
+    modifier_status,
+    voto_sheet,
+)
 
 CORE_DB_CHECKS = ("database", "extensions", "league_settings", "listone")
 HISTORY_DB_CHECKS = ("player_match", "advanced", "fixtures")
@@ -47,6 +57,7 @@ class DoctorPaths:
     league_yml: Path
     preferences: Path
     kb: Path
+    pricing: Path
 
 
 def _age(then: datetime, now: datetime) -> str:
@@ -256,6 +267,119 @@ def _profiles_check(kb: Path, db: Path) -> Check:
     return Check("kb_profiles", True, f"{head}; europe agrees with the fixtures")
 
 
+def _read_only(db: Path) -> duckdb.DuckDBPyConnection | None:
+    if not db.is_file():
+        return None
+    try:
+        return duckdb.connect(str(db), read_only=True)
+    except duckdb.Error:
+        return None
+
+
+def _notes_check(kb: Path, db: Path) -> Check:
+    try:
+        notes = load_player_notes(kb)
+    except NoteError as exc:
+        return Check("kb_notes", False, str(exc))
+    con = _read_only(db)
+    teams: dict[int, str] = {}
+    if con is not None:
+        try:
+            teams = {int(pid): str(name) for pid, name in con.execute(
+                "SELECT player_id, team_name FROM v_players_current").fetchall()}
+        except duckdb.Error:
+            teams = {}
+        finally:
+            con.close()
+    moved = misplaced_notes(notes, teams)
+    if moved:
+        detail = "; ".join(f"{n.name} sits under {n.path.parent.parent.name}, belongs under {slug}" for n, slug in moved)
+        return Check("kb_notes", False, f"{len(notes)} notes; misplaced: {detail}")
+    return Check("kb_notes", True, f"{len(notes)} notes")
+
+
+def _participants_check(kb: Path, league_yml: Path) -> Check:
+    try:
+        dossiers = load_participants(kb)
+    except ParticipantError as exc:
+        return Check("kb_participants", False, str(exc))
+    mapped: dict[str, str] = {}
+    if league_yml.is_file():
+        try:
+            for key, entry in load_league_yml(league_yml).items():
+                if key.startswith("participants."):
+                    mapped[key.removeprefix("participants.")] = str(entry.value)
+        except (LeagueYmlError, yaml.YAMLError):
+            pass                                              # the league_yml check reports it
+    by_nick = {d.nick: d for d in dossiers}
+    problems = [f"league.yml maps {nick} to {path}, which does not load"
+                for nick, path in mapped.items() if not (kb.parent / path).is_file() or nick not in by_nick]
+    head = f"{len(dossiers)} dossiers; league.yml maps {len(mapped)}"
+    if problems:
+        return Check("kb_participants", False, f"{head}; {'; '.join(problems)}")
+    return Check("kb_participants", True, head)
+
+
+def _scoring_check(db: Path) -> Check:
+    con = _read_only(db)
+    if con is None:
+        return Check("scoring", False, "skipped: no database")
+    try:
+        row = con.execute("SELECT payload FROM v_league_settings_current").fetchone()
+    except duckdb.Error as exc:
+        return Check("scoring", False, f"skipped: {exc}")
+    finally:
+        con.close()
+    if row is None:
+        return Check("scoring", False, "no league_settings snapshot -- run `fantaclaude sync-league`")
+    payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+    calculate = payload.get("calculate") or {}
+    try:
+        sheet = voto_sheet(calculate)
+        BonusMalus.from_calculate(calculate)
+    except ScoringError as exc:
+        return Check("scoring", False, str(exc))
+    status = modifier_status(calculate)
+    head = f"voto source {calculate.get('sourcev')} -> sheet {sheet} (mapping unverified: confirm on the league's calcolo page)"
+    if status.unknown_active:
+        return Check("scoring", False, f"{head}; modifier(s) {list(status.unknown_active)} active: `rank` refuses until modelled")
+    if status.d_factor:
+        try:
+            table = load_d_factor()
+        except DFactorTableError as exc:
+            return Check("scoring", False, f"{head}; D-Factor active; {exc}")
+        if table.is_empty:
+            return Check("scoring", False, f"{head}; D-Factor active but model/d_factor.yml has no bands -- transcribe the league's table")
+        return Check("scoring", True, f"{head}; D-Factor active, table verified {table.verified_on}")
+    return Check("scoring", True, f"{head}; no modifier active")
+
+
+def _pricing_check(path: Path) -> Check:
+    try:
+        cfg = load_pricing_config(path)
+    except PricingConfigError as exc:
+        return Check("pricing", False, str(exc))
+    return Check("pricing", True, f"{len(cfg.to_dict())} knobs; bench_weight {cfg.bench_weight}, "
+                                  f"candidates {cfg.candidates_per_class}, inflation [{cfg.inflation_floor}, {cfg.inflation_ceiling}]")
+
+
+def _valuations_check(db: Path, now: datetime) -> Check:
+    con = _read_only(db)
+    if con is None:
+        return Check("valuations", False, "skipped: no database")
+    try:
+        row = con.execute("SELECT run_id, created_at, superseded, scenarios FROM v_valuation_runs "
+                          "ORDER BY created_at DESC, run_id DESC LIMIT 1").fetchone()
+    except duckdb.Error as exc:
+        return Check("valuations", False, f"skipped: {exc}")
+    finally:
+        con.close()
+    if row is None:
+        return Check("valuations", False, "no valuation run yet -- run `fantaclaude rank`")
+    state = "superseded by a rules change -- re-run `fantaclaude rank`" if row[2] else "not superseded"
+    return Check("valuations", not row[2], f"run {row[0]}, {_age(row[1], now)}, scenarios {', '.join(row[3])}; {state}")
+
+
 def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
     # Mirror load_settings() exactly -- same merge, same resolver. Deriving
     # this independently made doctor disagree with the commands it exists to
@@ -310,4 +434,9 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
     except (AliasError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
         checks.append(Check("aliases", False, str(exc)))
     checks.append(_profiles_check(paths.kb, paths.db))
+    checks.append(_notes_check(paths.kb, paths.db))
+    checks.append(_participants_check(paths.kb, paths.league_yml))
+    checks.append(_scoring_check(paths.db))
+    checks.append(_pricing_check(paths.pricing))
+    checks.append(_valuations_check(paths.db, now))
     return checks

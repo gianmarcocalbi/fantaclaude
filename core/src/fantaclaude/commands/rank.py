@@ -1,0 +1,113 @@
+"""fantaclaude rank: write a valuation run, render the exports, copy the records.
+
+Importable on purpose -- the CLI and, later, the FastAPI server call this
+function; the CLI adds only the re-sync, argument parsing and rendering.
+Every run before the freeze is provisional (spec, open question 1): the
+report says so, from league.yml's auction date.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+import duckdb
+import yaml
+
+from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
+from fantaclaude.analysis.projection import ProjectionConfig
+from fantaclaude.analysis.valuation import ValuationError, record_run, run_valuation
+from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
+from fantaclaude.commands.ingest import NotReady
+from fantaclaude.league.league_yml import Provenanced
+from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
+
+FINAL_WINDOW_DAYS = 2
+
+
+@dataclass(frozen=True)
+class RankReport:
+    run_id: str
+    created_at: datetime
+    rules_hash: str
+    model_hash: str
+    inputs_hash: str
+    season_id: int
+    giornata: int
+    scenarios: list[str]
+    players: int
+    exports: list[str]
+    records: list[str]
+    warnings: list[str]
+    summary: dict[str, Any]
+    provisional: str
+    top: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"run_id": self.run_id, "created_at": self.created_at.isoformat(), "rules_hash": self.rules_hash,
+                "model_hash": self.model_hash, "inputs_hash": self.inputs_hash, "season_id": self.season_id,
+                "giornata": self.giornata, "scenarios": self.scenarios, "players": self.players,
+                "exports": self.exports, "records": self.records, "warnings": self.warnings,
+                "summary": self.summary, "provisional": self.provisional, "top": self.top}
+
+
+def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> str:
+    auction = entries.get("auction.date") if entries else None
+    when = auction.value if auction is not None and isinstance(auction.value, date) else None
+    if when is None:
+        return f"provisional: {team_count} teams, auction date unknown -- the final run is the one after the freeze"
+    days = (when - now.date()).days
+    if days <= FINAL_WINDOW_DAYS:
+        return f"final window: {team_count} teams, auction {when.isoformat()} in {days} days"
+    return (f"provisional: {team_count} teams, auction {when.isoformat()} in {days} days -- "
+            f"re-run after the freeze, when the rules and the teams have settled")
+
+
+def _load_preferences(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise NotReady(f"{path} is missing")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise NotReady(f"{path} does not parse: {exc}") from None
+    if not isinstance(data, dict):
+        raise NotReady(f"{path}: the top level must be a mapping")
+    return data
+
+
+def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, preferences_path: Path, pricing_path: Path,
+         exports_dir: Path, records_dir: Path, league_yml: dict[str, Provenanced] | None = None,
+         scenarios: list[str] | None = None) -> RankReport:
+    preferences = _load_preferences(preferences_path)
+    try:
+        pricing_cfg = load_pricing_config(pricing_path)
+    except PricingConfigError as exc:
+        raise NotReady(f"pricing.yml: {exc}") from None
+    try:
+        d_factor = load_d_factor()
+    except DFactorTableError as exc:
+        raise NotReady(str(exc)) from None
+    try:
+        run = run_valuation(con, now=now, kb_dir=kb_dir, preferences=preferences, projection_cfg=ProjectionConfig(),
+                            pricing_cfg=pricing_cfg, d_factor=d_factor, scenario_names=scenarios)
+    except ValuationError as exc:
+        raise NotReady(str(exc)) from None
+    record_run(con, run)
+    md, csv = write_rankings(run, exports_dir)
+    plan = write_asta_plan(run, exports_dir)
+    records = export_records(con, run.run_id, run.rules_hash, records_dir)
+    board = run.boards[run.scenarios[0].name]
+    top: dict[str, list[dict[str, Any]]] = {}
+    for p in sorted(run.projections, key=lambda p: -p.value_p50):
+        entry = top.setdefault(p.role_class, [])
+        if len(entry) < 3:
+            entry.append({"name": p.name, "team": p.team_short, "value_p50": round(p.value_p50, 1),
+                          "max_p50": board.prices[p.player_id].band.p50, "tier": run.tiers[p.player_id]})
+    return RankReport(run_id=run.run_id, created_at=run.created_at, rules_hash=run.rules_hash,
+                      model_hash=run.model_hash, inputs_hash=run.inputs_hash, season_id=run.season_id,
+                      giornata=run.giornata, scenarios=[s.name for s in run.scenarios], players=len(run.projections),
+                      exports=[str(md), str(csv), str(plan)], records=[str(p) for p in records],
+                      warnings=list(run.warnings), summary=run.summary,
+                      provisional=provisional_note(league_yml, now, run.summary["team_count"]), top=top)

@@ -101,7 +101,7 @@ def test_doctor_kb_profiles_check(tmp_path, fixture_json, mcp_fixture_json):
 
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)          # listone sample: 8 clubs; UECL ties for ATA
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
-    assert NAMES[-1] == "kb_profiles" and not by["kb_profiles"].ok
+    assert "kb_profiles" in NAMES and not by["kb_profiles"].ok
     assert "0/8 teams profiled" in by["kb_profiles"].detail and "Atalanta" in by["kb_profiles"].detail
 
     kb = tmp_path / "kb"

@@ -70,6 +70,9 @@ def _render_sync(payload: dict) -> str:
         lines.append(f"changed: snapshot {payload['snapshot_id']}{was}")
         for c in payload["diff"]:
             lines.append(f"  {c['path']}: {c['before']!r} -> {c['after']!r}")
+        if payload.get("superseded_runs"):
+            lines.append(f"{payload['superseded_runs']} valuation run(s) computed under the old rules are now superseded "
+                         f"-- re-run `fantaclaude rank`")
     else:
         lines.append(f"unchanged (snapshot {payload['snapshot_id']})")
     return "\n".join(lines)
@@ -633,20 +636,115 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
-    from fantaclaude.paths import db_path, kb_dir, league_yml_path, preferences_yml_path
+    from fantaclaude.paths import (
+        db_path,
+        kb_dir,
+        league_yml_path,
+        preferences_yml_path,
+        pricing_yml_path,
+    )
     from fantaclaude.timeutil import utc_now
 
     paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
-                        league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir())
+                        league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir(),
+                        pricing=pricing_yml_path())
     checks = run_doctor(paths, now=utc_now())
     payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
     emit(payload, json_=json_, render=_render_doctor)
     if not payload["ok"]:
         raise typer.Exit(code=ExitCode.NOT_READY)
+
+
+# Module-level singleton for a list-valued option: ruff's B008 exempts only
+# immutable annotations, and `list[str] | None` is not one.
+SCENARIO_OPTION = typer.Option(
+    None, "--scenario", help="Only these scenarios from preferences.yml (repeatable). Default: all of them.")
+
+
+def _render_rank(payload: dict) -> str:
+    s = payload["summary"]
+    lines = [(f"run {payload['run_id']} · rules {payload['rules_hash']} · model {payload['model_hash']} · "
+              f"inputs {payload['inputs_hash']}"),
+             (f"{payload['players']} players · {s['team_count']} teams × {s['budget']} credits · giornata "
+              f"{s['giornate_played']} played · voti sheet {s['sheet']}"
+              + (" · D-Factor active" if s.get("d_factor_active") else "")),
+             payload["provisional"]]
+    for name, sc in s["scenarios"].items():
+        comp = ", ".join(f"{cls} {n}·{sc['credits_by_class'].get(cls, 0)}" for cls, n in sc["composition"].items() if n)
+        departed = f" (departed from the target at {', '.join(sc['targets_departed'])})" if sc["targets_departed"] else ""
+        lines.append(f"{name}: inflation {sc['inflation']:.2f}, reserve {sc['reserve']}, composition {comp}{departed}")
+    for cls, entries in payload["top"].items():
+        lines.append(f"  {cls}: " + ", ".join(f"{e['name']} ({e['team']}) {e['value_p50']} → max {e['max_p50']} t{e['tier']}"
+                                             for e in entries))
+    for w in payload["warnings"]:
+        lines.append(f"warning: {w}")
+    lines.append("exports: " + ", ".join(payload["exports"]))
+    lines.append(("records: " + ", ".join(payload["records"]) + " -- commit records/") if payload["records"]
+                 else "records: already present")
+    return "\n".join(lines)
+
+
+@app.command("rank")
+def rank_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    offline: bool = typer.Option(False, "--offline", help="Do not re-sync league_settings from the league API first."),
+    scenario: list[str] | None = SCENARIO_OPTION,
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Write a valuation run: project every listone player, price the board, render data/exports/ and records/. Re-syncs the league first unless --offline."""
+    from fantaclaude.analysis.valuation import PreferencesError
+    from fantaclaude.commands.ingest import NotReady
+    from fantaclaude.commands.rank import rank
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
+    from fantaclaude.paths import (
+        exports_dir,
+        kb_dir,
+        league_yml_path,
+        preferences_yml_path,
+        pricing_yml_path,
+        records_dir,
+    )
+    from fantaclaude.timeutil import utc_now
+
+    try:
+        entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
+    except LeagueYmlError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    snap = conflicts = None
+    if not offline:
+        from fantaclaude.api_client import run_with_api
+        from fantaclaude.commands.sync_league import apply_sync, prepare_sync
+
+        # Fetch before opening the database, as sync-league does: the write lock must not span the network.
+        snap, conflicts = run_with_api(lambda api: prepare_sync(api, entries, league=league))
+        if conflicts:
+            emit(apply_sync(None, snap, conflicts).to_dict(), json_=json_, render=_render_sync)
+            raise typer.Exit(code=ExitCode.CONFLICT)
+    con = connect()
+    try:
+        apply_schema(con)
+        if snap is not None:
+            apply_sync(con, snap, [])
+        try:
+            report = rank(con, now=utc_now(), kb_dir=kb_dir(), preferences_path=preferences_yml_path(),
+                          pricing_path=pricing_yml_path(), exports_dir=exports_dir(), records_dir=records_dir(),
+                          league_yml=entries, scenarios=list(scenario) if scenario else None)
+        except NotReady as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        except PreferencesError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE) from None
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_rank)
 
 
 def main() -> None:

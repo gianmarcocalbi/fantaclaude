@@ -14,13 +14,14 @@ from typer.testing import CliRunner
 
 NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_settings",
          "listone", "league_yml", "preferences", "kb", "modules",
-         "web_session", "player_match", "advanced", "fixtures", "aliases", "kb_profiles"]
+         "web_session", "player_match", "advanced", "fixtures", "aliases",
+         "kb_profiles", "kb_notes", "kb_participants", "scoring", "pricing", "valuations"]
 
 
 def _paths(root):
     return DoctorPaths(env=root / ".env", token_cache=root / ".auth" / "tokens.json",
                        db=root / "data" / "fanta.duckdb", league_yml=root / "league.yml",
-                       preferences=root / "preferences.yml", kb=root / "kb")
+                       preferences=root / "preferences.yml", kb=root / "kb", pricing=root / "pricing.yml")
 
 
 def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=31_536_000):
@@ -40,6 +41,7 @@ def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=3
                                         "team_id": "1", "name": "F3", "jwt": token}}}))
     (root / "league.yml").write_text("budget: {value: 500, source: admin, verified_on: 2026-08-24}\n")
     (root / "preferences.yml").write_text("target_composition: {Por: 2}\n")
+    (root / "pricing.yml").write_text("bench_weight: 0.12\n")
     (root / "kb" / "rules").mkdir(parents=True)
     (root / "kb" / "README.md").write_text("# kb\n")
     (root / "kb" / "rules" / "aliases.yml").write_text("understat: {}\nuefa_teams: {}\n")
@@ -69,7 +71,7 @@ def test_every_check_passes_on_a_ready_workspace(tmp_path, fixture_json, mcp_fix
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
     assert [c.name for c in checks] == NAMES
-    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles"]
+    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles", "valuations"]
     assert "17 players" in next(c.detail for c in checks if c.name == "listone")
     assert "login mode" in next(c.detail for c in checks if c.name == "credentials")
     joined = " ".join(c.detail for c in checks)
@@ -274,3 +276,56 @@ def test_history_checks_on_an_empty_database(monkeypatch, tmp_path, fixture_json
     assert not by["advanced"].ok and "ingest advanced" in by["advanced"].detail
     assert not by["fixtures"].ok and "ingest calendar" in by["fixtures"].detail
     assert not by["aliases"].ok
+
+
+def test_the_phase_1_checks(tmp_path, fixture_json, mcp_fixture_json):
+    from test_kb_participants import _write as write_dossier
+    from test_kb_profiles import _write as write_profile
+    from test_valuation import PREFS, run
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["kb_notes"].ok and by["kb_notes"].detail == "0 notes"
+    assert by["kb_participants"].ok and by["kb_participants"].detail == "0 dossiers; league.yml maps 0"
+    assert by["scoring"].ok and "sheet Fantacalcio" in by["scoring"].detail and "no modifier active" in by["scoring"].detail
+    assert by["pricing"].ok and "bench_weight 0.12" in by["pricing"].detail
+    assert not by["valuations"].ok and "fantaclaude rank" in by["valuations"].detail
+
+    kb = tmp_path / "kb"
+    note_dir = kb / "serie-a" / "teams" / "napoli" / "players"
+    note_dir.mkdir(parents=True)
+    (note_dir / "martinez-l.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                            "player_id: 2764\nname: Martinez L.\nteam_short: INT\ndepth: starter\n---\n# n\n")
+    write_dossier(kb, "Marco")
+    (tmp_path / "league.yml").write_text("budget: {value: 500, source: admin, verified_on: 2026-08-24}\n"
+                                         "participants:\n  Anna: {value: kb/league/participants/anna.md, source: interview, verified_on: 2026-09-01}\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_notes"].ok and "napoli" in by["kb_notes"].detail and "inter" in by["kb_notes"].detail
+    assert not by["kb_participants"].ok and "Anna" in by["kb_participants"].detail
+    (tmp_path / "pricing.yml").write_text("bench_weight: heavy\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["pricing"].ok
+
+    for name, short in (("Cagliari", "CAG"), ("Roma", "ROM"), ("Inter", "INT"), ("Milan", "MIL"), ("Fiorentina", "FIO"),
+                        ("Napoli", "NAP"), ("Genoa", "GEN")):
+        write_profile(kb, name, short, europe="none", rotation="1.0")
+    write_profile(kb, "Atalanta", "ATA", europe="UECL", rotation="0.85")
+    (tmp_path / "pricing.yml").write_text("bench_weight: 0.12\n")
+    (note_dir / "martinez-l.md").unlink()
+    result, con = run(tmp_path, preferences=PREFS)
+    from fantaclaude.analysis.valuation import record_run
+
+    record_run(con, result)
+    con.close()
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["valuations"].ok and result.run_id in by["valuations"].detail and "not superseded" in by["valuations"].detail
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    payload = json.loads(con.execute("SELECT payload FROM v_league_settings_current").fetchone()[0])
+    payload["calculate"]["smodf"] = 1
+    con.execute("UPDATE league_settings SET payload = ?::JSON, rules_hash = 'ffffffffffffffff' WHERE snapshot_id = 1",
+                [json.dumps(payload)])
+    con.close()
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["scoring"].ok and "smodf" in by["scoring"].detail
+    assert not by["valuations"].ok and "superseded" in by["valuations"].detail
