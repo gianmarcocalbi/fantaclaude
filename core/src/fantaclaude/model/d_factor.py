@@ -29,6 +29,9 @@ import yaml
 from .roles import Role
 
 D_FACTOR_YML = Path(__file__).with_name("d_factor.yml")
+# Coincides today with roles.DEFENSIVE, but the two encode different regolamento
+# rules -- D-Factor eligibility here, the module's defensive half there -- kept
+# separate on purpose, and expected to be changed independently.
 D_FACTOR_ROLES: frozenset[Role] = frozenset({Role.Dc, Role.B, Role.Dd, Role.Ds, Role.E, Role.M})
 TRUE_DEFENDERS: frozenset[Role] = frozenset({Role.Dc, Role.B, Role.Dd, Role.Ds})
 COUNTED = 5
