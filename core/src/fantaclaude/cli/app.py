@@ -178,21 +178,26 @@ def ingest_all_cmd(
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.paths import aliases_path, raw_dir
 
-    seasons = _seasons_or_exit(None)
     ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(None)
     store = RawStore(raw_dir())
-    existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
     cookie = web_cookie()
 
-    async def go(api):
-        http = build_http()
-        try:
-            return await fetch_everything(api, http, store, seasons=seasons, cookie=cookie,
-                                          existing_voti=existing, league=league)
-        finally:
-            await http.aclose()
-
     with _source_errors():
+        # Finding F4: existing_giornate reads every *-voti-*.xlsx already on
+        # disk (openpyxl.load_workbook) -- one truncated file must raise
+        # BadZipFile *inside* _source_errors, not before it, or the whole
+        # command dies with an unmapped traceback before any work happens.
+        existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
+
+        async def go(api):
+            http = build_http()
+            try:
+                return await fetch_everything(api, http, store, seasons=seasons, cookie=cookie,
+                                              existing_voti=existing, league=league)
+            finally:
+                await http.aclose()
+
         fetched = run_with_api(go)
         con = connect()
         try:
@@ -223,7 +228,14 @@ def _source_errors():
 
     An expired website session is "not ready" (3): the fix is a new cookie,
     not a bug. Anything else a source does wrong is an error (1).
+
+    Finding F4: `zipfile.BadZipFile` -- a truncated `*-voti-*.xlsx` already
+    on disk, read by `existing_giornate`'s pre-read -- is neither a
+    `SourceError` nor a `ValueError`, so it is mapped here too instead of
+    escaping as a raw, unmapped traceback.
     """
+    import zipfile
+
     from fantaclaude.ingest.http import SourceError, WebSessionExpired
 
     try:
@@ -237,6 +249,9 @@ def _source_errors():
         raise typer.Exit(code=ExitCode.ERROR) from None
     except ValueError as exc:                      # *ShapeError: the source changed under us
         typer.echo(f"source shape unexpected: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+    except zipfile.BadZipFile as exc:               # a truncated workbook already on disk
+        typer.echo(f"source shape unexpected: corrupted workbook: {exc}", err=True)
         raise typer.Exit(code=ExitCode.ERROR) from None
 
 
@@ -296,8 +311,8 @@ def ingest_advanced_cmd(
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.paths import aliases_path, raw_dir
 
-    seasons = _seasons_or_exit(season)
     schema_version = ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(season)
     store = RawStore(raw_dir())
     if rematch:
         from fantaclaude.commands.ingest import NotReady
@@ -362,13 +377,17 @@ def ingest_calendar_cmd(
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.paths import aliases_path, raw_dir
 
-    competitions = [c.upper() for c in competition] if competition else list(COMPETITIONS)
+    # Finding F7: dedupe after upper-casing, preserving order -- otherwise
+    # `--competition SA --competition sa` fetches Serie A twice (76 requests
+    # at one per second) and, because `raws` is a dict keyed by name, the
+    # first 38 raw files are orphaned on disk and never recorded.
+    competitions = list(dict.fromkeys(c.upper() for c in competition)) if competition else list(COMPETITIONS)
     unknown = [c for c in competitions if c not in COMPETITIONS]
     if unknown:
         typer.echo(f"unknown competition {unknown}; choose from {', '.join(COMPETITIONS)}", err=True)
         raise typer.Exit(code=ExitCode.USAGE)
-    season_id = _seasons_or_exit(None)[-1]           # the season the league is in
     ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    season_id = _seasons_or_exit(None)[-1]           # the season the league is in
     store = RawStore(raw_dir())
     with _source_errors():
         raws = run_web(lambda http: fetch_calendar(http, store, season_id, competitions))
@@ -455,11 +474,15 @@ def ingest_stats_web_cmd(
     if bad:
         typer.echo(f"--giornata must be between 1 and {SERIE_A_GIORNATE}, got {bad}", err=True)
         raise typer.Exit(code=ExitCode.USAGE)
-    seasons = _seasons_or_exit(season)
     ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(season)
     store = RawStore(raw_dir())
-    existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
     with _source_errors():
+        # Finding F4: existing_giornate reads every *-voti-*.xlsx already on
+        # disk (openpyxl.load_workbook) -- one truncated file must raise
+        # BadZipFile *inside* _source_errors, not before it, or the whole
+        # command dies with an unmapped traceback before any work happens.
+        existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
         fetched = run_web(lambda http: fetch_voti_seasons(
             http, store, cookie=cookie, seasons=seasons, giornate=giornate, existing=existing, refetch=refetch))
         con = connect()

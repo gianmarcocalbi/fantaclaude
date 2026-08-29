@@ -292,6 +292,37 @@ def test_record_voti_and_the_views(db, tmp_path, fixture_json, sample_bytes, fix
     assert db.execute("SELECT count(*) FROM v_player_match_current").fetchone()[0] == len(workbook.rows)
 
 
+def test_record_voti_files_skips_reparsing_an_already_recorded_workbook(db, tmp_path, fixture_json, sample_bytes,
+                                                                        monkeypatch):
+    """Finding F3: `parse_voti(raw.path)` used to be passed as an argument to
+    `record_voti`, so it ran before `record_voti` could short-circuit on
+    sha256 -- together with `is_not_yet_rated_workbook`, every
+    already-recorded workbook went through openpyxl twice per run (plus a
+    full read for the hash) to insert zero rows. A second
+    `record_voti_files` call over the same store, for a giornata already
+    recorded, must not call `parse_voti` at all, and must still report the
+    file as `skipped_duplicate` with the same fields as before."""
+    _known(db, tmp_path, fixture_json)
+    store = RawStore(tmp_path / "raw")
+    store.write_bytes("voti", sample_bytes, ext="xlsx", label="21-01")
+    fetched = {21: VotiFetch(raws={}, skipped=[1], not_published_from=None)}
+
+    first, not_yet_rated_1 = record_voti_files(db, store, fetched, [1])
+    assert len(first) == 1 and not first[0].skipped_duplicate and not_yet_rated_1 == {}
+
+    def _boom(path):
+        raise AssertionError("parse_voti must not be called for an already-recorded workbook")
+
+    monkeypatch.setattr("fantaclaude.commands.ingest.parse_voti", _boom)
+    second, not_yet_rated_2 = record_voti_files(db, store, fetched, [1])
+    assert not_yet_rated_2 == {}
+    assert len(second) == 1
+    assert second[0].skipped_duplicate and second[0].file_id == first[0].file_id
+    assert second[0].sheets == first[0].sheets
+    assert second[0].sha256 == first[0].sha256 and second[0].raw_path == first[0].raw_path
+    assert second[0].inserted == 0 and second[0].unknown_players == 0
+
+
 @respx.mock
 async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample_bytes, placeholder_bytes, not_yet_rated_bytes):
     url = VOTES_URL.format(season_id=21, giornata=1)
@@ -328,6 +359,41 @@ async def test_fetch_voti_sends_the_cookie_and_wants_a_workbook(tmp_path, sample
         with pytest.raises(NotPublished):
             await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=1)
     assert list((tmp_path / "raw" / "voti").glob("*.xlsx")) == before
+
+
+@respx.mock
+async def test_fetch_voti_placeholder_match_is_narrow_to_its_shape(tmp_path, placeholder_bytes):
+    """Finding F5: the workbook carries three sheets (Fantacalcio, Statistico,
+    Italia), one per voto source, produced at different times. The old check
+    scanned every cell of every sheet for the marker text, so a workbook
+    where only one source is still pending -- the marker sitting in that
+    one sheet, two other sheets fully populated -- was classified
+    not-published as a whole and never written to data/raw/, silently
+    stopping fetch_voti_range for the entire rest of the season. The
+    placeholder is matched by its fixed shape instead: one sheet, one row,
+    one cell. Built here from the committed placeholder fixture plus two
+    populated sheets, never a hand-authored xlsx."""
+    wb = openpyxl.load_workbook(io.BytesIO(placeholder_bytes))
+    assert [s.title for s in wb.worksheets] == ["Fantacalcio"]        # the placeholder, verbatim
+    for title in ("Statistico", "Italia"):
+        sheet = wb.create_sheet(title)
+        sheet.append(["Cod.", "Ruolo", "Nome", "Voto"])
+        sheet.append([1, "P", "Someone", 6])
+    buf = io.BytesIO()
+    wb.save(buf)
+    mixed = buf.getvalue()
+
+    url = VOTES_URL.format(season_id=21, giornata=5)
+    respx.get(url).mock(return_value=httpx.Response(200, content=mixed))
+    async with httpx.AsyncClient() as http:
+        raw = await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=5)
+    assert raw.path.read_bytes() == mixed
+
+    # The real placeholder -- one sheet, one row, one cell -- is still caught.
+    respx.get(url).mock(return_value=httpx.Response(200, content=placeholder_bytes))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(NotPublished):
+            await fetch_voti(http, RawStore(tmp_path / "raw"), cookie=COOKIE, season_id=21, giornata=5)
 
 
 @respx.mock

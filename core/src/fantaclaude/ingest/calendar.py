@@ -309,6 +309,17 @@ def _uefa_rows(doc: dict[str, Any], path: Path) -> dict[str, FixtureRow]:
         missing = [k for k in UEFA_REQUIRED if k not in match]
         if missing:
             raise CalendarShapeError(f"{path}: match {match.get('id')} lacks {missing}")
+        matchday, round_info = match["matchday"], match["round"]
+        if not isinstance(matchday, dict) or not isinstance(round_info, dict):
+            # Finding F2: UEFA_REQUIRED checks key *presence*, not that the
+            # value is a mapping -- unguarded, a null for either key raised
+            # AttributeError, not CalendarShapeError, and unmapped by
+            # _source_errors. Raised here by name, the same as every other
+            # shape problem this module detects. (No evidence UEFA's feed
+            # emits this today: all 1,284 matches in data/raw/calendar/*.json
+            # carry non-null values for both -- this is defensive hardening
+            # against an inconsistency, not a fix for an observed failure.)
+            raise CalendarShapeError(f"{path}: match {match.get('id')}: matchday/round is null, not an object")
         home, away = match["homeTeam"], match["awayTeam"]
         domestic = (home.get("countryCode") == "ITA", away.get("countryCode") == "ITA")
         if not any(domestic):
@@ -317,8 +328,8 @@ def _uefa_rows(doc: dict[str, Any], path: Path) -> dict[str, FixtureRow]:
         kickoff = datetime.fromisoformat(when).astimezone(UTC) if when else None
         rows[str(match["id"])] = FixtureRow(
             competition=doc["competition"], season_id=doc["season_id"], source_id=str(match["id"]),
-            round=str(match["matchday"].get("name") or ""), giornata=None,
-            phase=match["round"].get("phase"), kickoff=kickoff,
+            round=str(matchday.get("name") or ""), giornata=None,
+            phase=round_info.get("phase"), kickoff=kickoff,
             home=str(home.get("internationalName") or ""), away=str(away.get("internationalName") or ""),
             home_domestic=domestic[0], away_domestic=domestic[1], raw=_slim(match))
     return rows

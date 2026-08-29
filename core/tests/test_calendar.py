@@ -119,6 +119,32 @@ def test_load_uefa_fails_loud_on_shape(tmp_path, fixture_json):
         load_uefa([path])
 
 
+def test_load_uefa_fails_loud_on_a_null_matchday_or_round(tmp_path, fixture_json):
+    """Finding F2: UEFA_REQUIRED checks key *presence*, not that the value is
+    a mapping, while `match["matchday"].get("name")` and
+    `match["round"].get("phase")` were unguarded (unlike `kickOffTime` two
+    lines above, which already does `(match.get("kickOffTime") or {})`). A
+    null value raised AttributeError, not CalendarShapeError, and unmapped
+    by cli/app.py's _source_errors. No evidence UEFA's feed actually emits
+    this: all 1,284 matches in data/raw/calendar/*.json carry non-null
+    values for both -- this is defensive hardening for an inconsistency,
+    not a fix for an observed failure."""
+    pages = fixture_json("uefa_sample")
+    match_id = pages[0]["matches"][0]["id"]
+    pages[0]["matches"][0]["matchday"] = None
+    path = tmp_path / "null_matchday.json"
+    path.write_text(json.dumps(pages))
+    with pytest.raises(CalendarShapeError, match=str(match_id)):
+        load_uefa([path])
+
+    pages = fixture_json("uefa_sample")
+    pages[0]["matches"][0]["round"] = None
+    path2 = tmp_path / "null_round.json"
+    path2.write_text(json.dumps(pages))
+    with pytest.raises(CalendarShapeError, match=str(match_id)):
+        load_uefa([path2])
+
+
 def test_record_fixtures_snapshots_only_when_the_schedule_moves(db, tmp_path):
     store = RawStore(tmp_path / "raw")
     raw = store.write_bytes("calendar", SAMPLE.encode(), ext="html", label="sa-21-02")
@@ -291,6 +317,29 @@ def test_cli_ingest_calendar(monkeypatch, tmp_path, fixture_json, mcp_fixture_js
     respx.get(UEFA_URL).mock(return_value=httpx.Response(500, text="down"))
     failed = CliRunner().invoke(app, ["ingest", "calendar", "--competition", "UCL"])
     assert failed.exit_code == ExitCode.ERROR and "500" in failed.stderr
+
+
+@respx.mock
+def test_cli_ingest_calendar_dedupes_a_repeated_competition(monkeypatch, tmp_path, fixture_json, mcp_fixture_json,
+                                                             no_pause):
+    """Finding F7: `--competition SA --competition sa` upper-cases both to
+    "SA" but did not dedupe, so `fetch_calendar` ran `fetch_serie_a` twice
+    (76 requests at one per second) and, because `raws` is a dict keyed by
+    competition, the first 38 raw files were orphaned on disk and never
+    passed to `record_calendar`. Deduping with `dict.fromkeys` must fetch SA
+    exactly once."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    _seeded(tmp_path, fixture_json, mcp_fixture_json)
+    route = respx.get(url__regex=r"https://www\.fantacalcio\.it/serie-a/calendario/(?P<giornata>\d+)$").mock(
+        side_effect=lambda request, giornata: httpx.Response(200, text=_page(int(giornata), renamed=True)))
+
+    result = CliRunner().invoke(app, ["ingest", "calendar", "--competition", "SA", "--competition", "sa", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)["calendar"]
+    assert [r["competition"] for r in payload] == ["SA"]                          # one entry, not two
+    assert payload[0]["inserted"] == 114
+    assert route.call_count == 38                                                 # not 76
+    assert len(list((tmp_path / "data" / "raw" / "calendar").glob("*-sa-21-*.html"))) == 38   # none orphaned
 
 
 def test_cli_ingest_calendar_needs_a_synced_league(monkeypatch, tmp_path):

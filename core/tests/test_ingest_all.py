@@ -175,6 +175,69 @@ def test_cli_ingest_all_records_everything_else_when_a_voti_workbook_is_malforme
 
 
 @respx.mock
+def test_cli_ingest_all_records_everything_else_on_a_plain_source_error(monkeypatch, tmp_path, fixture_json,
+                                                                        mcp_fixture_json, fixture_file, fake_api,
+                                                                        no_pause):
+    """Finding F1: `fetch_bytes` raises a plain `SourceError` (not
+    `WebSessionExpired`, not `NotPublished`) when fantacalcio.it answers
+    429/500/502 partway through the season loop -- simulated here with a
+    500. Before this fix, the `try` around `fetch_voti_seasons` in
+    `fetch_everything` caught only `WebSessionExpired` and `VotiShapeError`,
+    so this escaped and aborted the run before `record_everything` ran,
+    discarding the already-fetched listone, advanced and calendar
+    payloads."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    monkeypatch.setenv("FANTACALCIO_WEB_COOKIE", COOKIE)
+    _seed(tmp_path, fixture_json, mcp_fixture_json)
+    _mock_web(fixture_json, fixture_file("voti_sample.xlsx").read_bytes())
+    respx.get(url__regex=r".*/api/v1/Excel/votes/(?P<s>\d+)/(?P<g>\d+)$").mock(
+        return_value=httpx.Response(500, text="upstream error"))
+    api = fake_api(overrides={"players": fixture_json("listone_sample")})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: __import__("asyncio").run(fn(api)))
+
+    result = CliRunner().invoke(app, ["ingest", "all", "--json"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    payload = json.loads(result.stdout)
+    assert payload["stats_web"] is None
+    assert len(payload["skipped"]) == 1 and "500" in payload["skipped"][0]
+    assert payload["listone"]["skipped_duplicate"] is True                        # still recorded
+    assert [r["season_id"] for r in payload["advanced"]] == [18, 19, 20, 21]       # still recorded
+    assert {r["competition"] for r in payload["calendar"]} == {"SA", "UCL", "UEL", "UECL"}   # still recorded
+
+
+@respx.mock
+def test_cli_ingest_all_records_everything_else_on_a_truncated_workbook_download(monkeypatch, tmp_path, fixture_json,
+                                                                                 mcp_fixture_json, fixture_file,
+                                                                                 fake_api, no_pause):
+    """Finding F1: a truncated download can pass the xlsx magic-byte check
+    (`data[:4] == XLSX_MAGIC`) and still fail to open as a zip once
+    `_is_not_published_placeholder` actually loads it with openpyxl, raising
+    `zipfile.BadZipFile`. That exception is neither a `SourceError` nor a
+    `ValueError`, so before this fix it escaped both `fetch_everything`'s
+    try/except and cli/app.py's `_source_errors`, surfacing as a raw,
+    unmapped traceback instead of the documented exit code -- and, same as
+    the other two branches, discarding the already-fetched listone, advanced
+    and calendar payloads on the way out."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    monkeypatch.setenv("FANTACALCIO_WEB_COOKIE", COOKIE)
+    _seed(tmp_path, fixture_json, mcp_fixture_json)
+    _mock_web(fixture_json, fixture_file("voti_sample.xlsx").read_bytes())
+    respx.get(url__regex=r".*/api/v1/Excel/votes/(?P<s>\d+)/(?P<g>\d+)$").mock(
+        return_value=httpx.Response(200, content=b"PK\x03\x04" + b"truncated, not a real zip"))
+    api = fake_api(overrides={"players": fixture_json("listone_sample")})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: __import__("asyncio").run(fn(api)))
+
+    result = CliRunner().invoke(app, ["ingest", "all", "--json"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    payload = json.loads(result.stdout)
+    assert payload["stats_web"] is None
+    assert len(payload["skipped"]) == 1 and "corrupted workbook download" in payload["skipped"][0]
+    assert payload["listone"]["skipped_duplicate"] is True                        # still recorded
+    assert [r["season_id"] for r in payload["advanced"]] == [18, 19, 20, 21]       # still recorded
+    assert {r["competition"] for r in payload["calendar"]} == {"SA", "UCL", "UEL", "UECL"}   # still recorded
+
+
+@respx.mock
 async def test_fetch_and_record_everything_directly(db, tmp_path, fixture_json, mcp_fixture_json, fixture_file,
                                                     fake_api, no_pause):
     from fantaclaude.ingest.listone_api import load_listone, record_listone

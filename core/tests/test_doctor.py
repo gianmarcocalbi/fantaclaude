@@ -194,6 +194,57 @@ def test_malformed_modules_yml_is_reported_not_raised(monkeypatch, tmp_path):
     assert not modules_check.ok
 
 
+def test_non_utf8_aliases_file_is_reported_not_raised(tmp_path):
+    """Finding F8: load_aliases calls path.read_text(encoding="utf-8"), so a
+    non-UTF-8 aliases.yml raises UnicodeDecodeError, and a file doctor
+    cannot read at all raises OSError -- neither is an AliasError or a
+    yaml.YAMLError, so the old except tuple let either one propagate and
+    take the whole `fantaclaude doctor` command down, unlike every other
+    check here, which reports a failure as a failed check rather than
+    raising."""
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_bytes(b"understat:\n  \xff\xfe: 1\n")
+    checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert list(checks) == NAMES                     # run_doctor completed, did not raise
+    assert not checks["aliases"].ok
+
+
+def test_advanced_check_surfaces_alias_resolved_players(tmp_path, fixture_json):
+    """Finding F9: advanced_snapshots.matched stores counts["matched"]
+    alone -- alias-resolved players (the whole purpose of aliases.yml) are
+    counted separately with no column of their own, so the printed numbers
+    under-counted matched by the alias count and never closed against
+    row_count. Confirmed live: season 19 was reported "599 rows, 291
+    matched, 9 ambiguous, 298 unmatched" = 598, one short. Reproduced here
+    with the fixture test_advanced.py itself uses for the alias mechanism
+    (Pietro Terracciano -> listone id 3): matched=5, alias=1, ambiguous=1,
+    unmatched=3, which must close against the 10 recorded rows."""
+    from fantaclaude.ingest.advanced import load_advanced, record_advanced
+    from fantaclaude.ingest.names import Aliases, load_candidates, load_teams
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    raw = RawStore(tmp_path / "data" / "raw").write("listone", fixture_json("listone_sample"))
+    record_listone(con, load_listone(raw.path), raw)
+    store = RawStore(tmp_path / "data" / "raw")
+    advanced_raw = store.write("advanced", fixture_json("understat_sample"), label="20")
+    season_id, rows = load_advanced(advanced_raw.path)
+    aliases = Aliases(players={"understat": {"Pietro Terracciano": 3}},
+                      teams={"understat": {"AC Milan": "Milan"}})
+    result = record_advanced(con, season_id, rows, advanced_raw, candidates=load_candidates(con),
+                             teams=load_teams(con), aliases=aliases)
+    assert (result.matched, result.alias, result.ambiguous, result.unmatched) == (5, 1, 1, 3)
+    con.close()
+
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["advanced"].ok
+    assert "5 matched" in by["advanced"].detail and "1 alias" in by["advanced"].detail
+    assert "1 ambiguous" in by["advanced"].detail and "3 unmatched" in by["advanced"].detail
+    assert "10 rows" in by["advanced"].detail
+    # the numbers must close: matched + alias + ambiguous + unmatched == row_count
+    assert 5 + 1 + 1 + 3 == 10
+
+
 def test_history_checks_describe_coverage(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     monkeypatch.delenv("FANTACALCIO_WEB_COOKIE", raising=False)   # isolate from a developer's exported cookie
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)

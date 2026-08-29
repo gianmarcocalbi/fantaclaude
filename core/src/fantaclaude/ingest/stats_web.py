@@ -82,17 +82,28 @@ def _is_not_published_placeholder(data: bytes) -> bool:
     a genuine voti export -- checked from the raw bytes before anything is
     stored, so the adapter never persists a placeholder as if it were data.
 
+    Matched narrowly against the placeholder's fixed shape -- one sheet, one
+    row, one cell carrying the marker (observed 2026-08-28,
+    captured/voti-21-38.xlsx) -- the same way `_is_not_yet_rated` matches its
+    own shape exactly rather than scanning every cell for a substring.
+    Finding F5: the workbook carries three sheets (Fantacalcio, Statistico,
+    Italia), one per voto source, produced at different times -- a genuine
+    export where only one source happens to still be pending must not match
+    just because the marker text appears somewhere in that one sheet.
+
     Called only once `data` has already passed the xlsx magic-byte check, so
     a load failure here is a genuine shape surprise and is left to propagate
     -- same as parse_voti, which does not guard load_workbook either."""
     workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     try:
-        for sheet in workbook.worksheets:
-            for row in sheet.iter_rows(values_only=True):
-                for cell in row:
-                    if isinstance(cell, str) and NOT_PUBLISHED_MARKER in cell:
-                        return True
-        return False
+        if len(workbook.worksheets) != 1:
+            return False
+        rows = [[cell for cell in row if not _blank(cell)]
+                for row in workbook.worksheets[0].iter_rows(values_only=True)]
+        if len(rows) != 1 or len(rows[0]) != 1:
+            return False
+        cell = rows[0][0]
+        return isinstance(cell, str) and NOT_PUBLISHED_MARKER in cell
     finally:
         workbook.close()
 
@@ -376,6 +387,19 @@ class VotiIngestResult:
                 "unknown_players": self.unknown_players, "sha256": self.sha256, "raw_path": self.raw_path}
 
 
+def find_recorded_voti_file(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int,
+                            sha256: str) -> tuple[int, list[str]] | None:
+    """(file_id, sheets) if this exact sha256 for this season+giornata is
+    already recorded, else None -- the single query both `record_voti` and
+    `record_voti_files` (Finding F3) use, so an already-recorded workbook can
+    be recognised from its hash alone, before either the not-yet-rated probe
+    or `parse_voti` ever opens it with openpyxl."""
+    row = con.execute(
+        "SELECT file_id, sheets FROM voti_files WHERE season_id = ? AND giornata = ? AND sha256 = ?",
+        [season_id, giornata, sha256]).fetchone()
+    return (row[0], list(row[1])) if row is not None else None
+
+
 def record_voti(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int, workbook: VotiWorkbook,
                 raw: RawFile, *, known_ids: set[int]) -> VotiIngestResult:
     """Append one file row and its player rows; the same bytes twice for the
@@ -390,12 +414,10 @@ def record_voti(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int, w
     by one per club and bury the real signal (players signed after the
     listone snapshot). The coach row itself is still inserted below.
     """
-    existing = con.execute(
-        "SELECT file_id, sheets FROM voti_files WHERE season_id = ? AND giornata = ? AND sha256 = ?",
-        [season_id, giornata, raw.sha256]).fetchone()
+    existing = find_recorded_voti_file(con, season_id, giornata, raw.sha256)
     if existing is not None:
-        return VotiIngestResult(existing[0], season_id, giornata, 0, True, list(existing[1]), 0,
-                                raw.sha256, str(raw.path))
+        file_id, sheets = existing
+        return VotiIngestResult(file_id, season_id, giornata, 0, True, sheets, 0, raw.sha256, str(raw.path))
     rows = workbook.rows
     unknown = {r.player_id for r in rows if r.classic_role != COACH_ROLE} - known_ids
     con.begin()

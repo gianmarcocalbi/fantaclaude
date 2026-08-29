@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,7 +30,7 @@ from fantaclaude.ingest.calendar import (
     load_uefa,
     record_fixtures,
 )
-from fantaclaude.ingest.http import WebSessionExpired, polite_pause
+from fantaclaude.ingest.http import SourceError, WebSessionExpired, polite_pause
 from fantaclaude.ingest.listone_api import (
     IngestResult,
     fetch_listone,
@@ -43,6 +44,7 @@ from fantaclaude.ingest.stats_web import (
     VotiIngestResult,
     VotiShapeError,
     fetch_voti_range,
+    find_recorded_voti_file,
     is_not_yet_rated_workbook,
     parse_voti,
     record_voti,
@@ -277,7 +279,13 @@ def record_voti_files(con: duckdb.DuckDBPyConnection, store: RawStore, fetched: 
     fetched again and found to still be unrated, is exactly the same fact
     `fetch_voti` now refuses to store in the first place -- nothing is
     silently dropped, but it is not a VotiIngestResult either, since nothing
-    was recorded."""
+    was recorded.
+
+    Finding F3: an already-recorded workbook is recognised from its sha256
+    alone (`find_recorded_voti_file`), *before* the not-yet-rated probe or
+    `parse_voti` opens it with openpyxl -- without this, a steady-state,
+    no-op run re-parsed every already-recorded workbook with openpyxl twice
+    (the probe, then the parse) to insert zero rows every time."""
     known = {int(r[0]) for r in con.execute("SELECT player_id FROM v_players_current").fetchall()}
     wanted = set(giornate)
     results: list[VotiIngestResult] = []
@@ -286,10 +294,16 @@ def record_voti_files(con: duckdb.DuckDBPyConnection, store: RawStore, fetched: 
         on_disk = _voti_on_disk(store, season_id)
         for giornata in sorted(g for g in on_disk if g in wanted):
             path = on_disk[giornata]
+            raw = fetched[season_id].raws.get(giornata) or _raw_file_from_disk(path, "voti")
+            existing = find_recorded_voti_file(con, season_id, giornata, raw.sha256)
+            if existing is not None:
+                file_id, sheets = existing
+                results.append(VotiIngestResult(file_id, season_id, giornata, 0, True, sheets, 0,
+                                                raw.sha256, str(raw.path)))
+                continue
             if is_not_yet_rated_workbook(path):
                 not_yet_rated.setdefault(season_id, []).append(giornata)
                 continue
-            raw = fetched[season_id].raws.get(giornata) or _raw_file_from_disk(path, "voti")
             results.append(record_voti(con, season_id, giornata, parse_voti(raw.path), raw, known_ids=known))
     return results, not_yet_rated
 
@@ -326,6 +340,17 @@ async def fetch_everything(api: FantacalcioAPI, http: httpx.AsyncClient, store: 
     calendar have already been fetched, so letting it escape and abort the
     run before `record_everything` runs would throw all three away for
     exactly the reason the cookie-rejection handling above exists.
+
+    Finding F1: two more faults reach this same point and were missing from
+    the original two handlers. A plain `SourceError` from `fetch_bytes`
+    (fantacalcio.it answering 429/500/502 partway through the season loop)
+    is caught here for the same reason as `WebSessionExpired` -- it is
+    `SourceError`'s own subclass, so this handler is listed after it to keep
+    a distinct message for a rejected cookie. `zipfile.BadZipFile` from
+    `_is_not_published_placeholder` on a truncated download is not a
+    `SourceError` or a `ValueError`, so `_source_errors` (cli/app.py) would
+    otherwise leave it as a raw, unmapped traceback instead of the
+    documented exit code -- caught here too, and carried the same way.
     """
     skipped: list[str] = []
     listone = await fetch_listone(api, store, league=league)
@@ -356,6 +381,22 @@ async def fetch_everything(api: FantacalcioAPI, http: httpx.AsyncClient, store: 
             # cookie, so record_everything still runs for the listone,
             # advanced and calendar payloads already fetched.
             skipped.append(f"stats_web: voti workbook shape error: {exc}")
+        except SourceError as exc:
+            # Finding F1: a plain SourceError (429/500/502 partway through
+            # the season loop) is not a rejected session and not a
+            # malformed workbook, but must be carried the same way: the
+            # listone, advanced and calendar payloads already fetched have
+            # no on-disk recovery path of their own and must not be thrown
+            # away by letting this escape.
+            skipped.append(f"stats_web: source error: {exc}")
+        except zipfile.BadZipFile as exc:
+            # Finding F1: a truncated download can pass the xlsx magic-byte
+            # check and still fail to open as a zip once
+            # _is_not_published_placeholder actually loads it. Neither a
+            # SourceError nor a ValueError, so left unmapped it would also
+            # escape cli/app.py's _source_errors as a raw traceback instead
+            # of the documented exit code -- carried here the same way.
+            skipped.append(f"stats_web: corrupted workbook download: {exc}")
     return AllFetched(seasons[-1], listone, advanced, calendar, stats_web, skipped)
 
 

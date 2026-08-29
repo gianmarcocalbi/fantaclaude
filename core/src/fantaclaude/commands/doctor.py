@@ -98,15 +98,27 @@ def _history_checks(con: duckdb.DuckDBPyConnection, now: datetime) -> list[Check
         detail = "; ".join(f"season {row[0]}: giornate {row[1]}" for row in coverage)
         checks.append(Check("player_match", True, f"{detail}; newest {_age(coverage[-1][2], now)}"))
     seasons = con.execute(
-        "SELECT season_id, row_count, matched, ambiguous, unmatched, fetched_at FROM advanced_snapshots "
+        "SELECT snapshot_id, season_id, row_count, matched, ambiguous, unmatched, fetched_at FROM advanced_snapshots "
         "WHERE snapshot_id IN (SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id) "
         "ORDER BY season_id").fetchall()
     if not seasons:
         checks.append(Check("advanced", False, "no Understat rows yet -- run `fantaclaude ingest advanced`"))
     else:
-        detail = "; ".join(f"season {r[0]}: {r[1]} rows, {r[2]} matched, {r[3]} ambiguous, {r[4]} unmatched"
-                           for r in seasons)
-        checks.append(Check("advanced", True, f"{detail}; newest {_age(seasons[-1][5], now)}"))
+        # Finding F9: advanced_snapshots.matched stores counts["matched"]
+        # alone -- alias-resolved players (aliases.yml's whole purpose) are
+        # counted separately with no column of their own, so the printed
+        # numbers under-counted matched by the alias count and never closed
+        # against row_count. Derived here without a schema change, the same
+        # way record_advanced's own duplicate path already does (a
+        # match_status = 'alias' query), and surfaced so the numbers close.
+        alias_counts = dict(con.execute(
+            "SELECT snapshot_id, count(*) FROM advanced_stats WHERE match_status = 'alias' "
+            "AND snapshot_id IN (SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id) "
+            "GROUP BY snapshot_id").fetchall())
+        detail = "; ".join(
+            f"season {r[1]}: {r[2]} rows, {r[3]} matched, {alias_counts.get(r[0], 0)} alias, "
+            f"{r[4]} ambiguous, {r[5]} unmatched" for r in seasons)
+        checks.append(Check("advanced", True, f"{detail}; newest {_age(seasons[-1][6], now)}"))
     current = con.execute("SELECT max(season_id) FROM v_league_settings_current").fetchone()[0]
     serie_a = con.execute(
         "SELECT count(DISTINCT giornata) FROM v_fixtures_current WHERE competition = 'SA' AND season_id = ?",
@@ -286,7 +298,12 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         checks.append(Check("aliases", aliases is not None,
                             f"{len(aliases.players) + len(aliases.teams)} sections" if aliases is not None
                             else f"{aliases_file} is missing"))
-    except (AliasError, yaml.YAMLError) as exc:
+    # Finding F8: load_aliases calls path.read_text(encoding="utf-8"), which
+    # can raise OSError (permissions) or UnicodeDecodeError (non-UTF-8) --
+    # neither is an AliasError or a yaml.YAMLError, so left uncaught either
+    # one took the whole `fantaclaude doctor` command down, unlike every
+    # other check here, which reports a failure as a failed check.
+    except (AliasError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
         checks.append(Check("aliases", False, str(exc)))
     checks.append(_profiles_check(paths.kb, paths.db))
     return checks
