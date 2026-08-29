@@ -121,8 +121,50 @@ def test_owned_players_consume_ranks_and_bounds():
     full = price_board(state(owned=tuple(OwnedPlayer(i, "Por", 50.0) for i in range(CFG.max_goalkeepers))), CFG)
     assert all(full.prices[p.player_id].band == Band(0, 0, 0) for p in por)          # no goalkeeper slot left
     assert full.composition["Por"] == 0
-    one = price_board(state(owned=(OwnedPlayer(1, "Por", 120.0),)), CFG, focus=por[1].player_id)
-    assert one.prices[por[1].player_id].rank_weight == WEIGHTS["Por"][1]              # he would be my second keeper
+    plain = price_board(state(), CFG, focus=por[0].player_id)
+    assert plain.prices[por[0].player_id].rank_weight == WEIGHTS["Por"][0]
+    one = price_board(state(owned=(OwnedPlayer(1, "Por", 120.0),)), CFG, focus=por[0].player_id)
+    assert one.prices[por[0].player_id].rank_weight == WEIGHTS["Por"][1]              # he would be my second keeper
+
+
+CLIFF = (0.939, 0.12, 0.06)                     # the shape the real demand gives A, W and Dc: a starter and two benches
+
+
+def cliff_state(values=(230.0, 222.0, 207.0, 197.0), quots=(30, 28, 25, 23), **kw):
+    pool = tuple(player(200 + i, "A", v, q, spread=0.05) for i, (v, q) in enumerate(zip(values, quots, strict=True)))
+    base = {"credits": 500, "market_credits": 500, "pool": pool, "weights": {"A": CLIFF}, "hard_minimums": {},
+            "roster_min": 1, "roster_max": 40, "min_goalkeepers": 0, "max_goalkeepers": 6}
+    base.update(kw)
+    return PoolState(**base)
+
+
+def test_a_player_who_is_not_his_classs_best_still_has_a_price():
+    """Regression. The buy branch used to seat the bought player at rank 1 by
+    construction while the walk branch let the class's genuine best sit there,
+    so buy - walk was negative for everyone but that best whenever the weights
+    are cliff-shaped -- and on the real board 540 of 553 players priced at 0.
+    Which rank he carries is the DP's decision: a second striker worth 222
+    against a best of 230 is bought as the bench man, not as the starter."""
+    board = price_board(cliff_state(), CFG, exact=True)
+    prices = [board.prices[200 + i].band.p50 for i in range(4)]
+    assert all(x > 0 for x in prices[:3]), prices               # the class has three ranks and they were 0, 0 before
+    assert prices[3] == 0, prices                               # a fourth striker fills no rank: he really is worth nothing
+    assert prices == sorted(prices, reverse=True), prices
+    second = board.prices[201]
+    assert second.rank_weight == CLIFF[1] and second.buy_value >= second.walk_value    # bought as the first bench
+
+
+def test_a_max_price_is_non_increasing_down_a_classs_value_ranking():
+    """A worse player is never worth more: the property the all-zero board
+    satisfied vacuously, checked class by class on a 553-player pool."""
+    board = price_board(state(big_pool(), roster_min=23), CFG, exact=True)
+    ranked: dict[str, list] = {}
+    for p in sorted(big_pool(), key=lambda p: (-p.value_p50, p.player_id)):
+        ranked.setdefault(p.role_class, []).append(board.prices[p.player_id].band.p50)
+    for cls, prices in ranked.items():
+        assert prices == sorted(prices, reverse=True), (cls, prices[:12])
+        assert prices[1] > 0 and prices[2] > 0, (cls, prices[:12])            # the #2 and #3 of a populated class
+    assert sum(1 for p in board.prices.values() if p.band.p50 > 0) > len(board.prices) // 2
 
 
 def test_the_focused_player_is_exact_and_matches_the_exact_board():

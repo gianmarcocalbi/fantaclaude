@@ -9,11 +9,15 @@ State: my credits, the pool, what I already own, the demand weights per
 role class and rank (model/demand.py), the hard minimums, the league's
 bounds. V(c) is the value of the best completion of my roster with c
 credits at the pool's expected prices; for a player p offered at x,
-buy(x) = w * value(p) + V_{-p,-slot}(C - x) and walk = V_{-p}(C) -- in both
-branches p leaves the pool: if I do not buy him, someone else does. The
-max price is the largest x with buy(x) >= walk, found by binary search
-since V is monotone in credits; solved at p25, p50 and p75 of value(p),
-which is the band.
+buy(x) = max over the rank a he could take of w_a * value(p) +
+V_{-p,-a}(C - x), and walk = V_{-p}(C) -- in both branches p leaves the
+pool: if I do not buy him, someone else does. He is not seated at his
+class's first rank by construction: which rank he carries depends on how
+many better players the completion also buys, so it is the DP's decision,
+and taking the maximum over the ranks is how it makes it. The max price is
+the largest x with buy(x) >= walk, found by binary search since every
+V_{-p,-a} is monotone in credits and so is their maximum; solved at p25,
+p50 and p75 of value(p), which is the band.
 
 The machinery (spec, "The algorithm, concretely"): expected prices are
 quotazione x inflation, inflation = credits still on the market over the
@@ -21,8 +25,8 @@ quotazioni of the credible pool, clamped; per class a knapsack over the
 top candidates gives f_r(j, c), the best weighted value of exactly j
 players for at most c credits, the j-th chosen (in value order) carrying
 the j-th rank weight; the classes combine by max-plus convolution; a
-class's curve without its first slot (weights shifted by one) is what the
-buy branch completes from. Removing p from his class's curve is done
+class's curve with one rank left free is what the buy branch completes
+from, one such curve per rank. Removing p from his class's curve is done
 exactly for the player on the block (`focus`) and, with `exact=True`, for
 every player of a pre-auction run; otherwise the board is priced from the
 full-pool tables and says so (`PlayerPrice.exact`). Composition is a
@@ -134,9 +138,9 @@ class PlayerPrice:
     role_class: str
     band: Band
     expected_price: int
-    rank_weight: float
+    rank_weight: float        # the rank the completion leaves him at his p50 max price, not his class's first
     walk_value: float
-    buy_value: float          # w * value_p50 - the slot price + the completion at the p50 max price
+    buy_value: float          # rank_weight * value_p50 - the slot price + the completion at the p50 max price
     exact: bool
 
     def to_dict(self) -> dict[str, Any]:
@@ -178,42 +182,65 @@ class _Class:
     cap: int | None
 
 
-def _curve(costs: np.ndarray, values: np.ndarray, weights: tuple[float, ...], budget: int,
+def _curve(costs: np.ndarray, values: np.ndarray, weights: tuple[float, ...] | np.ndarray, budget: int,
            penalty: float = 0.0) -> np.ndarray:
-    """dp[j, c]: the best weighted value of exactly j players for at most c credits, less the slot price each."""
-    k = len(weights)
-    dp = np.full((k + 1, budget + 1), NEG)
-    dp[0, :] = 0.0
+    """dp[v, j, c]: the best weighted value of exactly j players for at most c
+    credits, less the slot price each, under rank weighting v. `weights` is a
+    stack of weightings (a single row broadcasts to one): they share the one
+    pass over the class, because they differ in what the j-th chosen player is
+    worth and not in which players exist."""
+    w = np.atleast_2d(np.asarray(weights, dtype=np.float64))
+    k = w.shape[1]
+    dp = np.full((w.shape[0], k + 1, budget + 1), NEG)
+    dp[:, 0, :] = 0.0
     for cost, value in zip(costs.tolist(), values.tolist()):
         if cost > budget:
             continue
         for j in range(k, 0, -1):
-            gain = dp[j - 1, :budget + 1 - cost] + (weights[j - 1] * value - penalty)
-            np.maximum(dp[j, cost:], gain, out=dp[j, cost:])
+            gain = dp[:, j - 1, :budget + 1 - cost] + (w[:, j - 1, None] * value - penalty)
+            np.maximum(dp[:, j, cost:], gain, out=dp[:, j, cost:])
     return dp
 
 
+def _hole_weights(weights: tuple[float, ...]) -> np.ndarray:
+    """Row a: the rank weights the completion keeps when the player on the
+    block takes rank a himself. Pricing him means maximising over the rows --
+    which rank his value earns against the players the completion actually
+    buys is the DP's decision, not rank 1 by construction. Ordering falls out:
+    seating him above a better player is never the maximising row, because
+    sorted values against sorted weights is the larger sum."""
+    k = len(weights)
+    return np.array([[weights[r] for r in range(k) if r != a] for a in range(k)],
+                    dtype=np.float64).reshape(k, max(0, k - 1))
+
+
 def _best(dp: np.ndarray, j_min: int, j_max: int, cap: int | None) -> np.ndarray:
-    j_max = min(j_max, dp.shape[0] - 1)
+    """The best of the j in range, over the last two axes of dp: (..., j, c) -> (..., c)."""
+    j_max = min(j_max, dp.shape[-2] - 1)
     if j_min > j_max:
-        return np.full(dp.shape[1], NEG)
-    best = dp[j_min:j_max + 1].max(axis=0)
-    if cap is not None and cap < best.shape[0] - 1:
+        return np.full(dp.shape[:-2] + dp.shape[-1:], NEG)
+    best = dp[..., j_min:j_max + 1, :].max(axis=-2)
+    if cap is not None and cap < best.shape[-1] - 1:
         best = best.copy()
-        best[cap + 1:] = best[cap]
+        best[..., cap + 1:] = best[..., cap, None]
     return best
 
 
 def _maxplus(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    n = a.shape[0]
-    out = np.full(n, NEG)
-    for k in np.flatnonzero(a > NEG).tolist():
-        np.maximum(out[k:], a[k] + b[:n - k], out=out[k:])
+    """Both are non-decreasing (a curve is "for at most c credits"), so a
+    spend k that buys nothing more than k - 1 does is dominated by k - 1,
+    which leaves a credit for the other side: only the steps of `a` are
+    worth visiting."""
+    n = a.shape[-1]
+    out = np.full(b.shape, NEG)
+    steps = np.flatnonzero((a > NEG) & np.r_[True, a[1:] > a[:-1]]).tolist()
+    for k in steps:
+        np.maximum(out[..., k:], a[k] + b[..., :n - k], out=out[..., k:])
     return out
 
 
 def _at(a: np.ndarray, b: np.ndarray, c: int) -> float:
-    return float((a[:c + 1] + b[:c + 1][::-1]).max())
+    return float((a[:c + 1] + b[..., :c + 1][..., ::-1]).max())
 
 
 def _expected_prices(state: PoolState, cfg: PricingConfig) -> tuple[float, dict[int, int]]:
@@ -265,14 +292,23 @@ class _Solution:
     penalty: float
     total: np.ndarray
     others: dict[str, np.ndarray]
-    minus_one: dict[str, np.ndarray]     # others ⊕ the class curve without its first slot
     composition: dict[str, int]
     credits: dict[str, int]
 
 
+def _holes(c: _Class, solution: _Solution, budget: int) -> np.ndarray:
+    """others ⊕ the class curve around each rank a player on the block might
+    take: row a is what the rest of the roster is worth while he carries rank
+    a, with the class still holding him (the board price's approximation).
+    Built for the settled solution and only for a class that needs it -- the
+    bisection that finds the slot price does not, nor does an exact board."""
+    dp = _curve(c.costs, c.values, _hole_weights(c.weights), budget, solution.penalty)
+    return _maxplus(solution.others[c.name], _best(dp, max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap))
+
+
 def _solve(classes: list[_Class], budget: int, penalty: float = 0.0) -> _Solution:
     zero = np.zeros(budget + 1)
-    dps = {c.name: _curve(c.costs, c.values, c.weights, budget, penalty) for c in classes}
+    dps = {c.name: _curve(c.costs, c.values, c.weights, budget, penalty)[0] for c in classes}
     best = {c.name: _best(dps[c.name], c.j_min, c.j_max, c.cap) for c in classes}
     prefix = [zero]
     for c in classes:
@@ -282,10 +318,6 @@ def _solve(classes: list[_Class], budget: int, penalty: float = 0.0) -> _Solutio
         suffix.append(_maxplus(suffix[-1], best[c.name]))
     suffix.reverse()                                            # suffix[i] = every class from i on
     others = {c.name: _maxplus(prefix[i], suffix[i + 1]) for i, c in enumerate(classes)}
-    minus_one = {}
-    for c in classes:
-        dp = _curve(c.costs, c.values, c.weights[1:], budget, penalty)
-        minus_one[c.name] = _maxplus(others[c.name], _best(dp, max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap))
     composition: dict[str, int] = {}
     credits: dict[str, int] = {}
     remaining = budget
@@ -301,7 +333,7 @@ def _solve(classes: list[_Class], budget: int, penalty: float = 0.0) -> _Solutio
                 best_value, best_j, best_c = float(candidates[idx]), j, idx
         composition[c.name], credits[c.name] = best_j, best_c
         remaining -= best_c
-    return _Solution(budget, penalty, prefix[-1], others, minus_one, composition, credits)
+    return _Solution(budget, penalty, prefix[-1], others, composition, credits)
 
 
 def _fit_roster(classes: list[_Class], budget: int, slots: int) -> _Solution:
@@ -322,18 +354,39 @@ def _fit_roster(classes: list[_Class], budget: int, slots: int) -> _Solution:
     return fit
 
 
-def _max_price(gain: float, curve: np.ndarray, walk: float, budget: int) -> int:
-    """The largest x in [0, budget] with gain + curve[budget - x] >= walk;
-    curve is non-decreasing, so the predicate is monotone in x."""
-    if walk == NEG:                                             # no completion without him: every spare credit
-        feasible = np.flatnonzero(curve[:budget + 1] > NEG)
-        return int(budget - feasible.min()) if feasible.size else 0
-    if gain + curve[budget] < walk:
+def _column(buy: np.ndarray, others: np.ndarray | None, c: int) -> np.ndarray:
+    """Per rank he could take, buying him with c credits left for the rest.
+    `others` is the rest of the roster when the class curve has not been
+    convolved with it: the exact board rebuilds the class per player, and a
+    whole max-plus convolution each is what it cannot afford, so the split of
+    c between the class and the rest is maximised over point by point instead
+    -- the binary search asks for a handful of points, not the whole curve."""
+    if c < 0:
+        return np.full(buy.shape[0], NEG)
+    if others is None:
+        return buy[:, c]
+    return (others[:c + 1] + buy[:, :c + 1][:, ::-1]).max(axis=1)
+
+
+def _max_price(buy: np.ndarray, others: np.ndarray | None, walk: float, budget: int) -> int:
+    """The largest x in [0, budget] with buy(budget - x) >= walk; buy(.) is a
+    maximum of non-decreasing curves, so the predicate is monotone in x. No
+    completion without him (walk = -inf) makes it every credit that still
+    leaves the buy branch feasible."""
+    if others is None:                  # the whole curve is in hand, so the search is a lookup: it is
+        curve = buy.max(axis=0)         # non-decreasing, and -inf sorts before every number
+        first = int(np.searchsorted(curve, walk, side="right" if walk == NEG else "left"))
+        return budget - first if first <= budget else 0
+
+    def ok(c: int) -> bool:
+        value = float(_column(buy, others, c).max())
+        return value > NEG if walk == NEG else value >= walk
+    if not ok(budget):
         return 0
     lo, hi = 0, budget
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        if gain + curve[budget - mid] >= walk:
+        if ok(budget - mid):
             lo = mid
         else:
             hi = mid - 1
@@ -360,6 +413,7 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
     penalty = solution.penalty
     by_class = {c.name: c for c in classes}
     candidate_of = {p.player_id: c.name for c in classes for p in c.players}
+    shared: dict[str, np.ndarray] = {}
     prices: dict[int, PlayerPrice] = {}
     for p in state.pool:
         if p.player_id in state.excluded:
@@ -369,25 +423,33 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
             prices[p.player_id] = PlayerPrice(p.player_id, c.name, Band(0, 0, 0), expected[p.player_id], 0.0,
                                               float(solution.total[budget]), NEG, True)
             continue
-        weight = c.weights[0]
+        k = len(c.weights)
         wants_exact = exact or p.player_id == focus
         if wants_exact and p.player_id in candidate_of:
             keep = [i for i, q in enumerate(c.players) if q.player_id != p.player_id]
             costs, values = c.costs[keep], c.values[keep]
-            walk = _at(solution.others[c.name],
-                       _best(_curve(costs, values, c.weights, budget, penalty), c.j_min, c.j_max, c.cap), budget)
-            curve = _maxplus(solution.others[c.name],
-                             _best(_curve(costs, values, c.weights[1:], budget, penalty), max(0, c.j_min - 1),
-                                   max(0, c.j_max - 1), c.cap))
-        else:
-            walk, curve = float(solution.total[budget]), solution.minus_one[c.name]
-        band = Band(*(_max_price(weight * v - penalty, curve, walk, budget)
-                      for v in (p.value_p25, p.value_p50, p.value_p75)))
+            stack = np.zeros((k + 1, k))                        # row 0 walks away from him, row a + 1 seats him at rank a
+            stack[0] = c.weights
+            stack[1:, :k - 1] = _hole_weights(c.weights)        # the padding column is never read: j stops at j_max - 1
+            dp = _curve(costs, values, stack, budget, penalty)
+            others = solution.others[c.name]
+            walk = _at(others, _best(dp[0], c.j_min, c.j_max, c.cap), budget)
+            holes = _best(dp[1:], max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap)
+        else:                                        # the shared rows are convolved with `others` already
+            if c.name not in shared:
+                shared[c.name] = _holes(c, solution, budget)
+            walk, holes, others = float(solution.total[budget]), shared[c.name], None
+        # buy(c) = max over the rank he takes; every row already leaves that rank
+        # free, so scarcity and the rank weight both fall out of the same maximum.
+        ranks = np.asarray(c.weights)[:, None]
+        buys = [holes + (ranks * v - penalty) for v in (p.value_p25, p.value_p50, p.value_p75)]
+        band = Band(*(_max_price(b, others, walk, budget) for b in buys))
         if c.cap is not None:                                   # a budget share caps the class, so it caps the price
             band = Band(*(min(x, c.cap) for x in (band.p25, band.p50, band.p75)))
-        completion = float(curve[budget - band.p50])
-        buy = weight * p.value_p50 - penalty + completion if completion > NEG else NEG
-        prices[p.player_id] = PlayerPrice(p.player_id, c.name, band, expected[p.player_id], weight, walk, buy,
+        at_p50 = _column(buys[1], others, budget - band.p50)
+        taken = int(np.argmax(at_p50))
+        buy = float(at_p50[taken]) if at_p50[taken] > NEG else NEG
+        prices[p.player_id] = PlayerPrice(p.player_id, c.name, band, expected[p.player_id], c.weights[taken], walk, buy,
                                           wants_exact)
     owned = Counter(o.role_class for o in state.owned)
     departed = tuple(cls for cls, n in state.targets.items()
