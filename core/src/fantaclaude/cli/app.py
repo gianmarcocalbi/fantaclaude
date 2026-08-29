@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import contextmanager
 from enum import IntEnum
 
 import typer
@@ -111,46 +112,10 @@ ingest_app = typer.Typer(name="ingest", help="Fetch a source into data/raw/ and 
 app.add_typer(ingest_app)
 
 
-def _render_ingest(payload: dict) -> str:
-    lines = []
-    for name, result in payload.items():
-        if result["skipped_duplicate"]:
-            lines.append(f"{name}: duplicate of snapshot {result['snapshot_id']} -- nothing new ({result['raw_path']})")
-        else:
-            lines.append(f"{name}: snapshot {result['snapshot_id']}, {result['inserted']} rows ({result['raw_path']})")
-    return "\n".join(lines)
-
-
-def _run_ingest(names: list[str], json_: bool, league: str | None) -> None:
-    from fantaclaude.api_client import run_with_api
-    from fantaclaude.commands.ingest import fetch_all, record_all
-    from fantaclaude.db.connection import connect
-    from fantaclaude.db.schema import apply_schema
-    from fantaclaude.ingest.listone_api import fetch_listone
-    from fantaclaude.ingest.raw import RawStore
-    from fantaclaude.paths import raw_dir
-
-    store = RawStore(raw_dir())
-    # Fetch into data/raw/ first; open the database only to record. Same reason
-    # as sync-league: the write lock should not span the network call, and a
-    # failed first run must not leave an empty database that looks ingested.
-    if names == ["all"]:
-        raws = run_with_api(lambda api: fetch_all(api, store, league=league))
-    else:
-        # Only what was asked for: every fetch is a live call against a real
-        # account, so `ingest listone` must not pull the other sources too.
-        raws = {"listone": run_with_api(lambda api: fetch_listone(api, store, league=league))}
-    con = connect()
-    try:
-        apply_schema(con)
-        results = record_all(con, raws)
-    finally:
-        con.close()
-    payload = {name: r.to_dict() for name, r in results.items()}
-    if names != ["all"]:
-        emit(payload["listone"], json_=json_, render=lambda p: _render_ingest({"listone": p}))
-    else:
-        emit(payload, json_=json_, render=_render_ingest)
+def _render_listone(payload: dict) -> str:
+    if payload["skipped_duplicate"]:
+        return f"listone: duplicate of snapshot {payload['snapshot_id']} -- nothing new ({payload['raw_path']})"
+    return f"listone: snapshot {payload['snapshot_id']}, {payload['inserted']} rows ({payload['raw_path']})"
 
 
 @ingest_app.command("listone")
@@ -159,7 +124,38 @@ def ingest_listone_cmd(
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
 ) -> None:
     """Fetch the listone (539 players, Mantra roles and quotazioni) and snapshot it."""
-    _run_ingest(["listone"], json_, league)
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.listone_api import (
+        fetch_listone,
+        load_listone,
+        record_listone,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+
+    store = RawStore(raw_dir())
+    # Fetch into data/raw/ first; open the database only to record. Same reason
+    # as sync-league: the write lock should not span the network call, and a
+    # failed first run must not leave an empty database that looks ingested.
+    raw = run_with_api(lambda api: fetch_listone(api, store, league=league))
+    con = connect()
+    try:
+        apply_schema(con)
+        result = record_listone(con, load_listone(raw.path), raw)
+    finally:
+        con.close()
+    emit(result.to_dict(), json_=json_, render=_render_listone)
+
+
+def _render_all(payload: dict) -> str:
+    lines = [_render_listone(payload["listone"]), _render_advanced(payload), _render_calendar(payload)]
+    if payload["stats_web"] is not None:
+        lines.append(_render_stats_web(payload))
+    for reason in payload["skipped"]:
+        lines.append(f"SKIPPED {reason}")
+    return "\n".join(line for line in lines if line)
 
 
 @ingest_app.command("all")
@@ -167,8 +163,342 @@ def ingest_all_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
 ) -> None:
-    """Refresh every source (only the listone in Phase 0a)."""
-    _run_ingest(["all"], json_, league)
+    """Refresh every source: listone (league API), advanced (Understat), calendar (fantacalcio.it, UEFA), stats-web (voti XLSX). Exit 3 if one had to be skipped."""
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.ingest import (
+        ensure_schema,
+        existing_giornate,
+        fetch_everything,
+        record_everything,
+    )
+    from fantaclaude.config import web_cookie
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import build_http
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+
+    ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(None)
+    store = RawStore(raw_dir())
+    cookie = web_cookie()
+
+    with _source_errors():
+        # Finding F4: existing_giornate reads every *-voti-*.xlsx already on
+        # disk (openpyxl.load_workbook) -- one truncated file must raise
+        # BadZipFile *inside* _source_errors, not before it, or the whole
+        # command dies with an unmapped traceback before any work happens.
+        existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
+
+        async def go(api):
+            http = build_http()
+            try:
+                return await fetch_everything(api, http, store, seasons=seasons, cookie=cookie,
+                                              existing_voti=existing, league=league)
+            finally:
+                await http.aclose()
+
+        fetched = run_with_api(go)
+        con = connect()
+        try:
+            apply_schema(con)
+            payload = record_everything(con, store, fetched, aliases_path())
+        finally:
+            con.close()
+    emit(payload, json_=json_, render=_render_all)
+    if payload["skipped"]:
+        raise typer.Exit(code=ExitCode.NOT_READY)
+
+
+# Module-level singletons for list-valued options: ruff's B008 exempts only
+# immutable annotations, and `list[int] | None` is not one.
+SEASON_OPTION = typer.Option(
+    None, "--season", help="Season id(s), e.g. 20; default: the current season and the three before it.")
+
+COMPETITION_OPTION = typer.Option(
+    None, "--competition", help="SA, UCL, UEL or UECL; repeatable. Default: all four.")
+
+GIORNATA_OPTION = typer.Option(
+    None, "--giornata", help="Giornata number(s), 1-38; repeatable. Default: every giornata.")
+
+
+@contextmanager
+def _source_errors():
+    """Map the web sources' errors to the exit-code contract.
+
+    An expired website session is "not ready" (3): the fix is a new cookie,
+    not a bug. Anything else a source does wrong is an error (1).
+
+    Finding F4: `zipfile.BadZipFile` -- a truncated `*-voti-*.xlsx` already
+    on disk, read by `existing_giornate`'s pre-read -- is neither a
+    `SourceError` nor a `ValueError`, so it is mapped here too instead of
+    escaping as a raw, unmapped traceback.
+    """
+    import zipfile
+
+    from fantaclaude.ingest.http import SourceError, WebSessionExpired
+
+    try:
+        yield
+    except WebSessionExpired as exc:
+        typer.echo(f"website session rejected: {exc} -- re-capture FANTACALCIO_WEB_COOKIE "
+                   f"(core/README.md, 'The website session')", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    except SourceError as exc:
+        typer.echo(f"source failed: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+    except ValueError as exc:                      # *ShapeError: the source changed under us
+        typer.echo(f"source shape unexpected: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+    except zipfile.BadZipFile as exc:               # a truncated workbook already on disk
+        typer.echo(f"source shape unexpected: corrupted workbook: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.ERROR) from None
+
+
+def _seasons_or_exit(season: list[int] | None) -> list[int]:
+    from fantaclaude.commands.ingest import NotReady, default_seasons
+
+    try:
+        return list(season) if season else default_seasons()
+    except NotReady as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+
+
+def _render_advanced(payload: dict) -> str:
+    lines = []
+    for r in payload["advanced"]:
+        if r["skipped_duplicate"]:
+            lines.append(f"advanced {r['season_id']}: duplicate of snapshot {r['snapshot_id']} -- nothing new "
+                         f"({r['matched']} matched, {r['ambiguous']} ambiguous, {r['unmatched']} unmatched)")
+            if r["ambiguous"]:
+                # A new understat: alias has no effect on an already-recorded
+                # season (Ruling R11) -- name the way out, since this is the
+                # exact moment a reader is looking at an unimproved count.
+                lines.append(f"  a new alias in kb/rules/aliases.yml has no effect on its own -- run "
+                             f"`fantaclaude ingest advanced --season {r['season_id']} --rematch` to apply it")
+            continue
+        lines.append(f"advanced {r['season_id']}: snapshot {r['snapshot_id']}, {r['inserted']} rows -- "
+                     f"{r['matched']} matched, {r['alias']} alias, {r['ambiguous']} ambiguous, "
+                     f"{r['unmatched']} unmatched ({r['raw_path']})")
+        for a in r["ambiguous_names"]:
+            options = ", ".join(f"{c['player_id']} {c['name']}" for c in a["candidates"])
+            lines.append(f"  ambiguous: {a['name']} ({', '.join(a['teams'])}) -> {options}")
+        if r["unresolved_teams"]:
+            lines.append(f"  clubs not in the listone: {', '.join(r['unresolved_teams'])}")
+    return "\n".join(lines)
+
+
+@ingest_app.command("advanced")
+def ingest_advanced_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    season: list[int] | None = SEASON_OPTION,
+    rematch: bool = typer.Option(False, "--rematch",
+                                 help="Re-record from the raw files already on disk, without fetching -- "
+                                      "applies a new alias or listone move to a season already recorded "
+                                      "(Ruling R11). Zero network."),
+) -> None:
+    """Understat season totals (games, minutes, xG, xA) for Serie A, matched onto the listone."""
+    from fantaclaude.commands.ingest import (
+        ensure_schema,
+        fetch_advanced_seasons,
+        record_advanced_seasons,
+        rematch_advanced_seasons,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+
+    schema_version = ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(season)
+    store = RawStore(raw_dir())
+    if rematch:
+        from fantaclaude.commands.ingest import NotReady
+
+        if schema_version is None:
+            # Finding "the --rematch branch re-opens F2's phantom database":
+            # connect() below is read-write and creates the file -- must not
+            # run at all when there is nothing yet to rematch against.
+            typer.echo("no database -- run `fantaclaude sync-league` and `fantaclaude ingest listone` first",
+                      err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY)
+        with _source_errors():                # load_aliases can raise AliasError (a ValueError)
+            con = connect()
+            try:
+                apply_schema(con)
+                try:
+                    results = rematch_advanced_seasons(con, store, seasons, aliases_path())
+                except NotReady as exc:
+                    typer.echo(str(exc), err=True)
+                    raise typer.Exit(code=ExitCode.NOT_READY) from None
+            finally:
+                con.close()
+        emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
+        return
+    with _source_errors():
+        raws = run_web(lambda http: fetch_advanced_seasons(http, store, seasons))
+        con = connect()
+        try:
+            apply_schema(con)
+            results = record_advanced_seasons(con, raws, aliases_path())
+        finally:
+            con.close()
+    emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
+
+
+def _render_calendar(payload: dict) -> str:
+    lines = []
+    for r in payload["calendar"]:
+        if r["skipped_unchanged"]:
+            lines.append(f"calendar {r['competition']} {r['season_id']}: unchanged (snapshot {r['snapshot_id']})")
+        else:
+            lines.append(f"calendar {r['competition']} {r['season_id']}: snapshot {r['snapshot_id']}, "
+                         f"{r['inserted']} fixtures ({len(r['raw_paths'])} raw files)")
+    return "\n".join(lines)
+
+
+@ingest_app.command("calendar")
+def ingest_calendar_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    competition: list[str] | None = COMPETITION_OPTION,
+) -> None:
+    """The current season's Serie A calendar (fantacalcio.it) and every UEFA tie of an Italian club."""
+    from fantaclaude.commands.ingest import (
+        ensure_schema,
+        fetch_calendar,
+        record_calendar,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.calendar import COMPETITIONS
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+
+    # Finding F7: dedupe after upper-casing, preserving order -- otherwise
+    # `--competition SA --competition sa` fetches Serie A twice (76 requests
+    # at one per second) and, because `raws` is a dict keyed by name, the
+    # first 38 raw files are orphaned on disk and never recorded.
+    competitions = list(dict.fromkeys(c.upper() for c in competition)) if competition else list(COMPETITIONS)
+    unknown = [c for c in competitions if c not in COMPETITIONS]
+    if unknown:
+        typer.echo(f"unknown competition {unknown}; choose from {', '.join(COMPETITIONS)}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    season_id = _seasons_or_exit(None)[-1]           # the season the league is in
+    store = RawStore(raw_dir())
+    with _source_errors():
+        raws = run_web(lambda http: fetch_calendar(http, store, season_id, competitions))
+        con = connect()
+        try:
+            apply_schema(con)
+            results = record_calendar(con, season_id, raws, aliases_path())
+        finally:
+            con.close()
+    emit({"calendar": [r.to_dict() for r in results]}, json_=json_, render=_render_calendar)
+
+
+def _ranges(values: list[int]) -> str:
+    """[1, 2, 3, 7] -> '1-3, 7'"""
+    parts: list[tuple[int, int]] = []
+    for value in sorted(values):
+        if parts and value == parts[-1][1] + 1:
+            parts[-1] = (parts[-1][0], value)
+        else:
+            parts.append((value, value))
+    return ", ".join(f"{a}-{b}" if a != b else f"{a}" for a, b in parts)
+
+
+def _render_stats_web(payload: dict) -> str:
+    data = payload["stats_web"]
+    not_yet_rated = data.get("not_yet_rated", {})
+    lines = []
+    seasons = {f["season_id"] for f in data["files"]} | {int(s) for s in data["skipped"]} \
+        | {int(s) for s in not_yet_rated}
+    for season in sorted(seasons):
+        files = [f for f in data["files"] if f["season_id"] == season]
+        new = [f for f in files if not f["skipped_duplicate"]]
+        dupes = [f for f in files if f["skipped_duplicate"]]
+        bits = [f"{len(new)} new file(s)" + (f" (giornate {_ranges([f['giornata'] for f in new])})" if new else "")]
+        if dupes:
+            bits.append(f"{len(dupes)} duplicate(s)")
+        skipped = data["skipped"].get(str(season), [])
+        if skipped:
+            bits.append(f"skipped {_ranges(skipped)} (already on disk)")
+        stop = data["not_published_from"].get(str(season))
+        if stop is not None:
+            bits.append(f"not published from {stop}")
+        rated = not_yet_rated.get(str(season), [])
+        if rated:
+            bits.append(f"not yet rated: giornata {_ranges(rated)}")
+        lines.append(f"voti {season}: " + ", ".join(bits))
+        if new:
+            rows = sum(f["inserted"] for f in new)
+            unknown = sum(f["unknown_players"] for f in new)
+            lines.append(f"  sheets {', '.join(new[0]['sheets'])}; {rows} rows; "
+                         f"{unknown} player ids not in the current listone")
+    return "\n".join(lines) or "nothing to do"
+
+
+@ingest_app.command("stats-web")
+def ingest_stats_web_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    season: list[int] | None = SEASON_OPTION,
+    giornata: list[int] | None = GIORNATA_OPTION,
+    refetch: bool = typer.Option(False, "--refetch", help="Download again what is already on disk."),
+) -> None:
+    """Per-giornata voti and event counts from fantacalcio.it's XLSX export (needs FANTACALCIO_WEB_COOKIE)."""
+    from fantaclaude.commands.ingest import (
+        ensure_schema,
+        existing_giornate,
+        fetch_voti_seasons,
+        record_voti_files,
+    )
+    from fantaclaude.config import web_cookie
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.model.seasons import SERIE_A_GIORNATE
+    from fantaclaude.paths import raw_dir
+
+    cookie = web_cookie()
+    if cookie is None:
+        typer.echo("FANTACALCIO_WEB_COOKIE is not set -- capture the website session first "
+                   "(core/README.md, 'The website session')", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    giornate = sorted(set(giornata)) if giornata else list(range(1, SERIE_A_GIORNATE + 1))
+    bad = [g for g in giornate if not 1 <= g <= SERIE_A_GIORNATE]
+    if bad:
+        typer.echo(f"--giornata must be between 1 and {SERIE_A_GIORNATE}, got {bad}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    ensure_schema()          # a stale schema must not crash a future read-only pre-read
+    seasons = _seasons_or_exit(season)
+    store = RawStore(raw_dir())
+    with _source_errors():
+        # Finding F4: existing_giornate reads every *-voti-*.xlsx already on
+        # disk (openpyxl.load_workbook) -- one truncated file must raise
+        # BadZipFile *inside* _source_errors, not before it, or the whole
+        # command dies with an unmapped traceback before any work happens.
+        existing = existing_giornate(store, seasons)     # from disk, not the database (Ruling R8b)
+        fetched = run_web(lambda http: fetch_voti_seasons(
+            http, store, cookie=cookie, seasons=seasons, giornate=giornate, existing=existing, refetch=refetch))
+        con = connect()
+        try:
+            apply_schema(con)
+            results, not_yet_rated = record_voti_files(con, store, fetched, giornate)
+        finally:
+            con.close()
+    payload = {"stats_web": {
+        "files": [r.to_dict() for r in results],
+        "skipped": {str(s): sorted(f.skipped) for s, f in fetched.items()},
+        "not_published_from": {str(s): f.not_published_from for s, f in fetched.items()
+                               if f.not_published_from is not None},
+        "not_yet_rated": {str(s): sorted(g) for s, g in not_yet_rated.items()},
+    }}
+    emit(payload, json_=json_, render=_render_stats_web)
 
 
 def _open_read_only():
@@ -300,7 +630,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, database, snapshots, league.yml, kb, module table."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor

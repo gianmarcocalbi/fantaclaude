@@ -41,7 +41,7 @@ def test_audit_classifies_documents(tmp_path):
         "serie-a/teams/inter/forever.md": "ok",
         "serie-a/teams/inter/news.md": "expired",
         "serie-a/teams/inter/partial.md": "invalid",
-        "serie-a/teams/inter/profile.md": "ok",
+        "serie-a/teams/inter/profile.md": "invalid",   # a profile needs the keys fantaclaude.kb.profiles validates
     }
     assert audit(tmp_path / "nowhere", date(2026, 8, 24)) == []
 

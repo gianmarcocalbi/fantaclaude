@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 import pytest
 from fantaclaude.cli.app import ExitCode, app
-from fantaclaude.commands.ingest import ingest_all, ingest_listone
+from fantaclaude.commands.ingest import ingest_listone
 from fantaclaude.ingest.listone_api import (
     ListoneShapeError,
     load_listone,
@@ -117,8 +117,8 @@ async def test_ingest_listone_command_end_to_end(db, tmp_path, fake_api, fixture
     api = fake_api(overrides={"players": fixture_json("listone_sample")})
     result = await ingest_listone(api, db, RawStore(tmp_path / "raw"))
     assert result.inserted == 17 and Path(result.raw_path).is_file()
-    everything = await ingest_all(api, db, RawStore(tmp_path / "raw"))
-    assert set(everything) == {"listone"} and everything["listone"].skipped_duplicate
+    twice = await ingest_listone(api, db, RawStore(tmp_path / "raw"))
+    assert twice.skipped_duplicate
 
 
 def test_cli_ingest_listone_json(monkeypatch, tmp_path, fake_api, fixture_json):
@@ -130,8 +130,6 @@ def test_cli_ingest_listone_json(monkeypatch, tmp_path, fake_api, fixture_json):
     payload = json.loads(result.stdout)
     assert payload["inserted"] == 17 and payload["snapshot_id"] == 1
     assert list((tmp_path / "data" / "raw" / "listone").glob("*-listone.json"))
-    result = CliRunner().invoke(app, ["ingest", "all"])
-    assert result.exit_code == ExitCode.OK and "listone" in result.stdout and "duplicate" in result.stdout
 
 
 def test_a_failed_ingest_leaves_no_database_behind(monkeypatch, tmp_path):

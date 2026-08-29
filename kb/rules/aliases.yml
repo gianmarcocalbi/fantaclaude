@@ -1,6 +1,25 @@
-# Human overrides for name matching across sources (fantacalcio.it vs FBref vs
-# Transfermarkt), keyed by source: the source's spelling -> listone player id.
-# Empty until Phase 0b brings a second source. The listone and FantaAstaLive
-# share ids and need no aliases.
-fbref: {}
-understat: {}
+# Human overrides for name matching across sources, keyed by source. A player
+# alias maps the source's spelling to the listone player id; a `<source>_teams`
+# alias maps the source's club spelling to the listone team name. Filled by hand
+# when `fantaclaude ingest advanced` / `ingest calendar` report an ambiguous or
+# unresolved name (`fantaclaude query --sql "SELECT * FROM v_advanced_unmatched"`
+# lists them). The listone and FantaAstaLive share ids and need none.
+#
+# Adding an understat: alias here does nothing on its own: `ingest advanced`
+# dedupes each season's Understat payload by its raw bytes, so a plain
+# re-run of a season already recorded is a no-op. Run
+# `fantaclaude ingest advanced --rematch` afterward (zero network) to apply
+# the alias -- the only way to fix a back season, whose Understat content
+# will never change again on its own.
+understat:
+  # Understat's full given name (birth name) for the listone's "Konè M.";
+  # verified from data alone, not outside knowledge: seasons 19/20/21 all
+  # attribute this Understat player to Roma, and player 5589 is the only one
+  # of the three same-surname listone candidates currently at Roma -- the
+  # other two (5725 Frosinone, 6717 Sassuolo) never match any season's club.
+  Kouadio Kone: 5589
+understat_teams:
+  AC Milan: Milan
+  Parma Calcio 1913: Parma
+uefa_teams: {}
+fantacalcio_teams: {}

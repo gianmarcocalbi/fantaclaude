@@ -2,7 +2,7 @@ import json
 import time
 from datetime import UTC, datetime
 
-from conftest import make_jwt
+from conftest import FIXTURE_DIR, make_jwt
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.commands.doctor import DoctorPaths, run_doctor
 from fantaclaude.db.connection import connect
@@ -13,7 +13,8 @@ from fantaclaude.league.settings import record_snapshot, snapshot_from_payloads
 from typer.testing import CliRunner
 
 NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_settings",
-         "listone", "league_yml", "preferences", "kb", "modules"]
+         "listone", "league_yml", "preferences", "kb", "modules",
+         "web_session", "player_match", "advanced", "fixtures", "aliases", "kb_profiles"]
 
 
 def _paths(root):
@@ -23,9 +24,15 @@ def _paths(root):
 
 
 def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=31_536_000):
+    from fantaclaude.ingest.advanced import load_advanced, record_advanced
+    from fantaclaude.ingest.calendar import load_uefa, record_fixtures
+    from fantaclaude.ingest.names import Aliases, load_candidates, load_teams
+    from fantaclaude.ingest.stats_web import parse_voti, record_voti
+
     token = make_jwt(user_id="1", l_id="2578630", t_id="1", role="user_league",
                      exp=int(time.time()) + token_exp_offset)
-    (root / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=u\nFANTACALCIO_PASSWORD=synthetic\n")
+    (root / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=u\nFANTACALCIO_PASSWORD=synthetic\n"
+                               "FANTACALCIO_WEB_COOKIE=\"session=synthetic\"\n")
     (root / ".auth").mkdir()
     (root / ".auth" / "tokens.json").write_text(json.dumps({
         "account": None, "user_id": None, "username": "u",
@@ -35,15 +42,25 @@ def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=3
     (root / "preferences.yml").write_text("target_composition: {Por: 2}\n")
     (root / "kb" / "rules").mkdir(parents=True)
     (root / "kb" / "README.md").write_text("# kb\n")
-    (root / "kb" / "rules" / "aliases.yml").write_text("fbref: {}\n")
+    (root / "kb" / "rules" / "aliases.yml").write_text("understat: {}\nuefa_teams: {}\n")
     con = connect(root / "data" / "fanta.duckdb")
     apply_schema(con)
     record_snapshot(con, snapshot_from_payloads(
         profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
         rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
         calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
-    raw = RawStore(root / "data" / "raw").write("listone", fixture_json("listone_sample"))
+    store = RawStore(root / "data" / "raw")
+    raw = store.write("listone", fixture_json("listone_sample"))
     record_listone(con, load_listone(raw.path), raw)
+    known = {r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()}
+    voti = store.write_bytes("voti", (FIXTURE_DIR / "voti_sample.xlsx").read_bytes(), ext="xlsx", label="21-01")
+    record_voti(con, 21, 1, parse_voti(voti.path), voti, known_ids=known)
+    advanced = store.write("advanced", fixture_json("understat_sample"), label="20")
+    season_id, rows = load_advanced(advanced.path)
+    record_advanced(con, season_id, rows, advanced, candidates=load_candidates(con), teams=load_teams(con),
+                    aliases=Aliases(teams={"understat": {"AC Milan": "Milan"}}))
+    uefa = store.write("calendar", fixture_json("uefa_sample")[1], label="uecl-21-00")
+    record_fixtures(con, "UECL", 21, load_uefa([uefa.path]), [uefa], teams=load_teams(con), team_aliases={})
     con.close()
 
 
@@ -51,7 +68,7 @@ def test_every_check_passes_on_a_ready_workspace(tmp_path, fixture_json, mcp_fix
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
     assert [c.name for c in checks] == NAMES
-    assert all(c.ok for c in checks), [c for c in checks if not c.ok]
+    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles"]
     assert "17 players" in next(c.detail for c in checks if c.name == "listone")
     assert "login mode" in next(c.detail for c in checks if c.name == "credentials")
     joined = " ".join(c.detail for c in checks)
@@ -116,8 +133,8 @@ def test_doctor_cli_exit_codes(monkeypatch, tmp_path, fixture_json, mcp_fixture_
     assert payload["ok"] is False and [c["name"] for c in payload["checks"]] == NAMES
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     result = CliRunner().invoke(app, ["doctor"])
-    assert result.exit_code == ExitCode.OK, result.output
-    assert "ok" in result.stdout
+    assert result.exit_code == ExitCode.NOT_READY
+    assert "FAIL  fixtures" in result.stdout and "listone" in result.stdout
 
 
 def test_malformed_league_yml_is_reported_not_raised(tmp_path):
@@ -175,3 +192,83 @@ def test_malformed_modules_yml_is_reported_not_raised(monkeypatch, tmp_path):
     assert [c.name for c in checks] == NAMES
     modules_check = next(c for c in checks if c.name == "modules")
     assert not modules_check.ok
+
+
+def test_non_utf8_aliases_file_is_reported_not_raised(tmp_path):
+    """Finding F8: load_aliases calls path.read_text(encoding="utf-8"), so a
+    non-UTF-8 aliases.yml raises UnicodeDecodeError, and a file doctor
+    cannot read at all raises OSError -- neither is an AliasError or a
+    yaml.YAMLError, so the old except tuple let either one propagate and
+    take the whole `fantaclaude doctor` command down, unlike every other
+    check here, which reports a failure as a failed check rather than
+    raising."""
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_bytes(b"understat:\n  \xff\xfe: 1\n")
+    checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert list(checks) == NAMES                     # run_doctor completed, did not raise
+    assert not checks["aliases"].ok
+
+
+def test_advanced_check_surfaces_alias_resolved_players(tmp_path, fixture_json):
+    """Finding F9: advanced_snapshots.matched stores counts["matched"]
+    alone -- alias-resolved players (the whole purpose of aliases.yml) are
+    counted separately with no column of their own, so the printed numbers
+    under-counted matched by the alias count and never closed against
+    row_count. Confirmed live: season 19 was reported "599 rows, 291
+    matched, 9 ambiguous, 298 unmatched" = 598, one short. Reproduced here
+    with the fixture test_advanced.py itself uses for the alias mechanism
+    (Pietro Terracciano -> listone id 3): matched=5, alias=1, ambiguous=1,
+    unmatched=3, which must close against the 10 recorded rows."""
+    from fantaclaude.ingest.advanced import load_advanced, record_advanced
+    from fantaclaude.ingest.names import Aliases, load_candidates, load_teams
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    raw = RawStore(tmp_path / "data" / "raw").write("listone", fixture_json("listone_sample"))
+    record_listone(con, load_listone(raw.path), raw)
+    store = RawStore(tmp_path / "data" / "raw")
+    advanced_raw = store.write("advanced", fixture_json("understat_sample"), label="20")
+    season_id, rows = load_advanced(advanced_raw.path)
+    aliases = Aliases(players={"understat": {"Pietro Terracciano": 3}},
+                      teams={"understat": {"AC Milan": "Milan"}})
+    result = record_advanced(con, season_id, rows, advanced_raw, candidates=load_candidates(con),
+                             teams=load_teams(con), aliases=aliases)
+    assert (result.matched, result.alias, result.ambiguous, result.unmatched) == (5, 1, 1, 3)
+    con.close()
+
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["advanced"].ok
+    assert "5 matched" in by["advanced"].detail and "1 alias" in by["advanced"].detail
+    assert "1 ambiguous" in by["advanced"].detail and "3 unmatched" in by["advanced"].detail
+    assert "10 rows" in by["advanced"].detail
+    # the numbers must close: matched + alias + ambiguous + unmatched == row_count
+    assert 5 + 1 + 1 + 3 == 10
+
+
+def test_history_checks_describe_coverage(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    monkeypatch.delenv("FANTACALCIO_WEB_COOKIE", raising=False)   # isolate from a developer's exported cookie
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["web_session"].ok and by["web_session"].detail == "FANTACALCIO_WEB_COOKIE set"
+    assert "synthetic" not in by["web_session"].detail
+    assert by["player_match"].ok and "season 21: giornate 1" in by["player_match"].detail
+    assert by["advanced"].ok and "season 20" in by["advanced"].detail and "ambiguous" in by["advanced"].detail
+    assert by["fixtures"].ok is False and "no Serie A calendar" in by["fixtures"].detail   # UECL only, no SA yet
+    assert by["aliases"].ok and "2 sections" in by["aliases"].detail
+
+
+def test_history_checks_on_an_empty_database(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    monkeypatch.delenv("FANTACALCIO_WEB_COOKIE", raising=False)   # isolate from a developer's exported cookie
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    for table in ("player_match", "voti_files", "advanced_stats", "advanced_snapshots", "fixtures", "fixture_snapshots"):
+        con.execute(f"DELETE FROM {table}")
+    con.close()
+    (tmp_path / ".env").write_text("FANTACALCIO_APP_KEY=K\nFANTACALCIO_USERNAME=u\nFANTACALCIO_PASSWORD=synthetic\n")
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: [1, 2\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["web_session"].ok and "not set" in by["web_session"].detail
+    assert not by["player_match"].ok and "ingest stats-web" in by["player_match"].detail
+    assert not by["advanced"].ok and "ingest advanced" in by["advanced"].detail
+    assert not by["fixtures"].ok and "ingest calendar" in by["fixtures"].detail
+    assert not by["aliases"].ok
