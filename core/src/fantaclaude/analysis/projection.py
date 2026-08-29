@@ -18,6 +18,14 @@ themselves uncertain, so their loss is added to the variance rather than
 only subtracted from the mean, which is what prices the uncertainty at the
 quantiles.
 
+A defensive-class player's value also gets a D-Factor uplift when a table
+is supplied and active: the table's own gradient (slope) at a reference
+average of 6.1, applied over a fifth of the excess voto above that
+reference, per expected presenza -- and never negative, however the table
+is shaped (see `project_player`'s uplift block). Role flexibility has
+option value too: roles are a set, and a player who can fill more Mantra
+slots is worth more, priced as a fixed bonus per extra role.
+
 The listone quotazione is carried through for the pricing stage and is
 read nowhere in this module: a price is not a value, and seeding the value
 with the market's price would make the whole apparatus compute nothing.
@@ -49,7 +57,10 @@ class ProjectionConfig:
     newcomer_dispersion: float = 1.5       # the presenze band of a newcomer, relative to a known player's
     rotation_uncertainty: float = 1.0      # the rotation loss's own sigma, as a share of the loss
     quantile_z: float = 0.6745             # p25 / p75 of a normal
-    flex_bonus_per_role: float = 0.03      # option value per extra Mantra role
+    # roles are a set, not a single slot; a player who can fill more Mantra
+    # roles gives the manager more lineup choices, so each role beyond the
+    # first is priced as this fraction of extra value (see project_player)
+    flex_bonus_per_role: float = 0.03
     pen_conversion: float = 0.8
     d_factor_reference: float = 6.1        # the defensive five's average the uplift is measured against
     fallback_fantamedia: float = 6.0       # with no history for the role at all
@@ -189,10 +200,20 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     v25 = max(0.0, v50 - cfg.quantile_z * sigma_v)
     v75 = v50 + cfg.quantile_z * sigma_v
 
+    # D-Factor uplift: the table's own gradient (its slope) at the defensive
+    # five's reference average of 6.1, applied over a fifth of this player's
+    # excess voto above that reference, per expected presenza. Never negative
+    # -- clamped here rather than trusted from the table, because a hand-typed
+    # d_factor.yml (Task 10) can carry a lower-points band above a
+    # higher-points one, which would otherwise give a negative slope and, with
+    # it, a below-zero value_p25.
     uplift = 0.0
     if d_factor is not None and not d_factor.is_empty and inp.role_class in D_FACTOR_CLASSES:
         excess = max(0.0, exp_voto - cfg.d_factor_reference)
-        uplift = exp_presenze * d_factor.slope(cfg.d_factor_reference) * excess / COUNTED
+        uplift = max(0.0, exp_presenze * d_factor.slope(cfg.d_factor_reference) * excess / COUNTED)
+    # Role flexibility has option value: roles are a set, and a player who can
+    # fill more Mantra slots gives the manager more lineup choices, so each
+    # extra role beyond the first adds a fixed fraction to the value.
     flex = 1 + cfg.flex_bonus_per_role * (len(inp.roles) - 1)
     v25, v50, v75 = ((v25 + uplift) * flex, (v50 + uplift) * flex, (v75 + uplift) * flex)
     if exp_presenze == 0:

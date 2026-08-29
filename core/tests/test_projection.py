@@ -196,6 +196,22 @@ def test_the_d_factor_uplift_applies_only_when_active_and_only_to_defensive_clas
     assert project(dc, bm=bm, prior=PRIOR_D, d_factor=empty).explain["d_factor_uplift"] == 0.0
 
 
+def test_the_d_factor_uplift_is_never_negative_even_from_a_non_monotonic_table(bm):
+    # A hand-transcribed d_factor.yml (Task 10) could carry a lower-points
+    # band above a higher-points one; the table's own slope would then be
+    # negative around the 6.1 reference. The uplift must still floor at zero.
+    non_monotonic = DFactorTable(bands=(Band(7.0, 6.0), Band(6.5, 1.0), Band(6.0, 5.0), Band(5.5, 0.0)),
+                                 with_goalkeeper=False, source="synthetic", verified_on=date(2026, 8, 29))
+    assert non_monotonic.slope(CFG.d_factor_reference) < 0    # the table really is non-monotonic here
+    dc = inputs(player_id=2120, classic_role="D", roles=frozenset({Role.Dc}), role_class="Dc",
+                lines=(line(20, 34, voto=6.6, role="D", events=Events()),))
+    off = project(dc, bm=bm, prior=PRIOR_D)
+    on = project(dc, bm=bm, prior=PRIOR_D, d_factor=non_monotonic)
+    assert on.explain["d_factor_uplift"] == 0.0
+    assert on.value_p25 == pytest.approx(off.value_p25)
+    assert on.value_p25 >= 0
+
+
 def test_role_flexibility_has_option_value(bm):
     single = project(inputs(roles=frozenset({Role.Pc})), bm=bm)
     double = project(inputs(roles=frozenset({Role.A, Role.Pc})), bm=bm)
