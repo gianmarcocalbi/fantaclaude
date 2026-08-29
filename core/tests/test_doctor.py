@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_settings",
          "listone", "league_yml", "preferences", "kb", "modules",
-         "web_session", "player_match", "advanced", "fixtures", "aliases"]
+         "web_session", "player_match", "advanced", "fixtures", "aliases", "kb_profiles"]
 
 
 def _paths(root):
@@ -68,7 +68,7 @@ def test_every_check_passes_on_a_ready_workspace(tmp_path, fixture_json, mcp_fix
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
     assert [c.name for c in checks] == NAMES
-    assert [c.name for c in checks if not c.ok] == ["fixtures"]
+    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles"]
     assert "17 players" in next(c.detail for c in checks if c.name == "listone")
     assert "login mode" in next(c.detail for c in checks if c.name == "credentials")
     joined = " ".join(c.detail for c in checks)

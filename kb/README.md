@@ -8,8 +8,9 @@ penalties unless Calhanoglu is on the pitch" is durable and no table has it.
 ```
 kb/
 ├── rules/                     # near-static: mantra.md, house-rules.md, aliases.yml
-├── serie-a/teams/<team>/      # profile.md (tactics, module, takers, rotation_factor)
-│   └── players/<slug>.md      # sparse: only where prose changes a decision
+├── serie-a/teams/<slug>/      # profile.md: front-matter (team, team_short, coach, module, europe,
+│   │                          #   rotation_factor, takers) read by fantaclaude.kb.profiles; prose for the model
+│   └── players/<name>.md      # sparse: only where prose changes a decision
 └── league/
     ├── participants/<name>.md # opponent dossiers (fixed front-matter schema)
     ├── history/<season>.md
@@ -34,4 +35,4 @@ lacks front-matter, and what is malformed. An expired document is a notice for
 the skill that would use it — the skill states low confidence or refuses;
 the audit itself never refuses.
 
-`fanta-kb bootstrap` (Phase 0b) fills this tree; `fanta-kb refresh` renews it.
+`/fanta-kb bootstrap` fills this tree and `/fanta-kb refresh` renews it (`.claude/skills/fanta-kb/SKILL.md`). A profile's `europe` must agree with `v_european_ties`; `fantaclaude doctor` says when it does not.

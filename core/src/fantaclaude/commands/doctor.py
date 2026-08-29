@@ -21,6 +21,7 @@ from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_cred
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.ingest.names import AliasError, load_aliases
+from fantaclaude.kb.profiles import ProfileError, load_profiles
 from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
 from fantaclaude.model.modules import ModuleTableError, load_modules
 
@@ -197,6 +198,48 @@ def _yaml_check(name: str, path: Path, required_key: str) -> Check:
     return Check(name, True, f"{len(data)} top-level keys")
 
 
+def _profiles_check(kb: Path, db: Path) -> Check:
+    """Every listone club has a profile, and its `europe` agrees with the fixtures."""
+    try:
+        profiles = load_profiles(kb)
+    except ProfileError as exc:
+        return Check("kb_profiles", False, str(exc))
+    teams: dict[str, str] = {}
+    ties: dict[str, set[str]] = {}
+    if db.is_file():
+        try:
+            con = duckdb.connect(str(db), read_only=True)
+        except duckdb.Error:
+            con = None
+        if con is not None:
+            try:
+                teams = {short: name for name, short in con.execute("SELECT name, short FROM v_teams_current").fetchall()}
+                current = con.execute("SELECT max(season_id) FROM v_league_settings_current").fetchone()[0]
+                for short, competition in con.execute(
+                        "SELECT DISTINCT team_short, competition FROM v_european_ties WHERE season_id = ?",
+                        [current]).fetchall():
+                    ties.setdefault(short, set()).add(competition)
+            except duckdb.Error:
+                teams, ties = {}, {}
+            finally:
+                con.close()
+    profiled = {p.team_short for p in profiles}
+    problems: list[str] = []
+    missing = sorted(name for short, name in teams.items() if short not in profiled)
+    if missing:
+        problems.append(f"missing: {', '.join(missing)}")
+    if ties:
+        for profile in profiles:
+            actual = ties.get(profile.team_short, set())
+            if actual and profile.europe not in actual:
+                problems.append(f"{profile.team}: profile says {profile.europe}, fixtures say {'/'.join(sorted(actual))}")
+    total = len(teams) if teams else len(profiles)
+    head = f"{len(profiled & set(teams)) if teams else len(profiles)}/{total} teams profiled"
+    if problems:
+        return Check("kb_profiles", False, f"{head}; {'; '.join(problems)}")
+    return Check("kb_profiles", True, f"{head}; europe agrees with the fixtures")
+
+
 def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
     # Mirror load_settings() exactly -- same merge, same resolver. Deriving
     # this independently made doctor disagree with the commands it exists to
@@ -245,4 +288,5 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
                             else f"{aliases_file} is missing"))
     except (AliasError, yaml.YAMLError) as exc:
         checks.append(Check("aliases", False, str(exc)))
+    checks.append(_profiles_check(paths.kb, paths.db))
     return checks

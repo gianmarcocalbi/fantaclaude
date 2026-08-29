@@ -94,6 +94,17 @@ def audit(kb_dir: Path, today: date) -> list[AuditEntry]:
                 entries.append(AuditEntry(rel, "invalid", f"missing {missing}"))
                 continue
             days = ttl_days(fm.ttl)
+            if path.name == "profile.md" and path.parent.parent.name == "teams":
+                from fantaclaude.kb.profiles import (  # audit is imported by profiles
+                    ProfileError,
+                    load_profile,
+                )
+
+                try:
+                    load_profile(path)
+                except ProfileError as exc:
+                    entries.append(AuditEntry(rel, "invalid", str(exc).split(": ", 1)[-1]))
+                    continue
         except (FrontMatterError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             entries.append(AuditEntry(rel, "invalid", str(exc)))
             continue
