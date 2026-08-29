@@ -76,4 +76,8 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
   gone.
 - **The left wing-back**, Martin against Mitaj, still open.
 - Our calendar snapshot predates the European draws of 26–28 August 2026; it
-  does not change `europe` here, but re-ingest before comparing clubs.
+  does not change `europe` here. A re-ingest has already come back empty:
+  UEFA's feed carries only qualifying and play-off rounds, and Italy's
+  entrants join straight into the league phase, so no Italian club appears
+  yet. The trigger for a cross-club European comparison is UEFA publishing
+  that phase, not another re-ingest.

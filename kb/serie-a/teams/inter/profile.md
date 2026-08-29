@@ -79,8 +79,11 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 ## Watch
 
 - **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-run the calendar ingest; when the Champions ties land, `europe` becomes
-  `UCL` and `doctor` will flag this profile until it does.
+  A re-ingest has already come back empty: UEFA's feed carries only
+  qualifying and play-off rounds, and Italy's entrants join straight into the
+  league phase, so `europe` stays `none` until UEFA publishes that phase, not
+  merely after another re-ingest. `doctor` will flag this profile until it
+  does.
 - **The right wing-back.** Three guides, three different starters, and no
   direct replacement for Dumfries. A signing there rewrites the tactics
   section.

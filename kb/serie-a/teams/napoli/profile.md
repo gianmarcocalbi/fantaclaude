@@ -77,8 +77,11 @@ fantaclaude query --sql "SELECT name, transfer_flag FROM v_players_current WHERE
 ## Watch
 
 - **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-run the calendar ingest; when the Champions ties land in `v_european_ties`,
-  `europe` becomes `UCL` and `doctor` will say so.
+  A re-ingest has already come back empty: UEFA's feed carries only
+  qualifying and play-off rounds, and Italy's entrants join straight into the
+  league phase, so `europe` stays `none` in `v_european_ties` until UEFA
+  publishes that phase, not merely after another re-ingest. `doctor` will say
+  so once it does.
 - **The second centre-back.** Four names, one slot, and a new signing who
   arrived after most guides were written.
 - **Lukaku.** Transfer-flagged in the listone and absent from the opening

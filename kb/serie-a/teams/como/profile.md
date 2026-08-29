@@ -72,8 +72,13 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 
 ## Watch
 
-- **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-ingest the calendar; `europe` should become `UCL`.
+- **The calendar snapshot predates the European draws** (26–28 August 2026),
+  but that snapshot is not what's blocking `europe`. A re-ingest has already
+  come back empty: UEFA's feed carries only qualifying and play-off rounds,
+  and Italy's entrants join straight into the league phase, so `europe`
+  stays `none` until UEFA publishes that phase -- Como's Champions League --
+  not merely after another re-ingest. `doctor` will flag this profile until
+  it does.
 - **Nico Paz.** He is the side. A transfer, an injury or a rest rotation
   changes the tactics, the free kicks and the value of everyone around him.
 - **A first Champions League campaign.** No one, including these guides, knows

@@ -78,8 +78,13 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 
 ## Watch
 
-- **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-ingest the calendar; `europe` should become `UEL`.
+- **The calendar snapshot predates the European draws** (26–28 August 2026),
+  but that snapshot is not what's blocking `europe`. A re-ingest has already
+  come back empty: UEFA's feed carries only qualifying and play-off rounds,
+  and Italy's entrants join straight into the league phase, so `europe`
+  stays `none` until UEFA publishes that phase -- Juventus's Europa League --
+  not merely after another re-ingest. `doctor` will flag this profile until
+  it does.
 - **Corners and free kicks.** Two sources, two different first names on both.
   One televised set piece settles it; until then treat these entries as low.
 - **The pivot.** Four midfielders for two slots, with the guides split. This is

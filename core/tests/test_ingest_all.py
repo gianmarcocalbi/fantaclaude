@@ -145,6 +145,36 @@ def test_cli_ingest_all_records_everything_else_when_the_cookie_is_rejected(monk
 
 
 @respx.mock
+def test_cli_ingest_all_records_everything_else_when_a_voti_workbook_is_malformed(monkeypatch, tmp_path, fixture_json,
+                                                                                  mcp_fixture_json, fixture_file,
+                                                                                  fake_api, no_pause):
+    """Items 1 and 2 of the fix wave both add new VotiShapeError raise paths
+    (an appended column, a missing club row) to fetch_voti -- reachable from
+    fetch_everything the same way a rejected cookie already was (Finding
+    F1). Before this fix, a VotiShapeError escaped fetch_everything entirely,
+    so record_everything never ran and the already-fetched listone, advanced
+    and calendar payloads were discarded -- fixing Items 1 and 2 without
+    this would be a net regression."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    monkeypatch.setenv("FANTACALCIO_WEB_COOKIE", COOKIE)
+    _seed(tmp_path, fixture_json, mcp_fixture_json)
+    _mock_web(fixture_json, fixture_file("voti_sample.xlsx").read_bytes())
+    respx.get(url__regex=r".*/api/v1/Excel/votes/(?P<s>\d+)/(?P<g>\d+)$").mock(
+        return_value=httpx.Response(200, content=b"garbage, not an xlsx and not html either"))
+    api = fake_api(overrides={"players": fixture_json("listone_sample")})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: __import__("asyncio").run(fn(api)))
+
+    result = CliRunner().invoke(app, ["ingest", "all", "--json"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    payload = json.loads(result.stdout)
+    assert payload["stats_web"] is None
+    assert len(payload["skipped"]) == 1 and "not an xlsx" in payload["skipped"][0]
+    assert payload["listone"]["skipped_duplicate"] is True                        # still recorded
+    assert [r["season_id"] for r in payload["advanced"]] == [18, 19, 20, 21]       # still recorded
+    assert {r["competition"] for r in payload["calendar"]} == {"SA", "UCL", "UEL", "UECL"}   # still recorded
+
+
+@respx.mock
 async def test_fetch_and_record_everything_directly(db, tmp_path, fixture_json, mcp_fixture_json, fixture_file,
                                                     fake_api, no_pause):
     from fantaclaude.ingest.listone_api import load_listone, record_listone

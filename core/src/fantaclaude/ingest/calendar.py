@@ -43,6 +43,11 @@ UEFA_URL = "https://match.uefa.com/v5/matches"
 UEFA_COMPETITIONS = {"UCL": "1", "UEL": "14", "UECL": "2019"}
 COMPETITIONS = ("SA", *UEFA_COMPETITIONS)
 UEFA_PAGE = 200
+# CLAUDE.md: never add a loop that fetches without bound. Termination must
+# not depend entirely on the host eventually returning a short page -- the
+# largest competition currently observed returns 200 rows (one full page,
+# then a short one), so this cap is comfortably above real data.
+MAX_UEFA_PAGES = 20
 ROME = ZoneInfo("Europe/Rome")
 VOID_TAGS = frozenset({"meta", "img", "br", "input", "link", "hr", "source"})
 UEFA_REQUIRED = ("id", "homeTeam", "awayTeam", "matchday", "round")
@@ -237,9 +242,18 @@ def load_serie_a(paths: list[Path], *, season_id: int) -> list[FixtureRow]:
 
 async def fetch_uefa(http: httpx.AsyncClient, store: RawStore, *, season_id: int,
                      competition: str) -> list[RawFile]:
+    """Paged by offset, capped at MAX_UEFA_PAGES: a short page is the normal
+    end of a competition, but termination must not depend entirely on the
+    host eventually returning one -- if match.uefa.com ever ignores `offset`
+    this stops after the cap and raises, instead of writing a raw file into
+    data/raw/calendar once a second forever (CLAUDE.md). A page whose match
+    ids are identical to the previous page's is the same failure with a
+    different symptom (offset accepted but not applied) and is caught the
+    same way, without waiting for the cap."""
     raws: list[RawFile] = []
     offset = 0
-    while True:
+    previous_ids: frozenset[Any] | None = None
+    for _ in range(MAX_UEFA_PAGES):
         if raws:
             await polite_pause()
         data = await fetch_bytes(http, UEFA_URL, params={
@@ -256,7 +270,16 @@ async def fetch_uefa(http: httpx.AsyncClient, store: RawStore, *, season_id: int
                                 label=f"{competition.lower()}-{season_id}-{len(raws):02d}"))
         if len(payload) < UEFA_PAGE:
             return raws
+        ids = frozenset(match.get("id") for match in payload if isinstance(match, dict))
+        if previous_ids is not None and ids == previous_ids:
+            raise CalendarShapeError(
+                f"UEFA paging for {competition}: offset {offset} returned the same match ids as the previous page "
+                "-- the host is not honouring offset")
+        previous_ids = ids
         offset += UEFA_PAGE
+    raise CalendarShapeError(
+        f"UEFA paging for {competition} did not terminate within {MAX_UEFA_PAGES} pages -- "
+        "the host may not be honouring offset")
 
 
 def _slim(value: Any) -> Any:

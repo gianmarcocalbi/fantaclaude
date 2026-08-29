@@ -81,8 +81,13 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 
 ## Watch
 
-- **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-ingest the calendar; `europe` should become `UEL`.
+- **The calendar snapshot predates the European draws** (26–28 August 2026),
+  but that snapshot is not what's blocking `europe`. A re-ingest has already
+  come back empty: UEFA's feed carries only qualifying and play-off rounds,
+  and Italy's entrants join straight into the league phase, so `europe`
+  stays `none` until UEFA publishes that phase -- Milan's Europa League --
+  not merely after another re-ingest. `doctor` will flag this profile until
+  it does.
 - **Nkunku.** Transfer-flagged and unused so far, yet the penalty taker on the
   evidence. This is the single most fragile line in the profile.
 - **The trequarti.** Nine names, four slots, and no guide agreement. Until

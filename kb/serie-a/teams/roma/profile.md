@@ -75,9 +75,13 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 
 ## Watch
 
-- **The calendar snapshot predates the European draws** (26–28 August 2026).
-  Re-ingest the calendar; `europe` should become `UCL` and the rotation
-  reasoning above stops being an inference.
+- **The calendar snapshot predates the European draws** (26–28 August 2026),
+  but that snapshot is not what's blocking `europe`. A re-ingest has already
+  come back empty: UEFA's feed carries only qualifying and play-off rounds,
+  and Italy's entrants join straight into the league phase, so `europe`
+  stays `none` until UEFA publishes that phase -- Roma's Champions League --
+  not merely after another re-ingest, and the rotation reasoning above stays
+  an inference until then.
 - **Dybala's availability.** Everything in "Set pieces" assumes he is on the
   pitch, and his recent seasons say that is not a safe assumption.
 - **The rotation factor itself.** 0.8 is the boldest number here. If Gasperini

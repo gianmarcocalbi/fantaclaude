@@ -41,6 +41,7 @@ from fantaclaude.ingest.raw import RawFile, RawStore
 from fantaclaude.ingest.stats_web import (
     VotiFetch,
     VotiIngestResult,
+    VotiShapeError,
     fetch_voti_range,
     is_not_yet_rated_workbook,
     parse_voti,
@@ -317,6 +318,14 @@ async def fetch_everything(api: FantacalcioAPI, http: httpx.AsyncClient, store: 
     sources are already recorded" (the brief's own words) rules out. The
     listone goes first because every other source is matched against it at
     record time.
+
+    A malformed voti workbook (`VotiShapeError` -- an appended column, a
+    missing club row, or any other layout surprise `fetch_voti` detects) is
+    carried the same way: it is a genuine error, not a missing prerequisite,
+    but by the time stats_web is attempted the listone, advanced and
+    calendar have already been fetched, so letting it escape and abort the
+    run before `record_everything` runs would throw all three away for
+    exactly the reason the cookie-rejection handling above exists.
     """
     skipped: list[str] = []
     listone = await fetch_listone(api, store, league=league)
@@ -342,6 +351,11 @@ async def fetch_everything(api: FantacalcioAPI, http: httpx.AsyncClient, store: 
             # record_everything ever runs.
             skipped.append(f"stats_web: website session rejected: {exc} -- re-capture "
                            f"FANTACALCIO_WEB_COOKIE (core/README.md, 'The website session')")
+        except VotiShapeError as exc:
+            # See the docstring above: carried the same way as a rejected
+            # cookie, so record_everything still runs for the listone,
+            # advanced and calendar payloads already fetched.
+            skipped.append(f"stats_web: voti workbook shape error: {exc}")
     return AllFetched(seasons[-1], listone, advanced, calendar, stats_web, skipped)
 
 

@@ -231,24 +231,40 @@ def _parse_sheet(sheet: Any, path: Path) -> list[VotoRow] | None:
     first header -- the club whose block opens the sheet has its name row
     *above* that header, and would otherwise never be recorded as `team`
     once header_seen flips true.
+
+    The header is validated against the row's true, untruncated width: cells
+    beyond len(VOTI_HEADER) are dropped for every *other* purpose (club-row
+    and player-row parsing both key off the first columns only), but a 14th
+    column -- the likeliest way the site ever grows this shape -- must not
+    become invisible just because it does not fit the known layout. And the
+    header itself must be immediately preceded by a club row: the observed
+    layout is strictly club row -> header row -> player rows, so a header
+    with no club row directly above it (one deleted, or two headers back to
+    back with nothing between them) is a genuine surprise, not a silent
+    carry-forward of the previous block's `team`.
     """
     rows: list[VotoRow] = []
     header_seen = False
     team: str | None = None
+    team_row: int | None = None
     width = len(VOTI_HEADER)
     for index, values in enumerate(sheet.iter_rows(values_only=True)):
+        full_texts = [_text(c) for c in values]
         cells = (list(values) + [None] * width)[:width]
-        texts = [_text(c) for c in cells]
-        if texts[:1] == [VOTI_HEADER[0]] and "Nome" in texts and "Voto" in texts:
-            observed = tuple(t for t in texts if t)
+        if full_texts[:1] == [VOTI_HEADER[0]] and "Nome" in full_texts and "Voto" in full_texts:
+            observed = tuple(t for t in full_texts if t)
             if observed != VOTI_HEADER:
                 raise VotiShapeError(f"{path}: sheet {sheet.title!r}: header {observed} is not {VOTI_HEADER}")
+            if team is None or team_row != index - 1:
+                raise VotiShapeError(
+                    f"{path}: sheet {sheet.title!r}: header at row {index + 1} is not preceded by a club row")
             header_seen = True
             continue
         first, rest = cells[0], cells[1:]
         rest_blank = all(_blank(c) for c in rest)
         if isinstance(first, str) and first.strip() and rest_blank:
             team = first.strip()
+            team_row = index
             continue
         if not header_seen:
             if index >= HEADER_SEARCH_ROWS:

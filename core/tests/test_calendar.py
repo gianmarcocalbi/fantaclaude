@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from datetime import UTC, datetime
@@ -9,7 +10,9 @@ from conftest import FIXTURE_DIR
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.commands.ingest import fetch_calendar
 from fantaclaude.ingest.calendar import (
+    MAX_UEFA_PAGES,
     SERIE_A_URL,
+    UEFA_PAGE,
     UEFA_URL,
     CalendarShapeError,
     fetch_serie_a,
@@ -219,6 +222,29 @@ async def test_fetch_uefa_pages_by_offset(tmp_path, no_pause):
     async with httpx.AsyncClient() as http:
         with pytest.raises(CalendarShapeError):
             await fetch_uefa(http, store, season_id=21, competition="UEL")
+
+
+@respx.mock
+async def test_fetch_uefa_stops_at_the_page_cap_if_the_host_never_shortens_a_page(tmp_path, no_pause):
+    """CLAUDE.md: never add a loop that fetches without bound. If
+    match.uefa.com ever ignores `offset` and keeps answering a full page,
+    termination must not depend on it eventually doing otherwise -- capped
+    at MAX_UEFA_PAGES, raising CalendarShapeError naming the competition,
+    instead of writing a raw file into data/raw/calendar once a second
+    forever. Every page here is a full page with ids that never repeat, so
+    neither the short-page nor the same-ids terminations can fire -- only
+    the cap can end the loop. Bounded with wait_for as a belt-and-braces
+    guard: with the cap removed this would otherwise spin forever."""
+    def full_page(request):
+        offset = int(request.url.params["offset"])
+        return httpx.Response(200, json=[{"id": offset + i} for i in range(UEFA_PAGE)])
+
+    respx.get(UEFA_URL).mock(side_effect=full_page)
+    store = RawStore(tmp_path / "raw")
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(CalendarShapeError, match="UCL"):
+            await asyncio.wait_for(fetch_uefa(http, store, season_id=21, competition="UCL"), timeout=10)
+    assert len(list((tmp_path / "raw" / "calendar").glob("*-ucl-*.json"))) == MAX_UEFA_PAGES
 
 
 def _seeded(tmp_path, fixture_json, mcp_fixture_json):

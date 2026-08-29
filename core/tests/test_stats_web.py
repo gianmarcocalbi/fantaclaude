@@ -87,6 +87,68 @@ def test_parse_voti_reads_every_sheet_and_the_reference_players(fixture_file):
     assert len(workbook.rows) == sum(len(rows) for rows in workbook.sheets.values())
 
 
+def test_parse_voti_fails_loud_on_an_appended_column(tmp_path, fixture_file):
+    """A 14th column appended after `Ass` -- the likeliest way fantacalcio.it
+    ever changes this shape -- must be caught the same as a renamed or
+    reordered one. The old code truncated every row to len(VOTI_HEADER)
+    cells *before* comparing the header text, so an appended column never
+    reached the comparison at all and the parse silently succeeded with the
+    extra data dropped. Built here from the committed fixture, the same way
+    the reviewer proved the bug, never a hand-authored xlsx."""
+    wb = openpyxl.load_workbook(fixture_file("voti_sample.xlsx"))
+    sheet = wb.worksheets[0]
+    extra_col = len(VOTI_HEADER) + 1
+    for row in sheet.iter_rows():
+        first = row[0].value
+        is_header = first == VOTI_HEADER[0] and any(c.value == "Voto" for c in row)
+        if is_header:
+            sheet.cell(row=row[0].row, column=extra_col, value="Nuovo")
+        elif isinstance(first, int):
+            sheet.cell(row=row[0].row, column=extra_col, value=1)
+    appended = tmp_path / "appended.xlsx"
+    wb.save(appended)
+    with pytest.raises(VotiShapeError, match="Nuovo"):
+        parse_voti(appended)
+
+
+def test_parse_voti_fails_loud_on_a_missing_club_row(tmp_path, fixture_file):
+    """Deleting the club-name row that opens a block must not leave `team`
+    silently carrying the previous block's club name forward -- the header
+    row that follows must be immediately preceded by a club row, or this is
+    a genuine layout surprise. Also covers the previously-deferred finding
+    that a header immediately following another header (no club row, no
+    player rows between them) keeps the same stale `team`."""
+    wb = openpyxl.load_workbook(fixture_file("voti_sample.xlsx"))
+    sheet = wb.worksheets[0]
+    rows = list(sheet.iter_rows(values_only=True))
+    bologna_row = next(i for i, r in enumerate(rows) if r and r[0] == "Bologna")
+    assert rows[bologna_row + 1][0] == VOTI_HEADER[0]           # Bologna's own repeated header
+
+    missing_club = tmp_path / "missing_club.xlsx"
+    sheet.delete_rows(bologna_row + 1, 1)                        # 1-indexed: the "Bologna" row itself
+    wb.save(missing_club)
+    with pytest.raises(VotiShapeError, match="not preceded by a club row"):
+        parse_voti(missing_club)
+
+
+def test_parse_voti_fails_loud_on_a_header_immediately_after_a_header(tmp_path, fixture_file):
+    wb = openpyxl.load_workbook(fixture_file("voti_sample.xlsx"))
+    sheet = wb.worksheets[0]
+    rows = list(sheet.iter_rows(values_only=True))
+    atalanta_header = next(i for i, r in enumerate(rows) if r and r[0] == VOTI_HEADER[0])
+    bologna_row = next(i for i, r in enumerate(rows) if r and r[0] == "Bologna")
+    # Delete everything between Atalanta's header and Bologna's club row
+    # (Atalanta's players), and the Bologna club row itself -- leaving
+    # Atalanta's header immediately followed by Bologna's repeated header.
+    start = atalanta_header + 2                                  # 1-indexed, first row after the header
+    count = bologna_row - atalanta_header                        # players through the Bologna club row inclusive
+    sheet.delete_rows(start, count)
+    header_after_header = tmp_path / "header_after_header.xlsx"
+    wb.save(header_after_header)
+    with pytest.raises(VotiShapeError, match="not preceded by a club row"):
+        parse_voti(header_after_header)
+
+
 def test_parse_voti_fails_loud_on_layout_drift(tmp_path, fixture_file):
     wb = openpyxl.load_workbook(fixture_file("voti_sample.xlsx"))
     sheet = wb.worksheets[0]
