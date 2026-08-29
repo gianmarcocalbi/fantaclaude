@@ -45,3 +45,11 @@ def preferences_yml_path() -> Path:
 
 def aliases_path() -> Path:
     return kb_dir() / "rules" / "aliases.yml"
+
+
+def exports_dir() -> Path:
+    return data_dir() / "exports"
+
+
+def pricing_yml_path() -> Path:
+    return workspace_root() / "pricing.yml"

@@ -1,0 +1,15 @@
+# pricing.yml -- the knobs of core/src/fantaclaude/asta/pricing.py. Versioned
+# because every value here changes a max price: it feeds model_hash. The
+# algorithm is not here; whoever tunes these never opens it.
+candidates_per_class: 30     # the DP values the top 30 by value and the top 30 by value per credit of each class
+max_per_class: 6             # the most players of one class the completion may buy
+max_goalkeepers: 3
+bench_weight: 0.12           # the first bench rank of a class: the chance to start anyway
+bench_decay: 0.5             # each further bench rank is worth this much of the previous
+bench_slots_per_class: 1     # bench ranks beyond the peak demand of any module
+target_weight: 0.8           # what a preferences.yml target raises a rank's weight to (soft, never a bound)
+inflation_floor: 0.6         # clamps on credits-on-the-market / quotazioni-of-the-credible-pool
+inflation_ceiling: 2.5
+replacement_price: 1         # the price a replacement-level player is expected to cost
+tiers_per_class: 5           # tiers by the largest gaps in value, per class
+tier_pool: 30                # among the top N of the class; the rest is one tier below
