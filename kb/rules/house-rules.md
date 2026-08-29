@@ -69,6 +69,16 @@ roles and modules *mean* is in `kb/rules/mantra.md`.
 Which voto source the league scores with is likewise a setting, not a choice
 of ours — the projection reads it rather than assuming Fantacalcio's own.
 
+The voto source is `calculate.sourcev` in the settings payload; `fantaclaude
+doctor` prints the sheet it resolves to (`1 → Fantacalcio` is the working
+hypothesis, checked by the account holder against the league's calcolo page
+— see "Watch"). The Mantra defence modifier is the **D-Factor**; its
+thresholds are league data read off the league's settings page and kept in
+`core/src/fantaclaude/model/d_factor.yml` with a date. While it is inactive
+(every `smod*` field null) nothing is applied; if any other modifier is
+switched on, `fantaclaude rank` refuses rather than price a rule it does not
+model.
+
 ## Participants
 
 `league.yml` has a `participants` map, keyed by nickname, for the opponent
@@ -84,3 +94,23 @@ team names, and can be listed from the snapshot.
 - Any admin message that changes a rule mid-season: the API's `rules_hash`
   moves, and this document's `ttl` is the reminder to come back and check that
   `league.yml` still agrees with it.
+- **Open since 2026-08-29, unanswered — the voto source.** Only the account
+  holder can check this: Leghe → *fantabalotelli3* → Impostazioni → Calcolo,
+  the "Fonte voti" field. Expected to read **Fantacalcio** (the Redazione
+  votes). If it reads Statistico or Italia instead, `VOTO_SOURCES` in
+  `core/src/fantaclaude/model/scoring.py` maps `1` wrongly and must be
+  swapped to what the page shows, with the date noted in the docstring, then
+  `fantaclaude rank` re-run.
+- **Open since 2026-08-29, unanswered — the D-Factor / modifiers.** Only the
+  account holder can check this: the same settings area (Modificatori).
+  Expected: every modifier off, which is what `doctor`'s `scoring` line
+  currently reports. If the admin ever switches the D-Factor on,
+  `fantaclaude sync-league` will show which `calculate.*` key moved (expected
+  `smodd`; if a different key moves, set `D_FACTOR_KEY` in `model/scoring.py`
+  to it and note the date), then the modifier's table must be transcribed
+  into `core/src/fantaclaude/model/d_factor.yml` (`bands`, `with_goalkeeper`,
+  `source`, `verified_on`). Watch this transcription step: the bands'
+  `points` must **increase** with `floor`. Nothing validates this at load —
+  `load_d_factor` checks only that the floors are numeric and unique — and a
+  non-monotonic table silently yields a clamped-to-zero uplift instead of the
+  intended one, so a transcription slip fails quietly rather than loudly.
