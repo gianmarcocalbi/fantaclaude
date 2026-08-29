@@ -4189,7 +4189,8 @@ def test_run_valuation_projects_prices_and_stamps(tmp_path, fixture_json, mcp_fi
         assert board.composition["Por"] >= 2 and board.budget <= 500
         assert sum(board.credits_by_class.values()) <= 500                                  # max prices sum sanely
         assert result.implied[2764][0] > 0 and isinstance(result.implied[2764][1], float)
-        # every club has a profile; the template's taker (Calhanoglu) is not among the 17, so only taker warnings remain
+        # every club has a profile, so no "no profile" warning; the template's taker (Calhanoglu) is Inter's
+        # alone and a taker is resolved among his own club's players, so the other seven clubs warn
         assert not any("no profile" in w for w in result.warnings)
         assert all("penalty taker" in w for w in result.warnings)
         assert result.summary["team_count"] == 8 and result.summary["market_credits"] == 4000
@@ -4740,7 +4741,7 @@ def record_run(con: duckdb.DuckDBPyConnection, run: ValuationRun) -> None:
 - [ ] **Step 5: Run the valuation tests**
 
 Run: `uv run pytest core/tests/test_valuation.py -q`
-Expected: 9 passed. `test_run_valuation_projects_prices_and_stamps` asserts `giornate_remaining == 37` because `_ready_workspace` records one giornata of season 21; `test_missing_profiles...` relies on `test_kb_profiles.PROFILE` naming `Calhanoglu` as the penalty taker — a name the 17-player listone sample does not carry, hence the warning.
+Expected: 9 passed. `test_run_valuation_projects_prices_and_stamps` asserts `giornate_remaining == 37` because `_ready_workspace` records one giornata of season 21; `test_missing_profiles...` rewrites `test_kb_profiles.PROFILE`'s penalty taker to `Nobody`, a name no club carries, hence the warning — `Calhanoglu` himself is listone id 2194 and resolves, but only within Inter's own players, so in `test_run_valuation...` the other seven clubs warn instead.
 
 - [ ] **Step 6: Write the failing export tests**
 
