@@ -5134,14 +5134,31 @@ def test_rank_refuses_when_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fi
 
 
 def test_provisional_note_reads_the_auction_date(tmp_path):
+    # The requirement above is seven days, not two -- and the run inside that
+    # window is still provisional, never "final": the freeze makes a run
+    # final, not the calendar, and this code cannot observe the freeze.
     (tmp_path / "league.yml").write_text(
         "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n")
     entries = load_league_yml(tmp_path / "league.yml")
-    early = provisional_note(entries, datetime(2026, 8, 30, tzinfo=UTC), 8)
-    assert early.startswith("provisional") and "8 teams" in early and "6 days" in early
-    late = provisional_note(entries, datetime(2026, 9, 4, 12, tzinfo=UTC), 10)
-    assert late.startswith("final window") and "10 teams" in late
+    far = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 8)
+    assert far.startswith("provisional") and "8 teams" in far and "16 days" in far
+    assert "does not say how many are expected" in far        # league.yml has no team_count leaf today
+    near = provisional_note(entries, datetime(2026, 9, 4, 12, tzinfo=UTC), 10)
+    assert near.startswith("provisional") and "10 teams" in near and "1 days" in near
+    assert "final" not in near.split(" -- ", 1)[0]
+    assert "pre-freeze window" in near and "still provisional" in near
     assert provisional_note(None, datetime(2026, 8, 30, tzinfo=UTC), 8).startswith("provisional")
+
+
+def test_provisional_note_flags_a_league_still_forming(tmp_path):
+    (tmp_path / "league.yml").write_text(
+        "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n"
+        "team_count: {value: 10, source: admin, verified_on: 2026-08-22}\n")
+    entries = load_league_yml(tmp_path / "league.yml")
+    forming = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 8)
+    assert "8 of 10 expected teams" in forming
+    full = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 10)
+    assert "8 of 10" not in full and "10 teams (of 10 expected)" in full
 ```
 
 - [ ] **Step 2: Run the rank tests to verify they fail**
@@ -5180,7 +5197,12 @@ from fantaclaude.commands.ingest import NotReady
 from fantaclaude.league.league_yml import Provenanced
 from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
 
-FINAL_WINDOW_DAYS = 2
+# The spec (open question 1) fixes no day count -- only that the run after the
+# freeze is the final one. Seven days is this plan's own stated requirement
+# above. A run inside the window is still provisional -- the freeze is what
+# makes a run final, and this code has no way to observe the freeze itself --
+# so the window only changes the wording, never the "provisional" label.
+PRE_FREEZE_WINDOW_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -5209,15 +5231,33 @@ class RankReport:
                 "summary": self.summary, "provisional": self.provisional, "top": self.top}
 
 
+def _team_note(entries: dict[str, Provenanced] | None, team_count: int) -> str:
+    """league.yml carries no `team_count` leaf today (a real gap, not this
+    code's to silently paper over), so an absent expectation is named as
+    unknown rather than treated as "the league is full"."""
+    expected = entries.get("team_count") if entries else None
+    value = expected.value if expected is not None else None
+    if not isinstance(value, int) or isinstance(value, bool):
+        return f"{team_count} teams (league.yml does not say how many are expected)"
+    if team_count < value:
+        return f"{team_count} of {value} expected teams"
+    return f"{team_count} teams (of {value} expected)"
+
+
 def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> str:
     auction = entries.get("auction.date") if entries else None
     when = auction.value if auction is not None and isinstance(auction.value, date) else None
+    teams = _team_note(entries, team_count)
     if when is None:
-        return f"provisional: {team_count} teams, auction date unknown -- the final run is the one after the freeze"
+        return f"provisional: {teams}, auction date unknown -- the final run is the one after the freeze"
     days = (when - now.date()).days
-    if days <= FINAL_WINDOW_DAYS:
-        return f"final window: {team_count} teams, auction {when.isoformat()} in {days} days"
-    return (f"provisional: {team_count} teams, auction {when.isoformat()} in {days} days -- "
+    if days <= PRE_FREEZE_WINDOW_DAYS:
+        # Still provisional: the freeze, not the calendar, is what makes a run
+        # final, and this code cannot observe the freeze -- so the label never
+        # changes here, only the note about how close the auction is.
+        return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- inside the pre-freeze window, "
+                f"but still provisional until the freeze actually happens; re-run `fantaclaude rank` after it")
+    return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- "
             f"re-run after the freeze, when the rules and the teams have settled")
 
 
@@ -5363,7 +5403,13 @@ Update the `doctor` command's help and `DoctorPaths` construction to pass `prici
 - [ ] **Step 4: Run the rank tests**
 
 Run: `uv run pytest core/tests/test_rank_cli.py -q`
-Expected: 4 passed. In `test_rank_re_syncs_first_unless_offline`, the re-sync records a snapshot whose `rules_hash` equals the seeded one (same fixtures), so `changed` is false and the run count stays consistent: two runs written before the conflict, none after.
+Expected: 5 passed (the code block above shows five test functions -- `test_provisional_note_reads_the_auction_date`
+was split in two to cover the team-count condition alongside the day-window one), plus a sixth test the
+implementation adds directly, `test_a_bare_value_error_from_run_valuation_is_not_mistaken_for_not_ready`, asserting
+that a bare `ValueError` (standing in for `price_board`'s "unknown role class" error) is not mistaken for
+`PricingConfigError` and does not exit 3 -- 6 passed in total. In `test_rank_re_syncs_first_unless_offline`, the
+re-sync records a snapshot whose `rules_hash` equals the seeded one (same fixtures), so `changed` is false and the
+run count stays consistent: two runs written before the conflict, none after.
 
 - [ ] **Step 5: Supersession in `sync-league`**
 

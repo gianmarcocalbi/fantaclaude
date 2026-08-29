@@ -24,7 +24,14 @@ from fantaclaude.commands.ingest import NotReady
 from fantaclaude.league.league_yml import Provenanced
 from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
 
-FINAL_WINDOW_DAYS = 2
+# The spec (open question 1) fixes no day count -- only that the run after the
+# freeze is the final one. Seven days is this plan's own stated requirement
+# (its line-30 prose, not the day count once mis-copied into an earlier draft
+# of this module). A run inside the window is still provisional -- the freeze
+# is what makes a run final, and this code has no way to observe the freeze
+# itself -- so the window only changes the wording, never the "provisional"
+# label.
+PRE_FREEZE_WINDOW_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -53,15 +60,33 @@ class RankReport:
                 "summary": self.summary, "provisional": self.provisional, "top": self.top}
 
 
+def _team_note(entries: dict[str, Provenanced] | None, team_count: int) -> str:
+    """league.yml carries no `team_count` leaf today (a real gap, not this
+    code's to silently paper over), so an absent expectation is named as
+    unknown rather than treated as "the league is full"."""
+    expected = entries.get("team_count") if entries else None
+    value = expected.value if expected is not None else None
+    if not isinstance(value, int) or isinstance(value, bool):
+        return f"{team_count} teams (league.yml does not say how many are expected)"
+    if team_count < value:
+        return f"{team_count} of {value} expected teams"
+    return f"{team_count} teams (of {value} expected)"
+
+
 def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> str:
     auction = entries.get("auction.date") if entries else None
     when = auction.value if auction is not None and isinstance(auction.value, date) else None
+    teams = _team_note(entries, team_count)
     if when is None:
-        return f"provisional: {team_count} teams, auction date unknown -- the final run is the one after the freeze"
+        return f"provisional: {teams}, auction date unknown -- the final run is the one after the freeze"
     days = (when - now.date()).days
-    if days <= FINAL_WINDOW_DAYS:
-        return f"final window: {team_count} teams, auction {when.isoformat()} in {days} days"
-    return (f"provisional: {team_count} teams, auction {when.isoformat()} in {days} days -- "
+    if days <= PRE_FREEZE_WINDOW_DAYS:
+        # Still provisional: the freeze, not the calendar, is what makes a run
+        # final, and this code cannot observe the freeze -- so the label never
+        # changes here, only the note about how close the auction is.
+        return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- inside the pre-freeze window, "
+                f"but still provisional until the freeze actually happens; re-run `fantaclaude rank` after it")
+    return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- "
             f"re-run after the freeze, when the rules and the teams have settled")
 
 

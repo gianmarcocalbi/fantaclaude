@@ -47,7 +47,20 @@ def test_rank_offline_writes_a_run_renders_and_records(monkeypatch, tmp_path, fi
     assert "Martinez L." in plain.stdout
 
     one = runner.invoke(app, ["rank", "--offline", "--scenario", "value-hunting", "--json"])
-    assert one.exit_code == ExitCode.OK and json.loads(one.stdout)["scenarios"] == ["value-hunting"]
+    assert one.exit_code == ExitCode.OK
+    one_payload = json.loads(one.stdout)
+    assert one_payload["scenarios"] == ["value-hunting"]
+    # The report payload is only half of it -- record_run persists an immutable row, so
+    # the filtered board must be what actually landed: one scenario's worth of prices,
+    # never the full three, and the stored config must name only what ran (Trap 2).
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM valuation_prices WHERE run_id = ?",
+                       [one_payload["run_id"]]).fetchone()[0] == 17
+    stored_config = json.loads(con.execute("SELECT config FROM valuation_runs WHERE run_id = ?",
+                                           [one_payload["run_id"]]).fetchone()[0])
+    assert stored_config["scenarios"] == ["value-hunting"]
+    con.close()
+
     bad = runner.invoke(app, ["rank", "--offline", "--scenario", "nope"])
     assert bad.exit_code == ExitCode.USAGE and "nope" in bad.stderr
 
@@ -99,14 +112,34 @@ def test_rank_refuses_when_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fi
 
 
 def test_provisional_note_reads_the_auction_date(tmp_path):
+    # The plan's requirement (line 30) is seven days, not the two an earlier
+    # draft of rank.py mis-copied into FINAL_WINDOW_DAYS.
     (tmp_path / "league.yml").write_text(
         "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n")
     entries = load_league_yml(tmp_path / "league.yml")
-    early = provisional_note(entries, datetime(2026, 8, 30, tzinfo=UTC), 8)
-    assert early.startswith("provisional") and "8 teams" in early and "6 days" in early
-    late = provisional_note(entries, datetime(2026, 9, 4, 12, tzinfo=UTC), 10)
-    assert late.startswith("final window") and "10 teams" in late
+    far = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 8)
+    assert far.startswith("provisional") and "8 teams" in far and "16 days" in far
+    assert "does not say how many are expected" in far          # league.yml has no team_count leaf today
+
+    # Inside the window: the wording changes, the "provisional" label never does --
+    # the freeze makes a run final, not the calendar, and this code cannot see the freeze.
+    near = provisional_note(entries, datetime(2026, 9, 4, 12, tzinfo=UTC), 10)
+    assert near.startswith("provisional") and "10 teams" in near and "1 days" in near
+    assert "final" not in near.split(" -- ", 1)[0]
+    assert "pre-freeze window" in near and "still provisional" in near
+
     assert provisional_note(None, datetime(2026, 8, 30, tzinfo=UTC), 8).startswith("provisional")
+
+
+def test_provisional_note_flags_a_league_still_forming(tmp_path):
+    (tmp_path / "league.yml").write_text(
+        "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n"
+        "team_count: {value: 10, source: admin, verified_on: 2026-08-22}\n")
+    entries = load_league_yml(tmp_path / "league.yml")
+    forming = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 8)
+    assert "8 of 10 expected teams" in forming
+    full = provisional_note(entries, datetime(2026, 8, 20, tzinfo=UTC), 10)
+    assert "8 of 10" not in full and "10 teams (of 10 expected)" in full
 
 
 def test_a_bare_value_error_from_run_valuation_is_not_mistaken_for_not_ready(
