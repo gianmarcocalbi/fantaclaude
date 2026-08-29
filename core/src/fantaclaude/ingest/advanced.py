@@ -8,7 +8,9 @@ luck-correction inputs and the minutes the voti do not carry. Observed
 2026-08-28; every field is a string, `team_title` is "A,B" for a mid-season
 mover, `player_name` is HTML-escaped. Names are matched onto the listone by
 ingest.names; unmatched and ambiguous rows are stored with player_id NULL
-and reported, never dropped.
+and reported, never dropped. A snapshot is keyed on the raw bytes, the
+aliases file and the listone snapshot together, so a changed alias
+re-matches on the next record.
 """
 
 from __future__ import annotations
@@ -126,56 +128,48 @@ class AdvancedIngestResult:
     unresolved_teams: list[str]
     sha256: str
     raw_path: str
+    aliases_sha256: str
+    listone_snapshot_id: int
 
     def to_dict(self) -> dict[str, Any]:
         return {"snapshot_id": self.snapshot_id, "season_id": self.season_id, "inserted": self.inserted,
                 "skipped_duplicate": self.skipped_duplicate, "matched": self.matched, "alias": self.alias,
                 "ambiguous": self.ambiguous, "unmatched": self.unmatched,
                 "ambiguous_names": self.ambiguous_names, "unresolved_teams": self.unresolved_teams,
-                "sha256": self.sha256, "raw_path": self.raw_path}
+                "sha256": self.sha256, "raw_path": self.raw_path,
+                "aliases_sha256": self.aliases_sha256, "listone_snapshot_id": self.listone_snapshot_id}
 
 
 def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[AdvancedRow],
                     raw: RawFile, *, candidates: list[Candidate], teams: dict[str, str],
-                    aliases: Aliases, force: bool = False) -> AdvancedIngestResult:
-    """One snapshot per distinct raw file; the same bytes twice is a no-op,
-    *unless* `force` -- which re-derives that same snapshot's matches in
-    place, rather than appending a second one.
+                    aliases: Aliases, aliases_sha256: str, listone_snapshot_id: int,
+                    force: bool = False) -> AdvancedIngestResult:
+    """One snapshot per distinct *derivation*: the raw bytes, the aliases
+    file and the listone snapshot the names were matched against. The same
+    three inputs twice is a no-op; a change to any of them appends a new
+    snapshot with a fresh match, and v_advanced_current picks the newest
+    per season -- so an alias added to kb/rules/aliases.yml, or a listone
+    move, applies on the next record without a flag and without touching
+    the earlier derivation (nothing is overwritten).
 
-    Matching happens here, at record time, against the candidates and
-    aliases passed in -- but only the first time a given raw file's content
-    is recorded: the `sha256` short-circuit below means a later alias
-    (Ruling R11, "the dedupe short-circuit contradicts its own documented
-    contract") or a listone that has since moved does **not** get a chance
-    to re-match the same bytes through the ordinary `ingest advanced` path,
-    and never will on its own for a back season, whose Understat content
-    stops changing once the season is over -- the current season eventually
-    self-heals only because Understat's bytes keep moving week to week.
-
-    `force=True` (CLI: `ingest advanced --rematch`) skips the short-circuit
-    and re-runs the matcher against the same immutable file -- but
-    `advanced_snapshots.sha256` is `UNIQUE`, so a second row for identical
-    content is not just redundant, it is a constraint violation: the schema
-    ties one snapshot to one payload, deliberately. So a forced re-match
-    updates the *existing* snapshot's derived `matched`/`ambiguous`/
-    `unmatched` counts and replaces its `advanced_stats` rows in place,
-    rather than inserting a new snapshot_id -- the raw file's identity
-    (snapshot_id, sha256, fetched_at, raw_path) is untouched, since nothing
-    about which bytes were fetched, or when, has changed; only the
-    (re-derivable, not immutable) join onto the listone is refreshed. This
-    is the only way to make an alias or a listone change apply to a raw
-    payload already on disk without a new fetch, and without a schema
-    change to loosen the `UNIQUE` constraint (out of scope for Ruling R11).
+    `force=True` (CLI: `ingest advanced --rematch`) is now only for an
+    *identical* key -- a change to the matcher's code, say -- and re-derives
+    that same snapshot in place: `advanced_snapshots` is UNIQUE over the
+    three inputs, so a second row for them is a constraint violation, not
+    just redundant. The raw file's identity (snapshot_id, sha256,
+    fetched_at, raw_path) is untouched either way.
     """
     existing = con.execute(
-        "SELECT snapshot_id, matched, ambiguous, unmatched FROM advanced_snapshots WHERE sha256 = ?",
-        [raw.sha256]).fetchone()
+        "SELECT snapshot_id, matched, ambiguous, unmatched FROM advanced_snapshots "
+        "WHERE sha256 = ? AND aliases_sha256 = ? AND listone_snapshot_id = ?",
+        [raw.sha256, aliases_sha256, listone_snapshot_id]).fetchone()
     if existing is not None and not force:
         alias_count = con.execute(
             "SELECT count(*) FROM advanced_stats WHERE snapshot_id = ? AND match_status = 'alias'",
             [existing[0]]).fetchone()[0]
         return AdvancedIngestResult(existing[0], season_id, 0, True, existing[1], alias_count,
-                                    existing[2], existing[3], [], [], raw.sha256, str(raw.path))
+                                    existing[2], existing[3], [], [], raw.sha256, str(raw.path),
+                                    aliases_sha256, listone_snapshot_id)
     matcher = Matcher(candidates, aliases.players_for("understat"))
     team_aliases = aliases.teams_for("understat")
     names = {c.player_id: c.name for c in candidates}
@@ -204,19 +198,19 @@ def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[A
     con.begin()
     try:
         if existing is not None:
-            # force=True, re-deriving in place: same snapshot_id, sha256,
-            # fetched_at and raw_path -- only the join is refreshed.
-            snapshot_id = existing[0]
+            snapshot_id = existing[0]          # force=True on an identical key: same row, re-derived in place
             con.execute(
                 "UPDATE advanced_snapshots SET matched = ?, ambiguous = ?, unmatched = ? WHERE snapshot_id = ?",
                 [counts["matched"], counts["ambiguous"], counts["unmatched"], snapshot_id])
             con.execute("DELETE FROM advanced_stats WHERE snapshot_id = ?", [snapshot_id])
         else:
             snapshot_id = con.execute(
-                "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, row_count, "
-                "matched, ambiguous, unmatched) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING snapshot_id",
-                [season_id, to_db(raw.fetched_at), SOURCE, str(raw.path), raw.sha256, len(rows),
-                 counts["matched"], counts["ambiguous"], counts["unmatched"]]).fetchone()[0]
+                "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, aliases_sha256, "
+                "listone_snapshot_id, row_count, matched, ambiguous, unmatched) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING snapshot_id",
+                [season_id, to_db(raw.fetched_at), SOURCE, str(raw.path), raw.sha256, aliases_sha256,
+                 listone_snapshot_id, len(rows), counts["matched"], counts["ambiguous"],
+                 counts["unmatched"]]).fetchone()[0]
         for record in records:
             record[0] = snapshot_id
         con.executemany(
@@ -228,4 +222,4 @@ def record_advanced(con: duckdb.DuckDBPyConnection, season_id: int, rows: list[A
     con.commit()
     return AdvancedIngestResult(snapshot_id, season_id, len(rows), False, counts["matched"], counts["alias"],
                                 counts["ambiguous"], counts["unmatched"], ambiguous_names,
-                                sorted(unresolved), raw.sha256, str(raw.path))
+                                sorted(unresolved), raw.sha256, str(raw.path), aliases_sha256, listone_snapshot_id)

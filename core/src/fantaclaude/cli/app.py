@@ -272,11 +272,8 @@ def _render_advanced(payload: dict) -> str:
             lines.append(f"advanced {r['season_id']}: duplicate of snapshot {r['snapshot_id']} -- nothing new "
                          f"({r['matched']} matched, {r['ambiguous']} ambiguous, {r['unmatched']} unmatched)")
             if r["ambiguous"]:
-                # A new understat: alias has no effect on an already-recorded
-                # season (Ruling R11) -- name the way out, since this is the
-                # exact moment a reader is looking at an unimproved count.
-                lines.append(f"  a new alias in kb/rules/aliases.yml has no effect on its own -- run "
-                             f"`fantaclaude ingest advanced --season {r['season_id']} --rematch` to apply it")
+                lines.append(f"  resolve it with an `understat:` alias in kb/rules/aliases.yml -- it applies on the next "
+                             f"`fantaclaude ingest advanced --season {r['season_id']} --rematch` (zero network)")
             continue
         lines.append(f"advanced {r['season_id']}: snapshot {r['snapshot_id']}, {r['inserted']} rows -- "
                      f"{r['matched']} matched, {r['alias']} alias, {r['ambiguous']} ambiguous, "
@@ -337,12 +334,18 @@ def ingest_advanced_cmd(
                 con.close()
         emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
         return
+    from fantaclaude.commands.ingest import NotReady
+
     with _source_errors():
         raws = run_web(lambda http: fetch_advanced_seasons(http, store, seasons))
         con = connect()
         try:
             apply_schema(con)
-            results = record_advanced_seasons(con, raws, aliases_path())
+            try:
+                results = record_advanced_seasons(con, raws, aliases_path())
+            except NotReady as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=ExitCode.NOT_READY) from None
         finally:
             con.close()
     emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)

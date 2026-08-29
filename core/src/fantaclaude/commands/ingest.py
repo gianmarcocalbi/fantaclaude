@@ -62,6 +62,16 @@ class NotReady(RuntimeError):
     """No database, or no league_settings snapshot: the season is unknown."""
 
 
+def advanced_key(con: duckdb.DuckDBPyConnection, aliases_path: Path) -> tuple[str, int]:
+    """The two inputs of an Understat match besides the raw bytes: the
+    aliases file's content and the listone snapshot the names are matched
+    against. Together with sha256 they key advanced_snapshots."""
+    listone = con.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0]
+    if listone is None:
+        raise NotReady("no listone snapshot -- run `fantaclaude ingest listone` first")
+    return RawStore.sha256_of(aliases_path), int(listone)
+
+
 def current_season_id(path: Path | None = None) -> int:
     """The season the league is in, from the latest league_settings snapshot.
 
@@ -142,25 +152,25 @@ async def fetch_advanced_seasons(http: httpx.AsyncClient, store: RawStore,
 def record_advanced_seasons(con: duckdb.DuckDBPyConnection, raws: dict[int, RawFile],
                             aliases_path: Path) -> list[AdvancedIngestResult]:
     aliases = load_aliases(aliases_path)
+    aliases_sha256, listone_snapshot_id = advanced_key(con, aliases_path)
     candidates, teams = load_candidates(con), load_teams(con)
     results = []
     for season_id in sorted(raws):
         loaded_season, rows = load_advanced(raws[season_id].path)
         results.append(record_advanced(con, loaded_season, rows, raws[season_id],
-                                       candidates=candidates, teams=teams, aliases=aliases))
+                                       candidates=candidates, teams=teams, aliases=aliases,
+                                       aliases_sha256=aliases_sha256, listone_snapshot_id=listone_snapshot_id))
     return results
 
 
 def rematch_advanced_seasons(con: duckdb.DuckDBPyConnection, store: RawStore, seasons: list[int],
                              aliases_path: Path) -> list[AdvancedIngestResult]:
-    """Re-record each requested season's most recent on-disk raw file,
-    forcing record_advanced past its sha256 short-circuit (Ruling R11) --
-    zero network. This is `ingest advanced --rematch`'s whole point: an
-    alias added to kb/rules/aliases.yml or a listone move never gets a
-    chance to re-match an Understat payload already recorded once, and
-    never will on its own for a back season, whose content stops changing
-    once the season is over."""
+    """Re-record each requested season's most recent on-disk raw file -- zero
+    network. With the full dedupe key a changed alias or listone appends a
+    new derivation on its own; `force=True` covers the remaining case, an
+    identical key re-derived in place after a matcher change."""
     aliases = load_aliases(aliases_path)
+    aliases_sha256, listone_snapshot_id = advanced_key(con, aliases_path)
     candidates, teams = load_candidates(con), load_teams(con)
     results = []
     for season_id in sorted(seasons):
@@ -171,7 +181,8 @@ def rematch_advanced_seasons(con: duckdb.DuckDBPyConnection, store: RawStore, se
         raw = _raw_file_from_disk(path, "advanced")
         loaded_season, rows = load_advanced(path)
         results.append(record_advanced(con, loaded_season, rows, raw, candidates=candidates, teams=teams,
-                                       aliases=aliases, force=True))
+                                       aliases=aliases, aliases_sha256=aliases_sha256,
+                                       listone_snapshot_id=listone_snapshot_id, force=True))
     return results
 
 

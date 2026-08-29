@@ -58,7 +58,8 @@ def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=3
     advanced = store.write("advanced", fixture_json("understat_sample"), label="20")
     season_id, rows = load_advanced(advanced.path)
     record_advanced(con, season_id, rows, advanced, candidates=load_candidates(con), teams=load_teams(con),
-                    aliases=Aliases(teams={"understat": {"AC Milan": "Milan"}}))
+                    aliases=Aliases(teams={"understat": {"AC Milan": "Milan"}}),
+                    aliases_sha256="a1", listone_snapshot_id=1)
     uefa = store.write("calendar", fixture_json("uefa_sample")[1], label="uecl-21-00")
     record_fixtures(con, "UECL", 21, load_uefa([uefa.path]), [uefa], teams=load_teams(con), team_aliases={})
     con.close()
@@ -232,7 +233,8 @@ def test_advanced_check_surfaces_alias_resolved_players(tmp_path, fixture_json):
     aliases = Aliases(players={"understat": {"Pietro Terracciano": 3}},
                       teams={"understat": {"AC Milan": "Milan"}})
     result = record_advanced(con, season_id, rows, advanced_raw, candidates=load_candidates(con),
-                             teams=load_teams(con), aliases=aliases)
+                             teams=load_teams(con), aliases=aliases,
+                             aliases_sha256="a1", listone_snapshot_id=1)
     assert (result.matched, result.alias, result.ambiguous, result.unmatched) == (5, 1, 1, 3)
     con.close()
 

@@ -118,6 +118,10 @@ def _history_checks(con: duckdb.DuckDBPyConnection, now: datetime) -> list[Check
         detail = "; ".join(
             f"season {r[1]}: {r[2]} rows, {r[3]} matched, {alias_counts.get(r[0], 0)} alias, "
             f"{r[4]} ambiguous, {r[5]} unmatched" for r in seasons)
+        keyed = con.execute("SELECT count(*) FROM advanced_snapshots WHERE aliases_sha256 IS NULL "
+                            "AND snapshot_id IN (SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id)").fetchone()[0]
+        if keyed:
+            detail += f"; {keyed} season(s) recorded before the full dedupe key -- the next `ingest advanced --rematch` re-matches them"
         checks.append(Check("advanced", True, f"{detail}; newest {_age(seasons[-1][6], now)}"))
     current = con.execute("SELECT max(season_id) FROM v_league_settings_current").fetchone()[0]
     serie_a = con.execute(
