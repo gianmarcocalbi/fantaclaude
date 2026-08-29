@@ -101,3 +101,42 @@ def fixture_file():
     def _path(name: str) -> Path:
         return FIXTURE_DIR / name
     return _path
+
+
+def seed_voti(con, season_id: int, giornata: int, rows, *, sheets=None) -> int:
+    """One synthetic voti workbook -- one file, every sheet, as the real export is.
+    `rows` are (player_id, name, team, classic_role, voto, events) for the Fantacalcio
+    sheet, where voto None means senza voto and events is a dict of the workbook's
+    count columns; `sheets` maps further sheet names to their own rows."""
+    by_sheet = {"Fantacalcio": rows, **(sheets or {})}
+    file_id = con.execute(
+        "INSERT INTO voti_files (season_id, giornata, fetched_at, source, raw_path, sha256, sheets, row_count) "
+        "VALUES (?, ?, now(), 'seed', ?, ?, ?, ?) RETURNING file_id",
+        [season_id, giornata, f"seed/{season_id}-{giornata}", f"seed-{season_id}-{giornata}", list(by_sheet),
+         sum(len(r) for r in by_sheet.values())],
+    ).fetchone()[0]
+    for sheet, sheet_rows in by_sheet.items():
+        for player_id, name, team, role, voto, events in sheet_rows:
+            e = {"goals": 0, "goals_conceded": 0, "pen_saved": 0, "pen_missed": 0, "pen_scored": 0,
+                 "own_goals": 0, "yellow": 0, "red": 0, "assists": 0, **(events or {})}
+            con.execute(
+                "INSERT INTO player_match VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')",
+                [file_id, season_id, giornata, sheet, player_id, name, team, role, voto, voto is None,
+                 e["goals"], e["goals_conceded"], e["pen_saved"], e["pen_missed"], e["pen_scored"], e["own_goals"],
+                 e["yellow"], e["red"], e["assists"]])
+    return file_id
+
+
+def seed_advanced(con, season_id: int, rows) -> int:
+    """`rows` are (player_id, minutes, games, xg, xa); one matched Understat row each."""
+    snapshot_id = con.execute(
+        "INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, aliases_sha256, "
+        "listone_snapshot_id, row_count, matched, ambiguous, unmatched) VALUES (?, now(), 'seed', ?, ?, 'seed', 1, ?, ?, 0, 0) "
+        "RETURNING snapshot_id",
+        [season_id, f"seed/adv-{season_id}", f"seed-adv-{season_id}", len(rows), len(rows)]).fetchone()[0]
+    for player_id, minutes, games, xg, xa in rows:                     # npxg is seeded equal to xg
+        con.execute(
+            "INSERT INTO advanced_stats VALUES (?, ?, ?, ?, ?, ?, 'matched', [?], ?, ?, 0, 0, ?, ?, 0, ?, 0, 0, 0, 0, "
+            "0.0, 0.0, 'F', '{}')",
+            [snapshot_id, season_id, f"u{player_id}", f"p{player_id}", ["X"], player_id, player_id, games, minutes, xg, xa, xg])
+    return snapshot_id
