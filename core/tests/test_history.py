@@ -19,7 +19,8 @@ def _seed(db):
                           (5841, "Svilar", "Roma", "P", 6.5, {"pen_saved": 1}),
                           (2640, "Kolasinac", "Atalanta", "D", 5.5, {"pen_missed": 1})])
     seed_voti(db, 20, 3, [(2764, "Martinez L.", "Inter", "A", None, {}),
-                          (5841, "Svilar", "Roma", "P", 6.0, {"goals_conceded": 1})])
+                          (5841, "Svilar", "Roma", "P", 6.0, {"goals_conceded": 1}),
+                          (9999, "Riserva", "Lazio", "C", None, {})])       # never voted: a zero-presenze season
     # season 21: one giornata played; the workbook's other sheet must not leak in
     seed_voti(db, 21, 1, [(2764, "Martinez L.", "Inter", "A", 6.5, {"goals": 1}),
                           (5841, "Svilar", "Roma", "P", 6.0, {})],
@@ -46,11 +47,16 @@ def test_load_history_builds_season_lines_under_the_league_scoring(db, bm):
     assert (s20.minutes, s20.understat_games, s20.xg, s20.xa, s20.npxg) == (170, 2, pytest.approx(1.4), pytest.approx(0.3), pytest.approx(1.4))
     s21 = lines[0]
     assert (s21.presenze, s21.giornate, s21.fantavoto_mean, s21.minutes) == (1, 1, pytest.approx(9.5), None)
+    assert s21.fantavoto_var == pytest.approx(0.0)                          # a single observation, not undefined
 
     keeper = history.lines_for(5841)[1]
     assert keeper.events == Events(goals_conceded=3, pen_saved=1)
     assert keeper.fantavoto_mean == pytest.approx(((6 - 2) + (6.5 + 3) + (6 - 1)) / 3)
     assert history.lines_for(688) == () and history.lines_for(999) == ()      # the coach row is not a player
+
+    never_voted = history.lines_for(9999)[0]                                 # senza-voto only: zero presenze
+    assert never_voted.presenze == 0 and never_voted.appearances == 1
+    assert (never_voted.voto_mean, never_voted.fantavoto_mean, never_voted.fantavoto_var) == (0.0, 0.0, 0.0)
 
 
 def test_role_priors_and_club_penalties_come_from_the_back_seasons(db, bm):

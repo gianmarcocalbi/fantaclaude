@@ -12,9 +12,10 @@ the player, not a population.
 
 Observed 2026-08-29, season 20, sheet Fantacalcio, players only, under this
 league's bonus/malus -- role_priors's shape: P 6.17/0.55 voto, 5.03/1.54
-fantavoto; D 5.93/0.58, 6.00/1.06; C 5.99/0.58, 6.20/1.32; A 5.99/0.69,
-6.52/1.88 (mean/sd). Quoted so a reviewer can tell a plausible prior from a
-bug; never hardcoded here.
+fantavoto; D 5.93/0.58, 6.00/1.07; C 5.99/0.58, 6.23/1.37; A 5.99/0.69,
+6.58/1.96 (mean/sd; the fantavoto figures include penalty-goal points via
+bmpsc). Quoted so a reviewer can tell a plausible prior from a bug; never
+hardcoded here.
 """
 
 from __future__ import annotations
