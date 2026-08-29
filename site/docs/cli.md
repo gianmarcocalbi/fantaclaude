@@ -17,9 +17,11 @@ hosts fantaclaude doesn't control.
 
 ## `fantaclaude kb`
 
-Builds and maintains the knowledge base under `kb/`: one rules document plus one
-profile per Serie A club, refreshed as clubs change coach, formation, or European
-competition status.
+`fantaclaude kb audit` reports which knowledge-base documents under `kb/` have
+gone stale — for example a club changed coach, formation, or European
+competition status. It does not build or refresh anything itself; that work is
+done by the `fanta-kb` Claude skill, using the audit's report to decide what
+needs renewing.
 
 Each command only touches the network when it says so in its name —
 `sync-league` and `ingest` call live services; everything else in the CLI works

@@ -38,4 +38,4 @@ test = ["test-mcp", "test-core"]
 lint = "ruff check core mcp/fantacalcio"
 fmt = "ruff format core mcp/fantacalcio"
 docs-serve = "mkdocs serve -f site/mkdocs.yml"
-docs-build = "mkdocs build -f site/mkdocs.yml -d _build --strict"
+docs-build = "mkdocs build -f site/mkdocs.yml --strict"

@@ -1,6 +1,8 @@
 site_name: fantaclaude
 site_description: A Fantacalcio Mantra assistant — data spine, valuation, auction copilot
+site_url: https://gianmarcocalbi.github.io/fantaclaude/
 repo_url: https://github.com/gianmarcocalbi/fantaclaude
+site_dir: _build
 theme:
   name: material
   palette:
