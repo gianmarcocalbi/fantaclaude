@@ -1507,9 +1507,16 @@ often than to bad models.
    and `tipo: 2` is consistent with that. `sroles: 2` showing roster bounds that are
    not Mantra-shaped is no contradiction: Mantra governs lineup roles, not roster
    composition.
-3. **Is the modificatore di difesa active?** Every modifier field is currently null,
-   which reads as inactive. Re-check once the league is configured; it materially
-   changes both valuation and lineup choice.
+3. **~~Is the modificatore di difesa active?~~ Decided 2026-08-29.** Inactive
+   (every modifier field null on every snapshot since 2026-08-22). In Mantra
+   the modifier is the D-Factor — the five best voti among Dc/B/Dd/Ds/E/M with
+   at least three true defenders, optionally the goalkeeper, averaged and
+   mapped to points; its thresholds are not published and are customisable
+   per league, so they live in `model/d_factor.yml` as data, empty until
+   transcribed from the league's settings page. Phase 1 models the mechanism
+   (`model/d_factor.py`) and applies a per-player uplift when
+   `calculate.smodd` is non-null; any other modifier key turning non-null
+   makes `rank` refuse.
 4. **~~Does the admin record sales during the auction?~~ Resolved 2026-08-23.** No:
    the admin runs the auction in FantaAstaLive and transfers the results into the
    lega afterwards. That retired the reconciliation design in favour of the live feed
@@ -1563,7 +1570,10 @@ often than to bad models.
    and the admin has confirmed the auction keeps that freedom (two goalkeepers
    mandatory, the rest as chosen), so the shape is chosen rather than given. The optimiser can
    propose one; the user should state a preference in `preferences.yml` to start
-   from.
+   from. Decided 2026-08-29: the optimiser proposes the composition;
+   `preferences.yml` keeps `target_composition: {Por: 2}` as a soft prior
+   (raised demand weights, never a bound), and `rank` prints the composition
+   it chose per scenario.
 8. **~~Does Firebase `playerId` equal the listone `Id`?~~ Resolved 2026-08-24.** It
    does: FantaAstaLive's player directory (539 rows, the ids `picks[].playerId` is
    drawn from) joins the league API listone on `id` with all 539 names agreeing.
