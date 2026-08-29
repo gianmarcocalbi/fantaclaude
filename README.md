@@ -7,6 +7,15 @@ prose knowledge base — team profiles, opponent dossiers, a season journal —
 for everything a table can't hold, all in service of the auction and the
 season that follows it.
 
+## Capabilities
+
+- **Ingestion** — listone, Understat history, Serie A/UEFA calendar, per-giornata votes, all deduped and re-runnable
+- **Valuation** — projections and auction-ready pricing over the ingested history
+- **Knowledge base (kb)** — team profiles, opponent dossiers, house rules, and a season journal, with front-matter TTLs and an audit for what's gone stale
+- **Auction (asta)** — league rules and roster constraints tracked in `league.yml`, live league state during the draft via the MCP server
+- **MCP server** — read-only league API tools (account, league settings, my team, standings, competitions, server time) exposed directly to Claude Code
+- **Doctor** — one command to check credentials, snapshots, and knowledge-base health
+
 ## Layout
 
 ```
