@@ -1431,7 +1431,7 @@ the network.
 | **0a — spine** | uv workspace (including `.mcp.json` still resolving via the root lock), MCP token-cache hardening and `players()`, DuckDB schema, `sync-league` with the `league.yml` cross-check, Mantra role model with the module table, listone ingestion through the API, the CLI contract (`schema`, `query`, `doctor`, `kb audit`), `kb/` scaffold | 26 Aug |
 | **0b — history** | website-session discovery, then `stats_web` (`player_season` and `player_match` from the voti XLSX), `calendar`, `advanced`; `kb/` bootstrap through `fanta-kb` | after 0a |
 | **1 — market** | projection, VOR, allocation, tiers, max prices, asta plan; opponent dossiers via `fanta-kb interview` | 29 Aug |
-| **2a — asta core** | state machine, advisor, adjustment layer, state snapshot, CLI entry | 31 Aug |
+| **2a — asta core** | state machine, advisor, adjustment layer, state snapshot, CLI entry; plus the six items carried from Phase 1's review (below): the `exact`/focused decision **first**, then the `sync-league` helper and per-class roster bounds as groundwork, the continuous demand fold, and the cleanup | 31 Aug |
 | **2b — dashboard** | FastAPI + WebSocket + Vite/shadcn UI, FantaAstaLive feed, `fantaclaude-mcp` | 2 Sep |
 | **freeze + rehearsal** | no new features; full mock auction end to end | 3 Sep |
 | **3 — manager** | news ingestion, lineup optimiser, weekly loop, post-giornata calibration | from mid-Sep |
@@ -1445,6 +1445,19 @@ Five items were found reviewing Phase 1 and deliberately not fixed there, becaus
 is either a decision 2a has to make anyway or a refactor that gets harder once the live
 auction is built on top of it. They are recorded here rather than in a backlog so 2a
 starts from them.
+
+**Order within 2a.** The `exact`/focused decision comes first, before the advisor is
+written, because it determines whether the advisor may call `price_board` per state
+change at all. The two refactors come next and before the state machine: both are
+cheap, neither changes behaviour, and both get materially harder once `asta` is a third
+caller of the sync flow and once live state is expressed through `PoolState`. The
+continuous demand fold and the cleanup are last and are the first things to drop.
+
+**Against the cut-line below.** If the dynamic max price is cut, the `exact`/focused
+decision goes with it — a static board has no focused mode to reconcile — so that
+decision is worth making early precisely because it is the one that becomes free if the
+cut-line is reached. The two refactors survive every cut: they are groundwork for the
+state machine, which is the floor.
 
 **One design question 2a must answer, not a defect:**
 
