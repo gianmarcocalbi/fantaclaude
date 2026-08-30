@@ -710,7 +710,7 @@ def rank_cmd(
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
 ) -> None:
     """Write a valuation run: project every listone player, price the board, render data/exports/ and records/. Re-syncs the league first unless --offline."""
-    from fantaclaude.analysis.valuation import PreferencesError
+    from fantaclaude.analysis.valuation import UnknownScenarioError
     from fantaclaude.commands.ingest import NotReady
     from fantaclaude.commands.rank import check_ready, rank
     from fantaclaude.db.connection import connect
@@ -762,7 +762,11 @@ def rank_cmd(
         except NotReady as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.NOT_READY) from None
-        except PreferencesError as exc:
+        except UnknownScenarioError as exc:
+            # The one genuine usage error here: `--scenario nope` is a bad
+            # argument, not a bad file. A malformed preferences.yml is caught
+            # by check_ready as NotReady, with pricing.yml and d_factor.yml
+            # (finding 17).
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.USAGE) from None
     finally:

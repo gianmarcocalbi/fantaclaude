@@ -18,7 +18,13 @@ import yaml
 
 from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
 from fantaclaude.analysis.projection import ProjectionConfig
-from fantaclaude.analysis.valuation import ValuationError, record_run, run_valuation
+from fantaclaude.analysis.valuation import (
+    PreferencesError,
+    ValuationError,
+    load_preferences,
+    record_run,
+    run_valuation,
+)
 from fantaclaude.asta.pricing_config import (
     PricingConfig,
     PricingConfigError,
@@ -124,8 +130,18 @@ def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, A
     first touch, so running these after it would leave a phantom database
     behind for the sole crime of a missing preferences.yml on a
     never-synced workspace (finding 2): `doctor` would then report "ok,
-    schema version 3" instead of "no database -- run sync-league"."""
+    schema version 3" instead of "no database -- run sync-league".
+
+    preferences.yml is validated here to the same depth `rank` needs it
+    (finding 17), not merely parsed: a malformed *value* is a defect in a
+    hashed config file exactly as a malformed pricing.yml is, so it is
+    not-ready (exit 3), and it is worth refusing before the live re-sync
+    rather than after it."""
     preferences = _load_preferences(preferences_path)
+    try:
+        load_preferences(preferences)
+    except PreferencesError as exc:
+        raise NotReady(str(exc)) from None
     try:
         pricing_cfg = load_pricing_config(pricing_path)
     except PricingConfigError as exc:
@@ -145,6 +161,14 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
         run = run_valuation(con, now=now, kb_dir=kb_dir, preferences=preferences, projection_cfg=ProjectionConfig(),
                             pricing_cfg=pricing_cfg, d_factor=d_factor, scenario_names=scenarios)
     except ValuationError as exc:
+        raise NotReady(str(exc)) from None
+    except PreferencesError as exc:
+        # check_ready above has already validated the file, so this is
+        # unreachable through the CLI -- kept so no caller of this function can
+        # ever see a malformed config file arrive as anything but not-ready.
+        # Named, never a blanket `except ValueError`: price_board raises a bare
+        # ValueError for an ordinary modelling error and PricingConfigError
+        # subclasses ValueError; neither is a PreferencesError.
         raise NotReady(str(exc)) from None
     record_run(con, run)
     md, csv = write_rankings(run, exports_dir)

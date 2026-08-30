@@ -80,7 +80,18 @@ QUANTILE_OF = {"cautious": "p25", "balanced": "p50", "aggressive": "p75"}
 
 
 class PreferencesError(ValueError):
-    """preferences.yml is malformed."""
+    """preferences.yml is malformed -- a defect in a config file (exit 3)."""
+
+
+class UnknownScenarioError(ValueError):
+    """`--scenario` names a scenario preferences.yml does not define.
+
+    Deliberately *not* a PreferencesError (finding 17): the file is fine, the
+    argument is wrong. While the two shared a class the whole class had to
+    pick one exit code, and it picked 2 -- so a malformed *value* in
+    preferences.yml exited 2 ("bad arguments") while a malformed pricing.yml,
+    or a preferences.yml that would not even parse, exited 3. The codes now
+    split on the defect: a bad argument is 2, a malformed config file is 3."""
 
 
 class ValuationError(RuntimeError):
@@ -479,7 +490,8 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     if scenario_names:
         unknown = sorted(set(scenario_names) - {s.name for s in scenarios})
         if unknown:
-            raise PreferencesError(f"unknown scenario(s) {unknown}; preferences.yml defines {[s.name for s in scenarios]}")
+            raise UnknownScenarioError(
+                f"unknown scenario(s) {unknown}; preferences.yml defines {[s.name for s in scenarios]}")
         scenarios = [s for s in scenarios if s.name in scenario_names]
     history = load_history(con, sheet=sheet, bm=bm, current_season=ctx.season_id)
     if not history.lines:

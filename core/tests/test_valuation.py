@@ -9,6 +9,7 @@ from fantaclaude.analysis.valuation import (
     MODEL_VERSION,
     PreferencesError,
     Scenario,
+    UnknownScenarioError,
     ValuationError,
     ValuationRun,
     assign_tiers,
@@ -412,8 +413,12 @@ def test_a_filtered_run_records_the_scenarios_it_actually_ran(tmp_path, fixture_
     assert filtered.model_hash == full.model_hash and filtered.inputs_hash == full.inputs_hash
     # VOR, tiers and divergence are the pool's, not the filter's
     assert filtered.vor == full.vor and filtered.tiers == full.tiers and filtered.implied == full.implied
-    with pytest.raises(PreferencesError, match="value-hunting"):
+    # Finding 17: a bad `--scenario` is a usage error, not a malformed file, so
+    # it has a class of its own and is deliberately not a PreferencesError --
+    # that is what lets the CLI exit 2 here and 3 for a malformed config file.
+    with pytest.raises(UnknownScenarioError, match="value-hunting"):
         run(tmp_path, preferences=prefs, scenario_names=["no-such-plan"])
+    assert not issubclass(UnknownScenarioError, PreferencesError)
 
 
 def test_new_run_id_and_model_version():

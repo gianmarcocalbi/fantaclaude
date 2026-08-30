@@ -160,6 +160,46 @@ def test_rank_exits_not_ready_when_the_hand_written_d_factor_table_does_not_pars
     assert "d_factor.yml" in result.stderr
 
 
+def test_exit_codes_split_on_the_defect_not_on_the_exception_class(monkeypatch, tmp_path, fixture_json,
+                                                                    mcp_fixture_json):
+    """Finding 17. `PreferencesError` doubled as the error for `--scenario
+    nope`, so the whole class mapped to exit 2 -- and a malformed *value* in
+    preferences.yml exited 2 ("bad arguments") while a malformed pricing.yml,
+    or a preferences.yml that would not even parse, exited 3. Same defect in
+    the two hashed config files, two different codes, and the skills key on
+    the codes. The split is now the defect kind: a bad command-line argument
+    is 2, a malformed config file is 3, whichever file it is."""
+    _workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    prefs = tmp_path / "preferences.yml"
+    good = prefs.read_text()
+
+    for bad in ("risk_appetite: wild\ntarget_composition: {Por: 2}\n",
+                "risk_appetite: balanced\ntarget_composition: {Xy: 1}\n",
+                "risk_appetite: balanced\ntarget_composition: {Por: 2}\nexcluded_clubs: [Inter]\n",
+                ("risk_appetite: balanced\ntarget_composition: {Por: 2}\n"
+                 "scenarios:\n  balanced: {risk_appetite: cautious}\n")):
+        prefs.write_text(bad)
+        result = runner.invoke(app, ["rank", "--offline"])
+        assert result.exit_code == ExitCode.NOT_READY, (bad, result.output)
+        assert "preferences.yml" in result.stderr
+
+    # and it refuses before the database is even opened, as the other two
+    # not-ready config checks do
+    prefs.write_text("risk_appetite: wild\n")
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path / "fresh"))
+    (tmp_path / "fresh").mkdir()
+    for name in ("pricing.yml", "preferences.yml", "league.yml"):
+        (tmp_path / "fresh" / name).write_text((tmp_path / name).read_text())
+    assert runner.invoke(app, ["rank", "--offline"]).exit_code == ExitCode.NOT_READY
+    assert not (tmp_path / "fresh" / "data" / "fanta.duckdb").exists(), "phantom database created"
+
+    # the genuine usage error keeps exit 2
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    prefs.write_text(good)
+    bad_scenario = runner.invoke(app, ["rank", "--offline", "--scenario", "nope"])
+    assert bad_scenario.exit_code == ExitCode.USAGE and "nope" in bad_scenario.stderr
+
+
 def test_provisional_note_reads_the_auction_date(tmp_path):
     # The plan's requirement (line 30) is seven days, not the two an earlier
     # draft of rank.py mis-copied into FINAL_WINDOW_DAYS.
