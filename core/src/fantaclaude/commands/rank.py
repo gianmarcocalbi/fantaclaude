@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import yaml
 
-from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
+from fantaclaude.analysis.exports import export_records, render_exports
 from fantaclaude.analysis.ordering import by_class, rank_key
 from fantaclaude.analysis.projection import ProjectionConfig
 from fantaclaude.analysis.valuation import (
@@ -35,6 +34,7 @@ from fantaclaude.commands.ingest import NotReady
 from fantaclaude.commands.sync_league import SyncReport
 from fantaclaude.league.league_yml import Provenanced
 from fantaclaude.model.d_factor import DFactorTable, DFactorTableError, load_d_factor
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 # The spec (open question 1) fixes no day count -- only that the run after the
 # freeze is the final one. Seven days is this plan's own stated requirement
@@ -164,18 +164,6 @@ def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team
     return freeze_status(entries, now, team_count).note
 
 
-def _load_preferences(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise NotReady(f"{path} is missing")
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise NotReady(f"{path} does not parse: {exc}") from None
-    if not isinstance(data, dict):
-        raise NotReady(f"{path}: the top level must be a mapping")
-    return data
-
-
 def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, Any], PricingConfig, DFactorTable]:
     """The three not-ready checks a run needs no database connection for:
     preferences.yml, pricing.yml and d_factor.yml. Call this before opening
@@ -190,7 +178,10 @@ def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, A
     hashed config file exactly as a malformed pricing.yml is, so it is
     not-ready (exit 3), and it is worth refusing before the live re-sync
     rather than after it."""
-    preferences = _load_preferences(preferences_path)
+    try:
+        preferences = read_yaml_mapping(preferences_path)
+    except YamlFileError as exc:
+        raise NotReady(str(exc)) from None
     try:
         load_preferences(preferences)
     except PreferencesError as exc:
@@ -224,8 +215,7 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
         # subclasses ValueError; neither is a PreferencesError.
         raise NotReady(str(exc)) from None
     record_run(con, run)
-    md, csv = write_rankings(run, exports_dir)
-    plan = write_asta_plan(run, exports_dir)
+    md, csv, plan = render_exports(run, exports_dir)
     records = export_records(con, run.run_id, run.rules_hash, records_dir)
     board = run.boards[run.scenarios[0].name]
     freeze = freeze_status(league_yml, now, run.summary["team_count"])

@@ -21,9 +21,7 @@ the edge or a bug, and it is the list worth reading by hand.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -60,7 +58,7 @@ from fantaclaude.kb.notes import (
     orphan_notes,
 )
 from fantaclaude.kb.profiles import ProfileError, TeamProfile, load_profiles
-from fantaclaude.league.settings import canonical_json
+from fantaclaude.league.settings import canonical_json, digest
 from fantaclaude.model.d_factor import DFactorTable
 from fantaclaude.model.demand import (
     ROLE_CLASSES,
@@ -79,7 +77,7 @@ from fantaclaude.model.scoring import (
 )
 from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
-from fantaclaude.values import is_number
+from fantaclaude.values import is_number, json_safe
 
 MODEL_VERSION = "1"
 RISK_APPETITES = ("cautious", "balanced", "aggressive")
@@ -199,25 +197,9 @@ def load_preferences(preferences: dict[str, Any]) -> list[Scenario]:
     return load_scenarios(preferences)
 
 
-def _digest(view: Any) -> str:
-    return hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
-
-
-def _finite(value: Any) -> Any:
-    """-inf / inf / nan are not JSON, and DuckDB's JSON column refuses them:
-    stored as null in the JSON payloads (the DOUBLE columns keep the real value)."""
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    if isinstance(value, dict):
-        return {k: _finite(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_finite(v) for v in value]
-    return value
-
-
 def model_hash(projection_cfg: ProjectionConfig, pricing_cfg: PricingConfig, preferences: dict[str, Any],
                d_factor: DFactorTable) -> str:
-    return _digest({"model_version": MODEL_VERSION, "projection": projection_cfg.to_dict(),
+    return digest({"model_version": MODEL_VERSION, "projection": projection_cfg.to_dict(),
                     "pricing": pricing_cfg.to_dict(), "preferences": preferences, "d_factor": d_factor.to_dict()})
 
 
@@ -266,7 +248,7 @@ def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], 
     kb = {"profiles": [{"team": p.team, "team_short": p.team_short, "coach": p.coach, "module": p.module,
                         "europe": p.europe, "rotation_factor": p.rotation_factor, "takers": p.takers} for p in profiles],
           "notes": [notes[k].to_dict() for k in sorted(notes)]}
-    return _digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
+    return digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
                     "advanced": [list(r) for r in advanced], "advanced_matches": [list(r) for r in matches],
                     "fixtures": [list(r) for r in fixtures],
                     "settings": list(settings) if settings else None, "kb": kb})
@@ -609,14 +591,14 @@ def record_run(con: duckdb.DuckDBPyConnection, run: ValuationRun) -> None:
         con.execute("INSERT INTO valuation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON)",
                     [run.run_id, to_db(run.created_at), run.rules_hash, run.model_hash, run.inputs_hash,
                      run.settings_snapshot_id, run.listone_snapshot_id, run.season_id, run.giornata,
-                     [s.name for s in run.scenarios], canonical_json(_finite(run.config)),
-                     canonical_json(_finite(run.summary))])
+                     [s.name for s in run.scenarios], canonical_json(json_safe(run.config)),
+                     canonical_json(json_safe(run.summary))])
         con.executemany(
             "INSERT INTO valuations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[run.run_id, p.player_id, p.name, p.team_short, p.classic_role, p.role_class, list(p.roles), p.exp_presenze,
               p.exp_fantamedia, p.exp_voto, p.value_p25, p.value_p50, p.value_p75, run.replacement[p.role_class],
               run.vor[p.player_id], run.tiers[p.player_id], p.quotazione, run.implied[p.player_id][0],
-              run.implied[p.player_id][1], canonical_json(_finite(p.explain))] for p in run.projections])
+              run.implied[p.player_id][1], canonical_json(json_safe(p.explain))] for p in run.projections])
         con.executemany(
             "INSERT INTO valuation_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[run.run_id, name, price.player_id, price.role_class, price.expected_price, price.band.p25, price.band.p50,

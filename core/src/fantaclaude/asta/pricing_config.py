@@ -7,13 +7,12 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from fantaclaude.asta.pricing import PricingConfig
 
 # fantaclaude.values is top level and imports nothing from the package, so
 # asta/ still reaches into no other layer -- the model layer least of all.
 from fantaclaude.values import is_number
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 
 class PricingConfigError(ValueError):
@@ -22,11 +21,9 @@ class PricingConfigError(ValueError):
 
 def load_pricing_config(path: Path) -> PricingConfig:
     try:
-        data: Any = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise PricingConfigError(f"{path}: {exc}") from None
-    if not isinstance(data, dict):
-        raise PricingConfigError(f"{path}: the top level must be a mapping of knobs")
+        data: Any = read_yaml_mapping(path)
+    except YamlFileError as exc:
+        raise PricingConfigError(str(exc)) from None
     known = {f.name: f.type for f in fields(PricingConfig)}
     unknown = sorted(set(data) - set(known))
     if unknown:

@@ -56,6 +56,7 @@ from fantaclaude.model.scoring import (
     modifier_status,
     voto_sheet,
 )
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 CORE_DB_CHECKS = ("database", "extensions", "league_settings", "listone")
 HISTORY_DB_CHECKS = ("player_match", "advanced", "fixtures")
@@ -244,16 +245,12 @@ def _preferences_check(path: Path) -> Check:
     here and then exited 2 in `rank` -- after the live re-sync this command
     exists to gate had already been spent -- while a file with no
     `target_composition` failed here and ranked without complaint."""
-    if not path.is_file():
-        return Check("preferences", False, f"{path} is missing")
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        return Check("preferences", False, f"does not parse: {exc}")
-    if data is not None and not isinstance(data, dict):
-        return Check("preferences", False, "the top level must be a mapping")
+        data = read_yaml_mapping(path)
+    except YamlFileError as exc:
+        return Check("preferences", False, str(exc))
     try:
-        scenarios = load_preferences(data or {})
+        scenarios = load_preferences(data)
     except PreferencesError as exc:
         return Check("preferences", False, str(exc))
     return Check("preferences", True, f"{len(scenarios)} scenario(s): "

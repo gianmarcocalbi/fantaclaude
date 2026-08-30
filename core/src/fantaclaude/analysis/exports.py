@@ -37,19 +37,24 @@ def _rows(run: ValuationRun, scenario: str) -> list[dict]:
     return rows
 
 
+def header_lines(run_id: str, rules_hash: str, model_hash: str, inputs_hash: str, summary: dict, warnings: list[str]) -> list[str]:
+    """The status lines of a run, for rankings.md, the asta plan and the CLI alike -- one copy, so they cannot print different facts."""
+    return [f"run `{run_id}` · rules {rules_hash} · model {model_hash} · inputs {inputs_hash}",
+            f"{summary['players']} players · {summary['team_count']} teams × {summary['budget']} credits = "
+            f"{summary['market_credits']} on the market · giornata {summary['giornate_played']} played, "
+            f"{summary['giornate_remaining']} remaining · voti sheet {summary['sheet']}"
+            + (" · D-Factor active" if summary.get("d_factor_active") else ""),
+            *(f"warning: {w}" for w in warnings)]
+
+
 def _header(run: ValuationRun) -> list[str]:
-    s = run.summary
-    return [f"run `{run.run_id}` · rules {run.rules_hash} · model {run.model_hash} · inputs {run.inputs_hash}",
-            f"{s['team_count']} teams × {s['budget']} credits = {s['market_credits']} on the market · "
-            f"giornata {s['giornate_played']} played, {s['giornate_remaining']} remaining · voti sheet {s['sheet']}"
-            + (" · D-Factor active" if s.get("d_factor_active") else ""),
-            *(f"warning: {w}" for w in run.warnings)]
+    return header_lines(run.run_id, run.rules_hash, run.model_hash, run.inputs_hash, run.summary, run.warnings)
 
 
-def write_rankings(run: ValuationRun, exports_dir: Path) -> tuple[Path, Path]:
+def write_rankings(run: ValuationRun, exports_dir: Path, *, tables: dict[str, list[dict]] | None = None) -> tuple[Path, Path]:
     exports_dir.mkdir(parents=True, exist_ok=True)
     scenario = run.scenarios[0].name
-    rows = _rows(run, scenario)
+    rows = (tables or {}).get(scenario) or _rows(run, scenario)
     board = run.boards[scenario]
     lines = ["# Rankings", "", *_header(run), f"inflation {board.inflation:.2f} · composition "
              + ", ".join(f"{cls} {n}" for cls, n in board.composition.items() if n) + f" · reserve {board.reserve}", ""]
@@ -79,13 +84,13 @@ def write_rankings(run: ValuationRun, exports_dir: Path) -> tuple[Path, Path]:
     return md, out
 
 
-def write_asta_plan(run: ValuationRun, exports_dir: Path) -> Path:
+def write_asta_plan(run: ValuationRun, exports_dir: Path, *, tables: dict[str, list[dict]] | None = None) -> Path:
     exports_dir.mkdir(parents=True, exist_ok=True)
     lines = ["# Asta plan", "", *_header(run), ""]
     for scenario in run.scenarios:
         board = run.boards[scenario.name]
         q = scenario.quantile
-        rows = _rows(run, scenario.name)
+        rows = (tables or {}).get(scenario.name) or _rows(run, scenario.name)
         lines += [f"## {scenario.name}", "",
                   f"Risk appetite {scenario.risk_appetite}: bid to {q}. Inflation {board.inflation:.2f}, reserve {board.reserve}."
                   + (f" Departed from the target at {', '.join(board.targets_departed)}." if board.targets_departed else ""),
@@ -98,7 +103,7 @@ def write_asta_plan(run: ValuationRun, exports_dir: Path) -> Path:
             if ranked:
                 lines.append(f"- {cls}: " + ", ".join(f"{r['name']} {r['max_' + q]} (t{r['tier']})" for r in ranked))
         lines.append("")
-    rows = _rows(run, run.scenarios[0].name)
+    rows = (tables or {}).get(run.scenarios[0].name) or _rows(run, run.scenarios[0].name)
     cheap = sorted((r for r in rows if r["expected_price"] <= 5 and r["vor"] > 0),
                    key=lambda r: -r["vor"] / r["expected_price"])[:10]
     lines += ["## Cheap value", "", *(f"- {r['name']} ({r['role_class']}, {r['team']}): VOR {r['vor']} at ~{r['expected_price']}"
@@ -118,6 +123,13 @@ def write_asta_plan(run: ValuationRun, exports_dir: Path) -> Path:
     path = exports_dir / "asta-plan.md"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def render_exports(run: ValuationRun, exports_dir: Path) -> tuple[Path, Path, Path]:
+    """rankings.md, rankings.csv and asta-plan.md, from one set of rows per scenario."""
+    tables = {s.name: _rows(run, s.name) for s in run.scenarios}
+    md, csv_path = write_rankings(run, exports_dir, tables=tables)
+    return md, csv_path, write_asta_plan(run, exports_dir, tables=tables)
 
 
 def _literal(value: str) -> str:

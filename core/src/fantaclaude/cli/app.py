@@ -713,15 +713,14 @@ SCENARIO_OPTION = typer.Option(
 
 
 def _render_rank(payload: dict) -> str:
+    from fantaclaude.analysis.exports import header_lines
+
     s = payload["summary"]
     lines = []
     if payload.get("sync") and payload["sync"]["changed"]:       # the rules moved under this run: say so, as sync-league would
         lines.append(_render_sync(payload["sync"]))
-    lines += [(f"run {payload['run_id']} · rules {payload['rules_hash']} · model {payload['model_hash']} · "
-               f"inputs {payload['inputs_hash']}"),
-             (f"{payload['players']} players · {s['team_count']} teams × {s['budget']} credits · giornata "
-              f"{s['giornate_played']} played · voti sheet {s['sheet']}"
-              + (" · D-Factor active" if s.get("d_factor_active") else "")),
+    lines += [*header_lines(payload["run_id"], payload["rules_hash"], payload["model_hash"], payload["inputs_hash"],
+                            s, payload["warnings"]),
              payload["provisional"]]
     for name, sc in s["scenarios"].items():
         comp = ", ".join(f"{cls} {n}·{sc['credits_by_class'].get(cls, 0)}" for cls, n in sc["composition"].items() if n)
@@ -730,8 +729,6 @@ def _render_rank(payload: dict) -> str:
     for cls, entries in payload["top"].items():
         lines.append(f"  {cls}: " + ", ".join(f"{e['name']} ({e['team']}) {e['value_p50']} → max {e['max_p50']} t{e['tier']}"
                                              for e in entries))
-    for w in payload["warnings"]:
-        lines.append(f"warning: {w}")
     lines.append("exports: " + ", ".join(payload["exports"]))
     lines.append(("records: " + ", ".join(payload["records"]) + " -- commit records/") if payload["records"]
                  else "records: already present")

@@ -24,9 +24,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from fantaclaude.values import is_number
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 from .roles import Role
 
@@ -95,11 +94,9 @@ def load_d_factor(path: Path = D_FACTOR_YML) -> DFactorTable:
     # command meant to name what is wrong, crashed instead of failing its
     # scoring check. Caught here, the way load_pricing_config catches its own.
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise DFactorTableError(f"{path}: {exc}") from None
-    if not isinstance(data, dict):
-        raise DFactorTableError(f"{path}: the top level must be a mapping")
+        data = read_yaml_mapping(path)
+    except YamlFileError as exc:
+        raise DFactorTableError(str(exc)) from None
     raw_bands = data.get("bands")
     if raw_bands is None:
         raw_bands = []

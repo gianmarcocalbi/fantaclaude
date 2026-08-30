@@ -21,7 +21,7 @@ hardcoded here.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from statistics import fmean, pvariance
 
 import duckdb
@@ -30,8 +30,7 @@ from fantaclaude.model.scoring import BonusMalus, Events, fantavoto
 from fantaclaude.model.seasons import back_seasons
 
 COACH_ROLE = "ALL"
-EVENT_COLUMNS = ("goals", "goals_conceded", "pen_saved", "pen_missed", "pen_scored", "own_goals", "yellow", "red",
-                  "assists")
+EVENT_COLUMNS = tuple(f.name for f in fields(Events))
 
 
 @dataclass(frozen=True)

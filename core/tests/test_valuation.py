@@ -636,11 +636,7 @@ def test_a_class_tied_on_value_is_ranked_the_same_way_everywhere(tmp_path, fixtu
 
 
 def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_fixture_json):
-    from fantaclaude.analysis.exports import (
-        export_records,
-        write_asta_plan,
-        write_rankings,
-    )
+    from fantaclaude.analysis.exports import export_records, render_exports
 
     seeded(tmp_path, fixture_json, mcp_fixture_json)
     prefs = {**PREFS, "scenarios": {"aggressive-attack": {"target_composition": {"A": 2, "Pc": 2}, "risk_appetite": "aggressive"},
@@ -649,11 +645,11 @@ def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_
     try:
         record_run(con, result)
         exports = tmp_path / "data" / "exports"
-        md, csv = write_rankings(result, exports)
-        plan = write_asta_plan(result, exports)
+        md, csv, plan = render_exports(result, exports)
         assert md == exports / "rankings.md" and csv == exports / "rankings.csv" and plan == exports / "asta-plan.md"
         text = md.read_text(encoding="utf-8")
         assert result.run_id in text and "Martinez L." in text and "## Pc" in text and "rules " + result.rules_hash in text
+        assert "17 players" in text
         lines = csv.read_text(encoding="utf-8").splitlines()
         assert lines[0].startswith("run_id,player_id,name,team,classic_role,role_class,roles,tier,")
         assert len(lines) == 18 and lines[1].startswith(result.run_id)
