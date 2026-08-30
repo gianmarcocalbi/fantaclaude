@@ -23,6 +23,7 @@ import yaml
 
 from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
 from fantaclaude.kb.profiles import team_slug
+from fantaclaude.values import is_number
 
 DEPTHS = ("starter", "contested", "cover", "out")
 PRIOR_RANGE = (3.0, 10.0)
@@ -49,10 +50,6 @@ class PlayerNote:
                 "updated": self.front_matter.updated.isoformat() if self.front_matter.updated else None}
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def load_note(path: Path) -> PlayerNote:
     try:
         front_matter = parse_front_matter(path.read_text(encoding="utf-8"))
@@ -74,10 +71,10 @@ def load_note(path: Path) -> PlayerNote:
     if depth is not None and depth not in DEPTHS:
         raise NoteError(f"{path}: depth must be one of {DEPTHS}, got {depth!r}")
     availability = data.get("availability", 1.0)
-    if not _number(availability) or not 0.0 <= float(availability) <= 1.0:
+    if not is_number(availability) or not 0.0 <= float(availability) <= 1.0:
         raise NoteError(f"{path}: availability must be a number in [0, 1], got {availability!r}")
     prior = data.get("prior_fantamedia")
-    if prior is not None and (not _number(prior) or not PRIOR_RANGE[0] <= float(prior) <= PRIOR_RANGE[1]):
+    if prior is not None and (not is_number(prior) or not PRIOR_RANGE[0] <= float(prior) <= PRIOR_RANGE[1]):
         raise NoteError(f"{path}: prior_fantamedia must be a voto-sized number in {PRIOR_RANGE}, got {prior!r}")
     return PlayerNote(path=path, player_id=player_id, name=name.strip(), team_short=short, depth=depth,
                       availability=float(availability), prior_fantamedia=None if prior is None else float(prior),

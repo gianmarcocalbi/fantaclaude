@@ -37,6 +37,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
+from fantaclaude.values import is_number
+
 BONUS_KEYS: dict[str, str] = {
     "goal": "bmgs", "penalty_goal": "bmpsc", "assist": "bmass", "goal_conceded": "bmgc",
     "penalty_saved": "bmpsa", "penalty_missed": "bmpns", "yellow": "bmyc", "red": "bmrc",
@@ -52,18 +54,14 @@ class ScoringError(ValueError):
     """The settings payload does not carry a scoring table this module can read."""
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _pair(calculate: dict[str, Any], key: str) -> float:
     bn = calculate.get("bnMls") or {}
     if key not in bn:
         raise ScoringError(f"bnMls lacks {key}")
     value = bn[key]
-    if _number(value):
+    if is_number(value):
         return float(value)
-    if not isinstance(value, list) or len(value) != 2 or not all(_number(v) for v in value):
+    if not isinstance(value, list) or len(value) != 2 or not all(is_number(v) for v in value):
         raise ScoringError(f"bnMls.{key} is neither a number nor a pair of numbers: {value!r}")
     if value[0] != value[1]:
         raise ScoringError(f"bnMls.{key} = {value!r}: the two values differ and the pair's meaning is unverified")
@@ -130,7 +128,7 @@ def fantavoto(voto: float, events: Events, bm: BonusMalus) -> float:
 
 def voto_sheet(calculate: dict[str, Any]) -> str:
     source = calculate.get("sourcev")
-    if not _number(source) or source not in VOTO_SOURCES:
+    if not is_number(source) or source not in VOTO_SOURCES:
         raise ScoringError(f"calculate.sourcev = {source!r} is not a voto source this code knows ({VOTO_SOURCES})")
     return VOTO_SOURCES[int(source)]
 

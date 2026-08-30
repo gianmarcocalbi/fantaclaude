@@ -298,7 +298,12 @@ def test_pricing_yml_is_loaded_and_validated(tmp_path, monkeypatch):
     path.write_text("bench_weight: 0.2\nmax_per_class: 5\n")
     cfg = load_pricing_config(path)
     assert cfg.bench_weight == 0.2 and cfg.max_per_class == 5 and cfg.inflation_ceiling == 2.5
-    for bad in ("bench_weight: heavy\n", "unknown_knob: 1\n", "- a list\n", "max_per_class: 2.5\n"):
+    # `.nan` / `.inf` are floats, and nothing range-checks a knob, so they used
+    # to load: bench_weight NaN makes every rank weight NaN and every max price
+    # with it, and neither survives the canonical_json that model_hash and the
+    # stored config both go through.
+    for bad in ("bench_weight: heavy\n", "unknown_knob: 1\n", "- a list\n", "max_per_class: 2.5\n",
+                "bench_weight: .nan\n", "inflation_ceiling: .inf\n"):
         path.write_text(bad)
         with pytest.raises(PricingConfigError):
             load_pricing_config(path)

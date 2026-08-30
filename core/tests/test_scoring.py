@@ -69,6 +69,20 @@ def test_a_pair_whose_values_differ_is_refused(mcp_fixture_json):
         BonusMalus.from_calculate(calculate)
 
 
+def test_a_nan_bonus_is_refused_rather_than_poisoning_every_fantavoto(mcp_fixture_json):
+    """`_number` here checked isinstance and nothing else, and no range check
+    stands behind it, so a NaN in bnMls was accepted and every fantavoto in
+    the run -- and so every projection, every value and every price -- came
+    out NaN. json.loads reads a bare `NaN` literal happily, so this is not
+    unreachable. is_number refuses the non-finite floats at all nine sites
+    that ask "is this a number?"."""
+    for value in (float("nan"), float("inf")):
+        calculate = mcp_fixture_json("calculation_settings")
+        calculate["bnMls"]["bmgs"] = value
+        with pytest.raises(ScoringError, match="bmgs"):
+            BonusMalus.from_calculate(calculate)
+
+
 def test_a_scalar_bonus_is_accepted_too(mcp_fixture_json):
     calculate = mcp_fixture_json("calculation_settings")
     calculate["bnMls"]["bmgs"] = 3

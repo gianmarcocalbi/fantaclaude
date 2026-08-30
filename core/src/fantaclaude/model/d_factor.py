@@ -26,6 +26,8 @@ from typing import Any
 
 import yaml
 
+from fantaclaude.values import is_number
+
 from .roles import Role
 
 D_FACTOR_YML = Path(__file__).with_name("d_factor.yml")
@@ -84,10 +86,6 @@ class DFactorTable:
                 "verified_on": self.verified_on.isoformat() if self.verified_on else None}
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def load_d_factor(path: Path = D_FACTOR_YML) -> DFactorTable:
     # This is the one file in the system a human transcribes by hand off a web
     # page, so a YAML *syntax* error here is the expected mistake, not an
@@ -109,7 +107,7 @@ def load_d_factor(path: Path = D_FACTOR_YML) -> DFactorTable:
         raise DFactorTableError(f"{path}: bands must be a list")
     bands: list[Band] = []
     for entry in raw_bands:
-        if not isinstance(entry, dict) or not _number(entry.get("min")) or not _number(entry.get("points")):
+        if not isinstance(entry, dict) or not is_number(entry.get("min")) or not is_number(entry.get("points")):
             raise DFactorTableError(f"{path}: every band is {{min: <average>, points: <points>}}, got {entry!r}")
         bands.append(Band(float(entry["min"]), float(entry["points"])))
     bands.sort(key=lambda b: -b.floor)

@@ -24,6 +24,7 @@ import yaml
 from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
 from fantaclaude.league.settings import without_emails
 from fantaclaude.model.demand import ROLE_CLASSES
+from fantaclaude.values import is_number
 
 BUDGET_STYLES = ("early", "steady", "hoarder")
 
@@ -100,7 +101,7 @@ def load_participant(path: Path) -> Participant:
     if style not in BUDGET_STYLES:
         raise ParticipantError(f"{path}: budget_style must be one of {BUDGET_STYLES}, got {style!r}")
     share = data.get("max_single_share")
-    if share is not None and (isinstance(share, bool) or not isinstance(share, (int, float)) or not 0 < float(share) <= 1):
+    if share is not None and (not is_number(share) or not 0 < float(share) <= 1):
         raise ParticipantError(f"{path}: max_single_share is a share of the budget in (0, 1], got {share!r}")
     return Participant(path=path, nick=nick.strip(), team=team.strip() if team else None, budget_style=style,
                        favourite_clubs=_names(data, "favourite_clubs", path),

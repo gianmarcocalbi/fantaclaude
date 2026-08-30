@@ -11,6 +11,10 @@ import yaml
 
 from fantaclaude.asta.pricing import PricingConfig
 
+# fantaclaude.values is top level and imports nothing from the package, so
+# asta/ still reaches into no other layer -- the model layer least of all.
+from fantaclaude.values import is_number
+
 
 class PricingConfigError(ValueError):
     """pricing.yml is malformed, names an unknown knob, or types one wrongly."""
@@ -30,8 +34,11 @@ def load_pricing_config(path: Path) -> PricingConfig:
     values: dict[str, Any] = {}
     for name, value in data.items():
         expected = known[name]
-        if isinstance(value, bool) or (expected == "int" and not isinstance(value, int)) \
-                or (expected == "float" and not isinstance(value, (int, float))):
+        # is_number also rules out `.nan` / `.inf`, which nothing downstream
+        # range-checks: a NaN bench_weight makes every rank weight NaN and
+        # every max price with it, and neither survives the canonical_json
+        # that model_hash and the stored config both go through.
+        if not is_number(value) or (expected == "int" and not isinstance(value, int)):
             raise PricingConfigError(f"{path}: {name} must be {expected}, got {value!r}")
         values[name] = int(value) if expected == "int" else float(value)
     return PricingConfig(**values)

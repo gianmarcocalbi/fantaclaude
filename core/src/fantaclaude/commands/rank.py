@@ -70,6 +70,8 @@ def _team_note(entries: dict[str, Provenanced] | None, team_count: int) -> str:
     unknown rather than treated as "the league is full"."""
     expected = entries.get("team_count") if entries else None
     value = expected.value if expected is not None else None
+    # Not is_number: a team count is a whole number of teams, so 9.5 is a
+    # league.yml to fix, not a value to compare against. int also excludes NaN.
     if not isinstance(value, int) or isinstance(value, bool):
         return f"{team_count} teams (league.yml does not say how many are expected)"
     if team_count < value:

@@ -42,8 +42,13 @@ def test_a_table_is_loaded_sorted_and_validated(tmp_path):
     assert table.slope(6.1) == pytest.approx((3 - 1) / 0.5)                  # from the 6.0 band up to the 6.5 band
     assert table.slope(7.5) == 0.0 and TABLE.slope(6.1) == pytest.approx(4.0)
 
+    # `.nan` deserves its own line: nothing downstream range-checks a band, so a
+    # NaN floor sorted into the table and then compared false against every
+    # average -- a band silently worth nothing, in the file a human types by hand.
     for bad in ("bands: 3\n", "bands:\n  - {min: 6, points: x}\n", "bands:\n  - {min: 6, points: 1}\n  - {min: 6, points: 2}\n",
-                "bands:\n  - {min: 6, points: 1}\nverified_on: null\n", "- a list\n"):
+                "bands:\n  - {min: 6, points: 1}\nverified_on: null\n", "- a list\n",
+                "source: s\nverified_on: 2026-09-01\nbands:\n  - {min: .nan, points: 1}\n",
+                "source: s\nverified_on: 2026-09-01\nbands:\n  - {min: 6, points: .inf}\n"):
         path.write_text(bad)
         with pytest.raises(DFactorTableError):
             load_d_factor(path)

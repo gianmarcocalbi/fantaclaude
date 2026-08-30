@@ -72,6 +72,7 @@ from fantaclaude.model.scoring import (
 )
 from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
+from fantaclaude.values import is_number
 
 MODEL_VERSION = "1"
 RISK_APPETITES = ("cautious", "balanced", "aggressive")
@@ -104,6 +105,8 @@ class Scenario:
 
 def _composition(value: Any, where: str) -> dict[str, int]:
     value = value or {}
+    # Not is_number: a composition is a count of players, so 2.5 is a mistake
+    # to name, not a number to round. int also excludes NaN for free.
     if not isinstance(value, dict) or any(k not in ROLE_CLASSES or isinstance(v, bool) or not isinstance(v, int) or v < 0
                                           for k, v in value.items()):
         raise PreferencesError(f"{where}: target_composition maps role classes ({ROLE_CLASSES}) to counts, got {value!r}")
@@ -112,8 +115,8 @@ def _composition(value: Any, where: str) -> dict[str, int]:
 
 def _shares(value: Any, where: str) -> dict[str, float]:
     value = value or {}
-    if not isinstance(value, dict) or any(k not in ROLE_CLASSES or isinstance(v, bool) or not isinstance(v, (int, float))
-                                          or not 0 < float(v) <= 1 for k, v in value.items()):
+    if not isinstance(value, dict) or any(k not in ROLE_CLASSES or not is_number(v) or not 0 < float(v) <= 1
+                                          for k, v in value.items()):
         raise PreferencesError(f"{where}: max_budget_share_per_role maps role classes to shares in (0, 1], got {value!r}")
     return {k: float(v) for k, v in value.items()}
 
