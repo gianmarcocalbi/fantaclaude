@@ -20,11 +20,19 @@ Every read command takes `--json`; exit codes are a contract
 | `fantaclaude query --sql …` | read-only SQL; prefer the `v_*` views |
 | `fantaclaude kb audit` | expired or malformed knowledge-base documents |
 | `fantaclaude rank [--offline] [--scenario NAME]…` | one valuation run: every listone player projected from his own history under the league's scoring, priced against the best completion of a roster whose composition the optimiser chooses; writes `valuation_runs`/`valuations`/`valuation_prices`, renders `data/exports/rankings.md`, `rankings.csv`, `asta-plan.md`, and copies the run to `records/` as parquet. Re-syncs `league_settings` first unless `--offline` |
-| `fantaclaude doctor` | readiness: credentials, token cache, website session, database, every snapshot's coverage, `league.yml`, `kb/`, aliases, module table |
+| `fantaclaude asta board [--run ID] [--scenario NAME] [--state FILE] [--fresh] [--me TEAM] [--map TEAM=NICK]… [--top N]` | the pinned run priced against the mirrored auction (`data/asta-state.json` when it exists, else an empty auction under the run's league settings): my credits and slots, the completion, the lot on the block with its band and the pressure against it, the tier board per class |
+| `fantaclaude asta explain PLAYER` | one player's trace on the current board — band, expected price, walk/buy values, the completion, the pressure, the adjustments applied to him |
+| `fantaclaude asta replay FILE --me TEAM [--map TEAM=NICK]… [--write-state]` | a captured session (one FantaAstaLive state node per line) through the whole pipeline: what every snapshot moved, the final board — the rehearsal harness |
+| `fantaclaude asta adjust --type value\|exclude\|target [--player NAME \| --player-id ID] [--factor F] [--class CLS --count N] --reason WHY` | append a belief to `data/adjustments.yml` and show what it moved |
+| `fantaclaude asta close [--session CODE]` | copy `data/asta-state.json` to `records/asta/` when the auction closes |
+| `fantaclaude doctor` | readiness: credentials, token cache, website session, database, every snapshot's coverage, `league.yml`, `kb/`, aliases, module table, the pinned run, `data/adjustments.yml`, the auction state file |
 
 `sync-league`, `ingest` and `rank` (unless `--offline`) call the live league API with the account in `.env`.
 **Run them when you need fresh data, once — never in a loop.** Everything else
 is local.
+
+Every `fantaclaude asta` command is local: it opens the database read-only and
+touches no network, so it may be run freely — during the auction included.
 
 `ingest advanced`, `ingest calendar` and `ingest stats-web` read public web
 hosts (Understat, fantacalcio.it, UEFA) one request at a time with a one-second
@@ -64,6 +72,11 @@ provenanced facts the API cannot express; `preferences.yml` the user's
 computation-affecting choices. `data/exports/` holds the regenerable
 renderings of the newest run; `records/` (committed) the parquet copies of
 every run; `pricing.yml` the pricing knobs (they feed `model_hash`);
+`data/adjustments.yml` is the auction's adjustment file — mine, hand-editable,
+appended by `fantaclaude asta adjust`, every entry with a `reason`;
+`data/asta-state.json` is the mirrored auction as last seen, written atomically
+and never edited by hand; `records/asta/` holds its copy from `fantaclaude asta
+close` until the transfer into the lega is verified;
 `core/src/fantaclaude/model/d_factor.yml` the D-Factor table, empty until
 the league activates the modifier and the account holder transcribes its
 bands from the league's settings page.

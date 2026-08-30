@@ -3,6 +3,11 @@
 Every check reports existence, parseability, coverage or age -- never a
 value. A token is "present, expires in N days", an app key is "set", the
 website cookie is "set", and nothing here can leak into a terminal log.
+
+The database is opened once, read-only, for every check that reads it: a
+file held by a writer used to be reported as "cannot open database" by one
+check and "skipped: no database" by the next, because each check opened
+its own connection and drew its own conclusion.
 """
 
 from __future__ import annotations
@@ -19,7 +24,10 @@ from fantacalcio_mcp.auth import AuthError, is_expired
 from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
 from fantaclaude.analysis.valuation import PreferencesError, load_preferences
+from fantaclaude.asta.adjustments import AdjustmentsError, load_adjustments, resolve
+from fantaclaude.asta.pinned import PinnedRunError, load_pinned_run
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
+from fantaclaude.asta.snapshot import StateFileError, read_state
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.ingest.names import (
@@ -72,6 +80,8 @@ class DoctorPaths:
     preferences: Path
     kb: Path
     pricing: Path
+    adjustments: Path
+    asta_state: Path
 
 
 def _age(then: datetime, now: datetime) -> str:
@@ -107,9 +117,16 @@ def _token_cache(path: Path, now: datetime) -> Check:
     return Check("token_cache", True, f"{live}/{len(jwts)} league token(s) valid{suffix}")
 
 
-def _skipped(reason: str) -> tuple[list[Check], list[Check]]:
-    return ([Check(name, False, reason) for name in CORE_DB_CHECKS],
-            [Check(name, False, reason) for name in HISTORY_DB_CHECKS])
+def _open(path: Path) -> tuple[duckdb.DuckDBPyConnection | None, str, str]:
+    """(the one read-only connection, the database check's detail when there
+    is none, the one reason every other database check skips)."""
+    if not path.is_file():
+        return (None, f"no database at {path} -- run `fantaclaude sync-league` and `fantaclaude ingest listone`",
+                "skipped: no database")
+    try:
+        return duckdb.connect(str(path), read_only=True), "", ""
+    except duckdb.Error as exc:
+        return None, f"cannot open database at {path}: {exc}", "skipped: database unavailable"
 
 
 def _history_checks(con: duckdb.DuckDBPyConnection, now: datetime) -> list[Check]:
@@ -164,20 +181,13 @@ def _history_checks(con: duckdb.DuckDBPyConnection, now: datetime) -> list[Check
     return checks
 
 
-def _database_checks(path: Path, now: datetime) -> tuple[list[Check], list[Check]]:
+def _database_checks(con: duckdb.DuckDBPyConnection | None, detail: str, skip: str, path: Path,
+                     now: datetime) -> tuple[list[Check], list[Check]]:
     """(the Phase 0a checks, the history checks) -- reported in two places so the
     check order stays the documented one."""
-    if not path.is_file():
-        core, history = _skipped("skipped: no database")
-        core[0] = Check("database", False,
-                        f"no database at {path} -- run `fantaclaude sync-league` and `fantaclaude ingest listone`")
-        return core, history
-    try:
-        con = duckdb.connect(str(path), read_only=True)
-    except duckdb.Error as exc:
-        core, history = _skipped("skipped: database unavailable")
-        core[0] = Check("database", False, f"cannot open database at {path}: {exc}")
-        return core, history
+    if con is None:
+        return ([Check("database", False, detail)] + [Check(name, False, skip) for name in CORE_DB_CHECKS[1:]],
+                [Check(name, False, skip) for name in HISTORY_DB_CHECKS])
     core: list[Check] = []
     history: list[Check] = []
     try:
@@ -222,8 +232,6 @@ def _database_checks(path: Path, now: datetime) -> tuple[list[Check], list[Check
         for name in HISTORY_DB_CHECKS:
             if name not in done:
                 history.append(Check(name, False, "skipped: database unusable"))
-    finally:
-        con.close()
     return core, history
 
 
@@ -252,7 +260,7 @@ def _preferences_check(path: Path) -> Check:
                                       + ", ".join(f"{s.name} ({s.quantile})" for s in scenarios))
 
 
-def _profiles_check(kb: Path, db: Path) -> Check:
+def _profiles_check(kb: Path, con: duckdb.DuckDBPyConnection | None) -> Check:
     """Every listone club has a profile, and its `europe` agrees with the fixtures."""
     try:
         profiles = load_profiles(kb)
@@ -260,23 +268,16 @@ def _profiles_check(kb: Path, db: Path) -> Check:
         return Check("kb_profiles", False, str(exc))
     teams: dict[str, str] = {}
     ties: dict[str, set[str]] = {}
-    if db.is_file():
+    if con is not None:
         try:
-            con = duckdb.connect(str(db), read_only=True)
+            teams = {short: name for name, short in con.execute("SELECT name, short FROM v_teams_current").fetchall()}
+            current = con.execute("SELECT max(season_id) FROM v_league_settings_current").fetchone()[0]
+            for short, competition in con.execute(
+                    "SELECT DISTINCT team_short, competition FROM v_european_ties WHERE season_id = ?",
+                    [current]).fetchall():
+                ties.setdefault(short, set()).add(competition)
         except duckdb.Error:
-            con = None
-        if con is not None:
-            try:
-                teams = {short: name for name, short in con.execute("SELECT name, short FROM v_teams_current").fetchall()}
-                current = con.execute("SELECT max(season_id) FROM v_league_settings_current").fetchone()[0]
-                for short, competition in con.execute(
-                        "SELECT DISTINCT team_short, competition FROM v_european_ties WHERE season_id = ?",
-                        [current]).fetchall():
-                    ties.setdefault(short, set()).add(competition)
-            except duckdb.Error:
-                teams, ties = {}, {}
-            finally:
-                con.close()
+            teams, ties = {}, {}
     profiled = {p.team_short for p in profiles}
     problems: list[str] = []
     missing = sorted(name for short, name in teams.items() if short not in profiled)
@@ -294,16 +295,7 @@ def _profiles_check(kb: Path, db: Path) -> Check:
     return Check("kb_profiles", True, f"{head}; europe agrees with the fixtures")
 
 
-def _read_only(db: Path) -> duckdb.DuckDBPyConnection | None:
-    if not db.is_file():
-        return None
-    try:
-        return duckdb.connect(str(db), read_only=True)
-    except duckdb.Error:
-        return None
-
-
-def _takers_check(kb: Path, db: Path) -> Check:
+def _takers_check(kb: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
     """Every set-piece taker a profile names, resolved against the listone the
     way `rank` resolves them (finding 20b).
 
@@ -320,15 +312,12 @@ def _takers_check(kb: Path, db: Path) -> Check:
         profiles = load_profiles(kb)
     except ProfileError as exc:
         return Check("kb_takers", False, str(exc))          # the kb_profiles check says the same; keep the names honest
-    con = _read_only(db)
     if con is None:
-        return Check("kb_takers", False, "skipped: no database")
+        return Check("kb_takers", False, skip)
     try:
         candidates = load_candidates(con)
     except duckdb.Error as exc:
         return Check("kb_takers", False, f"skipped: {exc}")
-    finally:
-        con.close()
     squads: dict[str, list[Candidate]] = {}
     for candidate in candidates:
         squads.setdefault(candidate.team_short, []).append(candidate)
@@ -350,12 +339,11 @@ def _takers_check(kb: Path, db: Path) -> Check:
     return Check("kb_takers", True, head)
 
 
-def _notes_check(kb: Path, db: Path) -> Check:
+def _notes_check(kb: Path, con: duckdb.DuckDBPyConnection | None) -> Check:
     try:
         notes = load_player_notes(kb)
     except NoteError as exc:
         return Check("kb_notes", False, str(exc))
-    con = _read_only(db)
     names: dict[int, str] = {}
     shorts: dict[int, str] = {}
     if con is not None:
@@ -365,8 +353,6 @@ def _notes_check(kb: Path, db: Path) -> Check:
             shorts = {int(pid): str(short) for pid, _, short in rows}
         except duckdb.Error:
             names, shorts = {}, {}
-        finally:
-            con.close()
     moved = misplaced_notes(notes, names)
     orphans = orphan_notes(notes, names)
     mismatched = misdeclared_team_notes(notes, shorts)
@@ -409,16 +395,13 @@ def _participants_check(kb: Path, league_yml: Path) -> Check:
     return Check("kb_participants", True, head)
 
 
-def _scoring_check(db: Path) -> Check:
-    con = _read_only(db)
+def _scoring_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
     if con is None:
-        return Check("scoring", False, "skipped: no database")
+        return Check("scoring", False, skip)
     try:
         row = con.execute("SELECT payload FROM v_league_settings_current").fetchone()
     except duckdb.Error as exc:
         return Check("scoring", False, f"skipped: {exc}")
-    finally:
-        con.close()
     if row is None:
         return Check("scoring", False, "no league_settings snapshot -- run `fantaclaude sync-league`")
     payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
@@ -452,21 +435,73 @@ def _pricing_check(path: Path) -> Check:
                                   f"candidates {cfg.candidates_per_class}, inflation [{cfg.inflation_floor}, {cfg.inflation_ceiling}]")
 
 
-def _valuations_check(db: Path, now: datetime) -> Check:
-    con = _read_only(db)
+def _valuations_check(con: duckdb.DuckDBPyConnection | None, skip: str, now: datetime) -> Check:
     if con is None:
-        return Check("valuations", False, "skipped: no database")
+        return Check("valuations", False, skip)
     try:
         row = con.execute("SELECT run_id, created_at, superseded, scenarios FROM v_valuation_runs "
                           "ORDER BY created_at DESC, run_id DESC LIMIT 1").fetchone()
     except duckdb.Error as exc:
         return Check("valuations", False, f"skipped: {exc}")
-    finally:
-        con.close()
     if row is None:
         return Check("valuations", False, "no valuation run yet -- run `fantaclaude rank`")
     state = "superseded by a rules change -- re-run `fantaclaude rank`" if row[2] else "not superseded"
     return Check("valuations", not row[2], f"run {row[0]}, {_age(row[1], now)}, scenarios {', '.join(row[3])}; {state}")
+
+
+def _pinned_run_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+    """Is the run `asta` would pin loadable -- rows, config, its settings row (spec: a doctor check for the night)."""
+    if con is None:
+        return Check("pinned_run", False, skip)
+    try:
+        run = load_pinned_run(con)
+    except PinnedRunError as exc:
+        return Check("pinned_run", False, str(exc))
+    except duckdb.Error as exc:
+        return Check("pinned_run", False, f"skipped: {exc}")
+    return Check("pinned_run", True, run.describe())
+
+
+def _adjustments_check(path: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+    """Does data/adjustments.yml parse, and does every entry resolve against the run it would be applied to.
+
+    The file parses with or without a database, so the parse verdict stands
+    either way -- but the reason the entries went unresolved is `skip`, the
+    same reason every other database check gives. Inventing a second wording
+    here is what the one-connection cleanup exists to stop: with a file a
+    writer holds, `database` said "cannot open database" and this line said
+    "no database" about a file that demonstrably exists."""
+    if not path.is_file():
+        return Check("adjustments", True, f"none yet ({path} does not exist)")
+    try:
+        adjustments = load_adjustments(path)
+    except AdjustmentsError as exc:
+        return Check("adjustments", False, str(exc))
+    head = f"{len(adjustments)} adjustment(s)"
+    if con is None:
+        return Check("adjustments", True, f"{head}, parse; {skip} -- not resolved against a run")
+    try:
+        run = load_pinned_run(con)
+    except (PinnedRunError, duckdb.Error):
+        return Check("adjustments", True, f"{head}, parse; no run to resolve them against (see pinned_run)")
+    layer = resolve(adjustments, run.candidates())
+    if layer.problems:
+        return Check("adjustments", False, f"{head}, {len(layer.problems)} inert: " + "; ".join(layer.problems))
+    kinds = {kind: sum(1 for e in layer.entries if e.adjustment.kind == kind) for kind in ("value", "exclude", "target")}
+    return Check("adjustments", True, f"{head} resolved against run {run.run_id}: "
+                                      + ", ".join(f"{n} {kind}" for kind, n in kinds.items() if n))
+
+
+def _asta_state_check(path: Path, now: datetime) -> Check:
+    if not path.is_file():
+        return Check("asta_state", True, "no state file (no auction mirrored yet)")
+    try:
+        stored = read_state(path)
+        written = datetime.fromisoformat(stored.written_at)
+    except (StateFileError, ValueError) as exc:
+        return Check("asta_state", False, str(exc))
+    return Check("asta_state", True, f"session {stored.session_code or '?'}, run {stored.run_id}, "
+                                     f"{len(stored.snapshot.picks)} picks, written {_age(written, now)}")
 
 
 def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
@@ -489,44 +524,55 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
                             if credentials.can_login
                             else "token-only mode (no self-healing on expiry)"))
     checks.append(_token_cache(paths.token_cache, now))
-    core, history = _database_checks(paths.db, now)
-    checks.extend(core)
+    # One read-only connection for the whole run, closed in the finally below:
+    # every database check draws the same conclusion about the same file.
+    con, detail, skip = _open(paths.db)
     try:
-        entries = load_league_yml(paths.league_yml) if paths.league_yml.is_file() else None
-        checks.append(Check("league_yml", entries is not None,
-                            f"{len(entries)} provenanced keys" if entries is not None else f"{paths.league_yml} is missing"))
-    except (LeagueYmlError, yaml.YAMLError) as exc:
-        checks.append(Check("league_yml", False, str(exc)))
-    checks.append(_preferences_check(paths.preferences))
-    kb_ok = (paths.kb / "README.md").is_file() and (paths.kb / "rules" / "aliases.yml").is_file()
-    checks.append(Check("kb", kb_ok, f"{paths.kb}" + ("" if kb_ok else " lacks README.md or rules/aliases.yml")))
-    try:
-        checks.append(Check("modules", True, f"{len(load_modules())} modules"))
-    except (ModuleTableError, OSError, ValueError, yaml.YAMLError) as exc:
-        checks.append(Check("modules", False, str(exc)))
-    cookie = (env.get(WEB_COOKIE_KEY) or "").strip()
-    checks.append(Check("web_session", bool(cookie),
-                        f"{WEB_COOKIE_KEY} set" if cookie
-                        else f"{WEB_COOKIE_KEY} not set -- `fantaclaude ingest stats-web` will be skipped"))
-    checks.extend(history)
-    aliases_file = paths.kb / "rules" / "aliases.yml"
-    try:
-        aliases = load_aliases(aliases_file) if aliases_file.is_file() else None
-        checks.append(Check("aliases", aliases is not None,
-                            f"{len(aliases.players) + len(aliases.teams)} sections" if aliases is not None
-                            else f"{aliases_file} is missing"))
-    # Finding F8: load_aliases calls path.read_text(encoding="utf-8"), which
-    # can raise OSError (permissions) or UnicodeDecodeError (non-UTF-8) --
-    # neither is an AliasError or a yaml.YAMLError, so left uncaught either
-    # one took the whole `fantaclaude doctor` command down, unlike every
-    # other check here, which reports a failure as a failed check.
-    except (AliasError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        checks.append(Check("aliases", False, str(exc)))
-    checks.append(_profiles_check(paths.kb, paths.db))
-    checks.append(_takers_check(paths.kb, paths.db))
-    checks.append(_notes_check(paths.kb, paths.db))
-    checks.append(_participants_check(paths.kb, paths.league_yml))
-    checks.append(_scoring_check(paths.db))
-    checks.append(_pricing_check(paths.pricing))
-    checks.append(_valuations_check(paths.db, now))
+        core, history = _database_checks(con, detail, skip, paths.db, now)
+        checks.extend(core)
+        try:
+            entries = load_league_yml(paths.league_yml) if paths.league_yml.is_file() else None
+            checks.append(Check("league_yml", entries is not None,
+                                f"{len(entries)} provenanced keys" if entries is not None
+                                else f"{paths.league_yml} is missing"))
+        except (LeagueYmlError, yaml.YAMLError) as exc:
+            checks.append(Check("league_yml", False, str(exc)))
+        checks.append(_preferences_check(paths.preferences))
+        kb_ok = (paths.kb / "README.md").is_file() and (paths.kb / "rules" / "aliases.yml").is_file()
+        checks.append(Check("kb", kb_ok, f"{paths.kb}" + ("" if kb_ok else " lacks README.md or rules/aliases.yml")))
+        try:
+            checks.append(Check("modules", True, f"{len(load_modules())} modules"))
+        except (ModuleTableError, OSError, ValueError, yaml.YAMLError) as exc:
+            checks.append(Check("modules", False, str(exc)))
+        cookie = (env.get(WEB_COOKIE_KEY) or "").strip()
+        checks.append(Check("web_session", bool(cookie),
+                            f"{WEB_COOKIE_KEY} set" if cookie
+                            else f"{WEB_COOKIE_KEY} not set -- `fantaclaude ingest stats-web` will be skipped"))
+        checks.extend(history)
+        aliases_file = paths.kb / "rules" / "aliases.yml"
+        try:
+            aliases = load_aliases(aliases_file) if aliases_file.is_file() else None
+            checks.append(Check("aliases", aliases is not None,
+                                f"{len(aliases.players) + len(aliases.teams)} sections" if aliases is not None
+                                else f"{aliases_file} is missing"))
+        # Finding F8: load_aliases calls path.read_text(encoding="utf-8"), which
+        # can raise OSError (permissions) or UnicodeDecodeError (non-UTF-8) --
+        # neither is an AliasError or a yaml.YAMLError, so left uncaught either
+        # one took the whole `fantaclaude doctor` command down, unlike every
+        # other check here, which reports a failure as a failed check.
+        except (AliasError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+            checks.append(Check("aliases", False, str(exc)))
+        checks.append(_profiles_check(paths.kb, con))
+        checks.append(_takers_check(paths.kb, con, skip))
+        checks.append(_notes_check(paths.kb, con))
+        checks.append(_participants_check(paths.kb, paths.league_yml))
+        checks.append(_scoring_check(con, skip))
+        checks.append(_pricing_check(paths.pricing))
+        checks.append(_valuations_check(con, skip, now))
+        checks.append(_pinned_run_check(con, skip))
+        checks.append(_adjustments_check(paths.adjustments, con, skip))
+        checks.append(_asta_state_check(paths.asta_state, now))
+    finally:
+        if con is not None:
+            con.close()
     return checks

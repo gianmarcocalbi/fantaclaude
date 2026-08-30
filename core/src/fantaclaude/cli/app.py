@@ -13,6 +13,7 @@ import json
 from collections.abc import Callable
 from contextlib import contextmanager
 from enum import IntEnum
+from pathlib import Path
 
 import typer
 
@@ -680,11 +681,13 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, the auction state file."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
     from fantaclaude.paths import (
+        adjustments_path,
+        asta_state_path,
         db_path,
         kb_dir,
         league_yml_path,
@@ -695,7 +698,7 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
 
     paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
                         league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir(),
-                        pricing=pricing_yml_path())
+                        pricing=pricing_yml_path(), adjustments=adjustments_path(), asta_state=asta_state_path())
     checks = run_doctor(paths, now=utc_now())
     payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
     emit(payload, json_=json_, render=_render_doctor)
@@ -790,6 +793,277 @@ def rank_cmd(
     finally:
         con.close()
     emit(report.to_dict(), json_=json_, render=_render_rank)
+
+
+asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "
+                                         "adjustments, the state file. No network.", no_args_is_help=True)
+app.add_typer(asta_app)
+
+# Module-level singletons (B008), shared by the asta commands.
+RUN_OPTION = typer.Option(None, "--run", help="Pin this valuation run (default: the newest not superseded).")
+ONE_SCENARIO_OPTION = typer.Option(None, "--scenario", help="The run's scenario to price under (default: its first).")
+STATE_OPTION = typer.Option(None, "--state", help="A state file to load instead of data/asta-state.json.")
+FRESH_OPTION = typer.Option(False, "--fresh", help="Ignore any state file: an empty auction under the run's league settings.")
+ME_OPTION = typer.Option(None, "--me", help="My team, by label or id (a state file remembers it).")
+MAP_OPTION = typer.Option(None, "--map", help="team=nick -- bind a team to its dossier under kb/league/participants; repeatable.")
+SESSION_FILE_ARGUMENT = typer.Argument(..., help="A captured session: one state node per line (JSON lines).")
+
+
+def _asta_paths():
+    from fantaclaude.commands.asta import AstaPaths
+    from fantaclaude.paths import (
+        adjustments_path,
+        asta_state_path,
+        db_path,
+        kb_dir,
+        records_dir,
+    )
+
+    return AstaPaths(db=db_path(), adjustments=adjustments_path(), state=asta_state_path(), records=records_dir(),
+                     kb=kb_dir())
+
+
+@contextmanager
+def _asta_errors():
+    """The asta commands' half of the exit-code contract: a bad flag is 2, a missing or malformed input is 3."""
+    from fantaclaude.analysis.valuation import UnknownScenarioError
+    from fantaclaude.commands.asta import UsageError
+    from fantaclaude.commands.ingest import NotReady
+
+    try:
+        yield
+    except NotReady as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    except (UsageError, UnknownScenarioError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.USAGE) from None
+
+
+def _band(b: dict | None) -> str:
+    return "-" if b is None else f"{b['p50']} [{b['p25']}-{b['p75']}]"
+
+
+def _render_lot(payload: dict) -> str:
+    lot = payload.get("lot")
+    if lot is None:
+        return "lot: none on the block"
+    line = f"lot: {lot['name']} ({lot['role_class']}, {lot['team_short']}, t{lot['tier']}) band {_band(lot['band'])}"
+    if lot.get("sold_to") is not None:
+        line += f" · sold to team {lot['sold_to']}"
+    elif lot.get("expected_price") is not None:
+        line += f" · expected {lot['expected_price']}"
+    pressure = payload.get("lot_pressure")
+    if pressure and pressure["bidders"]:
+        top = pressure["bidders"][0]
+        line += (f" · pressure: est. {pressure['estimate']} ({top['label']} {top['intent']} up to {top['ceiling']}"
+                 + (f", {len(pressure['bidders']) - 1} more" if len(pressure["bidders"]) > 1 else "") + ")")
+    return line
+
+
+def _render_board(payload: dict) -> str:
+    s, me = payload["settings"], payload["me"]
+    lines = [payload["run"], f"source: {payload['source']}",
+             (f"session: {s['budget']} credits · goalkeepers {s['goalkeepers'][0]}-{s['goalkeepers'][1]} · outfield "
+              f"{s['outfield'][0]}-{s['outfield'][1]} · roster {s['size'][0]}-{s['size'][1]} · {s['team_count']} teams "
+              f"({s['source']}) · scenario {payload['scenario']}")]
+    lines += [f"SESSION != LEAGUE: {c}" for c in payload["league_conflicts"]]
+    lines.append(f"me: {me['label']} (team {me['team_id']}) · {me['credits']} credits · {len(me['picks'])} picks "
+                 f"(gk {me['goalkeepers']}, mov {me['outfield']}) · still needed: gk {me['missing_goalkeepers']}, "
+                 f"mov {me['missing_outfield']} · market {payload['market_credits']} credits")
+    comp = ", ".join(f"{cls} {n}·{payload['credits_by_class'].get(cls, 0)}" for cls, n in payload["composition"].items() if n)
+    departed = f" · departed from the target at {', '.join(payload['targets_departed'])}" if payload["targets_departed"] else ""
+    lines.append(f"board: inflation {payload['inflation']:.2f} · reserve {payload['reserve']} · budget {payload['budget']} "
+                 f"· completion {comp}{departed}")
+    lines.append(_render_lot(payload))
+    for cls, rows in payload["tiers"].items():
+        lines.append(f"  {cls}: " + " · ".join(
+            f"{r['name']} {_band(r['band'])} t{r['tier']}" + (f" p{r['pressure']['estimate']}" if r.get("pressure") else "")
+            for r in rows))
+    adj = payload["adjustments"]
+    lines.append(f"adjustments: {adj['count']} ({adj['applied']} applied)" + (f" · sha {adj['sha256'][:8]}" if adj["sha256"] else ""))
+    lines += [f"note: {n}" for n in payload.get("notes", [])]
+    lines += [f"problem: {p}" for p in payload["problems"]]
+    return "\n".join(lines)
+
+
+@asta_app.command("board")
+def asta_board_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+    state: Path | None = STATE_OPTION,
+    fresh: bool = FRESH_OPTION,
+    me: str | None = ME_OPTION,
+    map_: list[str] | None = MAP_OPTION,
+    top: int = typer.Option(5, "--top", help="Players per class on the tier board."),
+) -> None:
+    """Price the pinned run against the mirrored auction (data/asta-state.json if present, else an empty one): my credits and slots, the completion, the lot on the block, the tier board. Local."""
+    from fantaclaude.commands.asta import board_report
+
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            report = board_report(con, paths=_asta_paths(), run_id=run, scenario=scenario, state_file=state, fresh=fresh,
+                                  me=me, maps=tuple(map_ or ()), top=top)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_board)
+
+
+def _render_explain(payload: dict) -> str:
+    p = payload["player"]
+    lines = [payload["run"], f"source: {payload['source']}",
+             (f"{p['name']} ({p['team_short']}, {'/'.join(p['roles'])} -> {p['role_class']}, t{p['tier']}) · "
+              f"value {p['value_p50']:.1f} [{p['value_p25']:.1f}-{p['value_p75']:.1f}] · quotazione {p['quotazione']}")]
+    if payload["sold_to"] is not None:
+        lines.append(f"sold to team {payload['sold_to']} for {payload['cost']}")
+    trace = payload["trace"]
+    if trace is None:
+        lines.append("not priced: sold, or excluded by an adjustment")
+    else:
+        lines.append(f"band {_band(trace['band'])} · expected {trace['expected_price']} · rank weight {trace['rank_weight']:.3f} · "
+                     f"walk {trace['walk_value']} · buy {trace['buy_value']}")
+        lines.append(f"board: inflation {trace['inflation']:.2f} · reserve {trace['reserve']} · budget {trace['budget']} · "
+                     f"slot price {trace['slot_price']:.2f} · completion " + ", ".join(
+                         f"{cls} {n}" for cls, n in trace["composition"].items() if n))
+    if payload["pressure"]:
+        pr = payload["pressure"]
+        lines.append(f"pressure: est. {pr['estimate']} (expected {pr['expected']}); " + "; ".join(
+            f"{b['label']} {b['intent']} up to {b['ceiling']} (credits {b['credits']}, depth {b['depth']}"
+            + (", " + ", ".join(b["reasons"]) if b["reasons"] else "") + ")" for b in pr["bidders"]))
+    lines += [f"adjustment: {a}" for a in payload["adjustments"]]
+    lines += [f"problem: {q}" for q in payload["problems"]]
+    return "\n".join(lines)
+
+
+@asta_app.command("explain")
+def asta_explain_cmd(
+    player: str = typer.Argument(..., help="A player, the listone's way (\"Martinez L.\") or by id."),
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+    state: Path | None = STATE_OPTION,
+    fresh: bool = FRESH_OPTION,
+) -> None:
+    """The trace behind one player's price on the current board -- for the model to read, never to recompute."""
+    from fantaclaude.commands.asta import explain_report
+
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            report = explain_report(con, paths=_asta_paths(), player=player, run_id=run, scenario=scenario,
+                                    state_file=state, fresh=fresh)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_explain)
+
+
+def _render_replay(payload: dict) -> str:
+    lines = [payload["run"], f"me: team {payload['mapping']['mine']}"]
+    for step in payload["steps"]:
+        events = "; ".join(step["events"]) or "(no change)"
+        lot = f" · lot {step['lot']['name']} {_band(step['lot']['band'])}" if step["lot"] else ""
+        lines.append(f"{step['index']:>3}: {events} · me {step['credits']} credits · {step['picks']} picks{lot}")
+    lines.append("final " + _render_board({**payload, "source": "the last snapshot", "notes": []}).split("\n", 1)[1])
+    if payload["written"]:
+        lines.append(f"state written to {payload['written']}")
+    return "\n".join(lines)
+
+
+@asta_app.command("replay")
+def asta_replay_cmd(
+    file: Path = SESSION_FILE_ARGUMENT,
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+    me: str | None = ME_OPTION,
+    map_: list[str] | None = MAP_OPTION,
+    write_state: bool = typer.Option(False, "--write-state", help="Write data/asta-state.json from the last snapshot."),
+) -> None:
+    """Run a captured session through the whole pipeline -- the rehearsal harness -- and print what every snapshot moved."""
+    from fantaclaude.commands.asta import replay_report
+
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            report = replay_report(con, paths=paths, file=file, run_id=run, scenario=scenario, me=me,
+                                   maps=tuple(map_ or ()), write_state_to=paths.state if write_state else None)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_replay)
+
+
+def _render_adjust(payload: dict) -> str:
+    before, after = payload["before"], payload["after"]
+    lines = [f"appended to {payload['path']} ({payload['count']} entries): {payload['described']}"]
+    if payload["player_id"] is not None:
+        lines.append(f"his band: {_band(before['band'])} -> {_band(after['band'])}")
+    # The class's top players, keyed by player: an adjustment reorders the class, so
+    # pairing the two lists by position showed one player's band against another's --
+    # and, since only a coincidental match survived, printed almost none of the rows.
+    was = {r["player_id"]: r["band"] for r in before["top"]}
+    lines.append(f"{after['class']}: " + " · ".join(
+        f"{r['name']} " + (f"{_band(was[r['player_id']])} -> " if r["player_id"] in was else "") + _band(r["band"])
+        for r in after["top"]))
+    comp = ", ".join(f"{cls} {before['composition'].get(cls, 0)}->{n}" for cls, n in after["composition"].items()
+                     if n != before["composition"].get(cls, 0))
+    if comp:
+        lines.append(f"composition moved: {comp}")
+    if after["targets_departed"]:
+        lines.append(f"departed from the target at {', '.join(after['targets_departed'])}")
+    lines += [f"problem: {p}" for p in after["problems"]]
+    return "\n".join(lines)
+
+
+@asta_app.command("adjust")
+def asta_adjust_cmd(
+    type_: str = typer.Option(..., "--type", help="value | exclude | target."),
+    reason: str = typer.Option(..., "--reason", help="Why -- the auction record explains itself afterwards."),
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    player: str | None = typer.Option(None, "--player", help="The player, the listone's way (\"Martinez L.\")."),
+    player_id: int | None = typer.Option(None, "--player-id", help="Or his listone id."),
+    factor: float | None = typer.Option(None, "--factor", help="value: scale his projection by this (0, 2]."),
+    class_: str | None = typer.Option(None, "--class", help="target: the role class."),
+    count: int | None = typer.Option(None, "--count", help="target: the composition to start from."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+    state: Path | None = STATE_OPTION,
+    fresh: bool = FRESH_OPTION,
+) -> None:
+    """Append a belief to data/adjustments.yml -- a value factor, an exclusion, a target -- and show what it moved on the board."""
+    from fantaclaude.asta.adjustments import AdjustmentsError, adjustment_from_entry
+    from fantaclaude.commands.asta import UsageError, adjust
+
+    raw = {k: v for k, v in (("player", player), ("player_id", player_id), ("type", type_), ("factor", factor),
+                             ("class", class_), ("count", count), ("reason", reason)) if v is not None}
+    with _asta_errors():
+        try:
+            adjustment = adjustment_from_entry(raw, "asta adjust")
+        except AdjustmentsError as exc:
+            raise UsageError(str(exc)) from None
+        con = _open_read_only()
+        try:
+            report = adjust(con, paths=_asta_paths(), adjustment=adjustment, run_id=run, scenario=scenario,
+                            state_file=state, fresh=fresh)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_adjust)
+
+
+@asta_app.command("close")
+def asta_close_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    session: str | None = typer.Option(None, "--session", help="The session code to name the copy by (default: the file's)."),
+) -> None:
+    """Copy data/asta-state.json to records/asta/ when the auction closes -- the record of what the room paid, until the transfer is verified."""
+    from fantaclaude.commands.asta import close_auction
+    from fantaclaude.timeutil import utc_now
+
+    with _asta_errors():
+        path = close_auction(_asta_paths(), now=utc_now(), session_code=session)
+    emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
 
 
 def main() -> None:
