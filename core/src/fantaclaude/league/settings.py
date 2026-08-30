@@ -78,7 +78,7 @@ def _is_email_value(value: Any) -> bool:
     return isinstance(value, str) and bool(EMAIL_PATTERN.search(value))
 
 
-def _without_emails(value: Any) -> Any:
+def without_emails(value: Any) -> Any:
     """Scrub email addresses at any depth, two ways: drop every email-bearing
     *key* (defence in depth for the common case), and redact every *value*
     that has the shape of an email address regardless of the key it sits
@@ -93,11 +93,15 @@ def _without_emails(value: Any) -> Any:
     and the diffed view silently disagree. Those three carry rule numbers,
     not people, so there is nothing to gain from scrubbing them and a real
     invariant to lose.
+
+    Public because kb/participants.py asks it the same question in the other
+    direction -- "would this have changed anything?" -- rather than keeping a
+    second walker that only saw the top level (finding 11).
     """
     if isinstance(value, dict):
-        return {k: _without_emails(v) for k, v in value.items() if not _is_email_key(k)}
+        return {k: without_emails(v) for k, v in value.items() if not _is_email_key(k)}
     if isinstance(value, list):
-        return [_without_emails(item) for item in value]
+        return [without_emails(item) for item in value]
     if _is_email_value(value):
         return EMAIL_REDACTED
     return value
@@ -124,9 +128,9 @@ def snapshot_from_payloads(*, profile: dict, status: dict, rosters: dict, lineup
         bench_size=settings.bench_size,
         substitutions=settings.substitutions,
         rules_hash=rules_hash(rosters, lineup, calculate, team_count),
-        payload={"profile": _without_emails(league.raw), "status": _without_emails(league_status.raw),
+        payload={"profile": without_emails(league.raw), "status": without_emails(league_status.raw),
                  "rosters": rosters, "lineup": lineup, "calculate": calculate,
-                 "teams": _without_emails(teams)},
+                 "teams": without_emails(teams)},
     )
 
 

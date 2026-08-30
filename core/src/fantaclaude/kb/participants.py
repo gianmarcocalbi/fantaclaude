@@ -22,7 +22,7 @@ from typing import Any
 import yaml
 
 from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
-from fantaclaude.league.settings import EMAIL_PATTERN
+from fantaclaude.league.settings import without_emails
 from fantaclaude.model.demand import ROLE_CLASSES
 
 BUDGET_STYLES = ("early", "steady", "hoarder")
@@ -65,11 +65,20 @@ def _names(data: dict[str, Any], key: str, path: Path, *, allowed: tuple[str, ..
 
 
 def _no_emails(data: dict[str, Any], path: Path) -> None:
+    """No field may carry an email address, at *any* depth. league/settings.py
+    already walks dicts and lists to any depth, and already knows both an
+    email-shaped value and an email-named key, so this asks that walker -- per
+    top-level key, so the message can name the offending field -- whether it
+    would have changed anything. The second, shallower walker that used to
+    live here saw top-level scalars and one level of list and stopped, so
+    `contact: {mail: ...}` loaded clean (finding 11).
+
+    Refusing rather than scrubbing, deliberately: a payload passing through
+    is laundered, but a dossier is a file a human wrote and a human must fix.
+    The message names the key and never echoes the value."""
     for key, value in data.items():
-        values = value if isinstance(value, list) else [value]
-        for v in values:
-            if isinstance(v, str) and EMAIL_PATTERN.search(v):
-                raise ParticipantError(f"{path}: {key} carries an email address; dossiers never do")
+        if without_emails({key: value}) != {key: value}:
+            raise ParticipantError(f"{path}: {key} carries an email address or is named for one; dossiers never do")
 
 
 def load_participant(path: Path) -> Participant:

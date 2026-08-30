@@ -80,6 +80,23 @@ def test_an_email_shaped_value_is_refused_anywhere_in_the_front_matter(tmp_path)
         load_participant(path)
 
 
+def test_an_email_nested_below_the_top_level_is_refused_too(tmp_path):
+    """Finding 11. The guard walked top-level scalars and one level of list
+    and stopped, so `contact: {mail: ...}` -- a mapping, the obvious way to
+    write a contact block -- loaded clean, contrary to the module's own
+    docstring and the fanta-kb skill's rule. Dossiers are about real people,
+    so the walker league/settings.py already runs over the payloads that
+    carry people is the one to ask."""
+    synthetic = "not-a-real-address@example.invalid"
+    for extra in (f"contact:\n  mail: {synthetic}\n",
+                  f"history:\n  - seen: [{{at: {synthetic}}}]\n",
+                  "contact:\n  email: ask me\n"):
+        path = _write(tmp_path / "kb", "Marco", extra=extra)
+        with pytest.raises(ParticipantError, match="email") as raised:
+            load_participant(path)
+        assert "@" not in str(raised.value)          # the message names the key, never the address
+
+
 def test_max_single_share_is_a_share(tmp_path):
     path = _write(tmp_path / "kb", "Marco", extra="max_single_share: 30\n")
     with pytest.raises(ParticipantError, match="max_single_share"):
