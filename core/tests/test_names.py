@@ -150,6 +150,39 @@ def test_match_listone_prefers_an_exact_initial_to_a_bare_surname_candidate():
     assert match_listone("Adams A.", lone) == Match(9, MATCHED, (9,))
 
 
+def test_match_listone_falls_back_to_a_given_name_first_spelling():
+    """Finding 20(a). `match_listone` walks no suffixes, so a profile that
+    writes "Hakan Calhanoglu" instead of the listone's "Calhanoglu" resolved
+    to nobody -- reach the old `Matcher` path had. The fallback is deliberately
+    narrower than Matcher's: only when the name carries no listone initial (a
+    given-name-first spelling never does), and never across a surname particle,
+    because "De Rossi" is a surname, not "Rossi" with a given name in front. A
+    wrong match here silently mis-attributes a club's penalties."""
+    squad = [Candidate(1, "Calhanoglu", "INT", "Inter"), Candidate(2, "Barella", "INT", "Inter"),
+             Candidate(3, "Martinez L.", "INT", "Inter"), Candidate(4, "Martinez J.", "INT", "Inter")]
+    assert match_listone("Hakan Calhanoglu", squad) == Match(1, MATCHED, (1,))
+    assert match_listone("Lautaro Martinez", squad) == Match(3, MATCHED, (3, 4))
+    assert match_listone("Josep Martinez", squad) == Match(4, MATCHED, (3, 4))
+    # a given name that contradicts every initial resolves to nobody
+    assert match_listone("Kristjan Martinez", squad) == Match(None, AMBIGUOUS, (3, 4))
+
+    # a surname particle is not a given name: the fallback does not cross one
+    assert match_listone("De Rossi", [Candidate(9, "Rossi", "GEN", "Genoa")]) == Match(None, UNMATCHED)
+    assert match_listone("Van Dijk", [Candidate(9, "Dijk", "GEN", "Genoa")]) == Match(None, UNMATCHED)
+    assert match_listone("Marco De Rossi", [Candidate(9, "Rossi", "GEN", "Genoa")]) == Match(None, UNMATCHED)
+    # ...but it does reach a compound surname the listone writes in full
+    assert match_listone("Daniele De Rossi", [Candidate(9, "De Rossi", "ROM", "Roma")]) == Match(9, MATCHED, (9,))
+
+    # two candidates the given name cannot tell apart are refused, never guessed
+    two = [Candidate(5, "Rossi", "GEN", "Genoa"), Candidate(6, "Rossi M.", "GEN", "Genoa")]
+    assert match_listone("Marco Rossi", two) == Match(None, AMBIGUOUS, (5, 6))
+
+    # and a listone spelling still takes the direct path, untouched
+    assert match_listone("Calhanoglu", squad) == Match(1, MATCHED, (1,))
+    assert match_listone("Martinez L.", squad) == Match(3, MATCHED, (3, 4))
+    assert match_listone("Thuram", squad) == Match(None, UNMATCHED)
+
+
 def test_resolve_team_is_case_insensitive_and_alias_aware():
     teams = {"milan": "MIL", "parma": "PAR", "inter": "INT"}
     aliases = {"AC Milan": "Milan", "Parma Calcio 1913": "Parma"}

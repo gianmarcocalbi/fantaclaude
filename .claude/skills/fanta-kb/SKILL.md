@@ -145,7 +145,9 @@ module: 3-5-2
 europe: UCL
 rotation_factor: 0.9
 takers:
-  penalties: <player>
+  penalties: <player>          # as the listone writes him: surname first,
+                               # then the initial it uses to tell two of them
+                               # apart ("Martinez L.", not "Lautaro Martinez")
   corners: <player>
   free_kicks: <player>
 ---
