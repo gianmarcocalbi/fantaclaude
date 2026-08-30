@@ -2,6 +2,7 @@ import duckdb
 import pytest
 from fantaclaude.db.connection import DatabaseMissing, connect
 from fantaclaude.db.schema import (
+    ADVANCED_SNAPSHOTS_DDL,
     SCHEMA_VERSION,
     SchemaVersionMismatch,
     apply_schema,
@@ -130,6 +131,138 @@ def test_a_version_2_file_gets_its_advanced_snapshots_rebuilt(tmp_path):
     nxt = con.execute("SELECT nextval('seq_advanced_snapshots')").fetchone()[0]
     assert nxt >= 2                                          # the sequence continues past the kept rows
     assert con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'advanced_snapshots_v2'").fetchone()[0] == 0
+    con.close()
+
+
+def _seed_v2_advanced_snapshots(con) -> None:
+    """The live Phase 0b shape, one snapshot with one dependent advanced_stats row."""
+    con.execute(V2_ADVANCED_SNAPSHOTS)
+    con.execute("INSERT INTO advanced_snapshots (season_id, fetched_at, source, raw_path, sha256, row_count, matched, "
+                "ambiguous, unmatched) VALUES (20, now(), 'understat', 'p', 'deadbeef', 10, 5, 1, 4)")
+    con.execute("INSERT INTO advanced_stats VALUES (1, 20, '7006', 'Lautaro', ['Inter'], 2764, 'matched', [2764], "
+                "30, 2205, 17, 6, 17.1, 6.3, 14, 14.0, 90, 30, 3, 0, 20.0, 5.0, 'F', '{}')")
+
+
+def _drop_v3_advanced_snapshots(con) -> None:
+    for view in sorted(v for v in V3_OBJECTS if v.startswith("v_")):
+        con.execute(f"DROP VIEW {view}")
+    for table in ("valuation_prices", "valuations", "valuation_runs", "advanced_snapshots"):
+        con.execute(f"DROP TABLE {table}")
+
+
+def test_an_interrupted_migration_resumes_from_the_leftover_v2_table(tmp_path):
+    """The real failure mode: RENAME committed (autocommit, pre-fix), then the
+    process died before CREATE/INSERT/DROP ever ran. advanced_snapshots does
+    not exist at all -- only advanced_snapshots_v2, holding the real rows.
+    The next apply_schema must treat that leftover table as the resume
+    point, not create an empty advanced_snapshots and call it done."""
+    path = tmp_path / "x.duckdb"
+    con = connect(path)
+    apply_schema(con)
+    _drop_v3_advanced_snapshots(con)
+    _seed_v2_advanced_snapshots(con)
+    con.execute("DELETE FROM schema_version")
+    con.execute("INSERT INTO schema_version (version) VALUES (2)")
+    con.execute("ALTER TABLE advanced_snapshots RENAME TO advanced_snapshots_v2")   # the crash point
+    con.close()
+
+    con = connect(path)
+    assert apply_schema(con) == 3
+    assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
+    kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
+                       "FROM advanced_snapshots").fetchall()
+    assert kept == [(1, "deadbeef", None, None, 5)]
+    assert con.execute("SELECT count(*) FROM v_advanced_current").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM information_schema.tables "
+                       "WHERE table_name = 'advanced_snapshots_v2'").fetchone()[0] == 0
+    con.close()
+
+
+def test_a_migration_already_corrupted_by_the_old_non_atomic_code_still_recovers(tmp_path):
+    """Worse than an interrupted RENAME: an older binary ran the whole
+    non-transactional sequence, but something failed right before DROP TABLE
+    -- or a previous run of *this exact bug* stamped version 3 over an empty
+    advanced_snapshots while advanced_snapshots_v2 sat there orphaned. Gating
+    the rebuild on schema_version (`stored < 3`) would never look again once
+    version 3 is stamped; gating on the table's actual shape recovers it."""
+    path = tmp_path / "x.duckdb"
+    con = connect(path)
+    apply_schema(con)
+    _drop_v3_advanced_snapshots(con)
+    _seed_v2_advanced_snapshots(con)
+    con.execute("ALTER TABLE advanced_snapshots RENAME TO advanced_snapshots_v2")
+    con.execute(ADVANCED_SNAPSHOTS_DDL)                     # the empty v3-shape shell the DDL loop created
+    # schema_version is left at 3, as apply_schema's final INSERT would have stamped it.
+    con.close()
+
+    con = connect(path)
+    assert apply_schema(con) == 3
+    kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
+                       "FROM advanced_snapshots").fetchall()
+    assert kept == [(1, "deadbeef", None, None, 5)]
+    assert con.execute("SELECT count(*) FROM information_schema.tables "
+                       "WHERE table_name = 'advanced_snapshots_v2'").fetchone()[0] == 0
+    con.close()
+
+
+def test_an_old_shape_table_with_no_version_row_is_still_migrated(tmp_path):
+    """A version row is not proof either way: its absence must not be read
+    as "nothing to migrate" when the table itself is still the old shape."""
+    path = tmp_path / "x.duckdb"
+    con = connect(path)
+    apply_schema(con)
+    _drop_v3_advanced_snapshots(con)
+    _seed_v2_advanced_snapshots(con)
+    con.execute("DELETE FROM schema_version")               # no version row at all
+    con.close()
+
+    con = connect(path)
+    assert apply_schema(con) == 3
+    assert "aliases_sha256" in _columns(con, "advanced_snapshots")
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+    con.close()
+
+
+def test_a_failure_mid_migration_rolls_back_atomically(tmp_path, monkeypatch):
+    """RENAME, CREATE, INSERT and DROP must commit together or not at all --
+    otherwise a crash between them stamps advanced_snapshots renamed away
+    with nothing standing in its place, which is exactly finding 1."""
+    path = tmp_path / "x.duckdb"
+    con = connect(path)
+    apply_schema(con)
+    _drop_v3_advanced_snapshots(con)
+    _seed_v2_advanced_snapshots(con)
+    con.execute("DELETE FROM schema_version")
+    con.execute("INSERT INTO schema_version (version) VALUES (2)")
+    con.close()
+
+    con = connect(path)
+    real_execute = duckdb.DuckDBPyConnection.execute
+
+    def flaky(self, sql, *a, **kw):
+        if isinstance(sql, str) and sql.strip().startswith("DROP TABLE advanced_snapshots_v2"):
+            raise RuntimeError("simulated crash")
+        return real_execute(self, sql, *a, **kw)
+
+    monkeypatch.setattr(duckdb.DuckDBPyConnection, "execute", flaky)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        apply_schema(con)
+    monkeypatch.undo()
+
+    # Rolled back: the original table, under its original name, unharmed --
+    # not left renamed away with a half-built replacement standing in.
+    assert con.execute("SELECT count(*) FROM information_schema.tables "
+                       "WHERE table_name = 'advanced_snapshots_v2'").fetchone()[0] == 0
+    assert "sha256" in _columns(con, "advanced_snapshots") and "aliases_sha256" not in _columns(con, "advanced_snapshots")
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+    con.close()
+
+    # A later, unobstructed apply_schema still finishes the job.
+    con = connect(path)
+    assert apply_schema(con) == 3
+    kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
+                       "FROM advanced_snapshots").fetchall()
+    assert kept == [(1, "deadbeef", None, None, 5)]
     con.close()
 
 

@@ -346,6 +346,11 @@ def _has_column(con: duckdb.DuckDBPyConnection, table: str, column: str) -> bool
     return column in {r[0] for r in con.execute(f'DESCRIBE "{table}"').fetchall()}
 
 
+def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
+    return con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'main' "
+                       "AND table_name = ?", [table]).fetchone()[0] > 0
+
+
 def _migrate_advanced_snapshots_to_v3(con: duckdb.DuckDBPyConnection) -> None:
     """Version 2 keyed advanced_snapshots on sha256 alone (UNIQUE), so a
     changed alias or listone could never re-match an already-recorded file.
@@ -353,14 +358,41 @@ def _migrate_advanced_snapshots_to_v3(con: duckdb.DuckDBPyConnection) -> None:
     its rows: the old rows keep their snapshot_id (advanced_stats points at
     it) and get a NULL aliases_sha256/listone_snapshot_id, which no new row
     ever has -- the next ingest re-matches them under the full key and
-    appends. The sequence is untouched, so new ids continue past the old."""
-    if _has_column(con, "advanced_snapshots", "aliases_sha256") is not False:
+    appends. The sequence is untouched, so new ids continue past the old.
+
+    Gated on the table's actual shape, never on schema_version: a stored
+    version is not proof the rebuild happened (an interrupted run, or an
+    older binary that hit the bug this docstring used to describe, can
+    stamp version 3 without ever finishing it) and its absence is not proof
+    the rebuild is unneeded (an old-shape table can carry no version row at
+    all). RENAME, CREATE, INSERT and DROP all run inside one transaction --
+    they commit together or none of them do, so a crash mid-migration never
+    leaves advanced_snapshots renamed away with nothing standing in its
+    place. A leftover advanced_snapshots_v2 table -- from exactly that kind
+    of crash, or from a full run of the old, non-transactional version of
+    this function -- is the resume point: the rows still missing from
+    advanced_snapshots (there may be none, if only the final DROP was lost)
+    are pulled from it by snapshot_id, and it is then dropped."""
+    has_v2 = _table_exists(con, "advanced_snapshots_v2")
+    wrong_shape = _has_column(con, "advanced_snapshots", "aliases_sha256") is False
+    if not has_v2 and not wrong_shape:
         return
-    con.execute("ALTER TABLE advanced_snapshots RENAME TO advanced_snapshots_v2")
-    con.execute(ADVANCED_SNAPSHOTS_DDL)
-    con.execute("INSERT INTO advanced_snapshots SELECT snapshot_id, season_id, fetched_at, source, raw_path, sha256, "
-                "NULL, NULL, row_count, matched, ambiguous, unmatched FROM advanced_snapshots_v2")
-    con.execute("DROP TABLE advanced_snapshots_v2")
+    con.begin()
+    try:
+        if wrong_shape:
+            con.execute("ALTER TABLE advanced_snapshots RENAME TO advanced_snapshots_v2")
+            has_v2 = True
+        if has_v2:
+            con.execute(ADVANCED_SNAPSHOTS_DDL)
+            con.execute(
+                "INSERT INTO advanced_snapshots SELECT snapshot_id, season_id, fetched_at, source, raw_path, "
+                "sha256, NULL, NULL, row_count, matched, ambiguous, unmatched FROM advanced_snapshots_v2 "
+                "WHERE snapshot_id NOT IN (SELECT snapshot_id FROM advanced_snapshots)")
+            con.execute("DROP TABLE advanced_snapshots_v2")
+    except Exception:
+        con.rollback()
+        raise
+    con.commit()
 
 
 def apply_schema(con: duckdb.DuckDBPyConnection) -> int:
@@ -376,8 +408,7 @@ def apply_schema(con: duckdb.DuckDBPyConnection) -> int:
     stored = _stored_version(con)
     if stored is not None and stored > SCHEMA_VERSION:
         raise SchemaVersionMismatch(f"database is at schema {stored}, code expects {SCHEMA_VERSION}")
-    if stored is not None and stored < 3:
-        _migrate_advanced_snapshots_to_v3(con)
+    _migrate_advanced_snapshots_to_v3(con)
     for statement in DDL.split(";"):
         if statement.strip():
             con.execute(statement)
