@@ -331,6 +331,31 @@ def test_the_phase_1_checks(tmp_path, fixture_json, mcp_fixture_json):
     assert not by["valuations"].ok and "superseded" in by["valuations"].detail
 
 
+def test_the_scoring_check_reports_an_unparsable_d_factor_table_instead_of_crashing(monkeypatch, tmp_path,
+                                                                                     fixture_json, mcp_fixture_json):
+    """Finding 7. d_factor.yml is transcribed by hand off the league's
+    settings page, so a YAML syntax error there is the expected mistake --
+    and doctor is the command meant to name it. yaml.parser.ParserError is
+    neither DFactorTableError nor ValueError, so the whole run_doctor call
+    died on it: no `scoring` verdict, and none of the checks after it."""
+    import fantaclaude.commands.doctor as doctor_module
+    from fantaclaude.model.d_factor import load_d_factor
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    payload = json.loads(con.execute("SELECT payload FROM v_league_settings_current").fetchone()[0])
+    payload["calculate"]["smodd"] = 1
+    con.execute("UPDATE league_settings SET payload = ?::JSON WHERE snapshot_id = 1", [json.dumps(payload)])
+    con.close()
+    bad = tmp_path / "d_factor.yml"
+    bad.write_text("bands: [ {min: 6.0, points: 1 }\n", encoding="utf-8")
+    monkeypatch.setattr(doctor_module, "load_d_factor", lambda: load_d_factor(bad))
+    checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
+    assert [c.name for c in checks] == NAMES                       # the run finished; nothing after scoring was lost
+    scoring = next(c for c in checks if c.name == "scoring")
+    assert not scoring.ok and "D-Factor active" in scoring.detail and "d_factor.yml" in scoring.detail
+
+
 def test_kb_notes_flags_an_orphan_and_a_misdeclared_team_short(tmp_path, fixture_json, mcp_fixture_json):
     """An orphan note (player_id the listone does not have) has no effect --
     build_inputs never looks it up -- but it still enters inputs_hash, so an

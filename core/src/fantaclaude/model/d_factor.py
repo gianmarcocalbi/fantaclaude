@@ -89,7 +89,17 @@ def _number(value: Any) -> bool:
 
 
 def load_d_factor(path: Path = D_FACTOR_YML) -> DFactorTable:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # This is the one file in the system a human transcribes by hand off a web
+    # page, so a YAML *syntax* error here is the expected mistake, not an
+    # exotic one -- and yaml.parser.ParserError is neither DFactorTableError
+    # nor even a ValueError. Unwrapped it escaped both callers: `rank` died
+    # with a traceback where the contract says exit 3, and `doctor`, the
+    # command meant to name what is wrong, crashed instead of failing its
+    # scoring check. Caught here, the way load_pricing_config catches its own.
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise DFactorTableError(f"{path}: {exc}") from None
     if not isinstance(data, dict):
         raise DFactorTableError(f"{path}: the top level must be a mapping")
     raw_bands = data.get("bands")

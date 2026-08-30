@@ -49,6 +49,23 @@ def test_a_table_is_loaded_sorted_and_validated(tmp_path):
             load_d_factor(path)
 
 
+def test_a_syntax_error_in_the_hand_transcribed_table_is_a_dfactortableerror(tmp_path):
+    """Finding 7. d_factor.yml is the one file in this system a human
+    transcribes by hand off a web page, so a YAML *syntax* error there is
+    expected, not exotic -- and yaml.parser.ParserError is neither
+    DFactorTableError nor even a ValueError. It escaped both callers: `rank`
+    died with a traceback (exit 1) where the contract says exit 3, and
+    `doctor` -- the command whose whole job is to say what is wrong --
+    crashed instead of failing its `scoring` check. Caught in the loader,
+    the way load_pricing_config already catches its own."""
+    path = tmp_path / "d.yml"
+    path.write_text("bands: [ {min: 6.0, points: 1 }\nwith_goalkeeper: false\n", encoding="utf-8")
+    with pytest.raises(DFactorTableError, match="d.yml"):
+        load_d_factor(path)
+    with pytest.raises(DFactorTableError, match="gone.yml"):
+        load_d_factor(tmp_path / "gone.yml")
+
+
 def test_defensive_average_takes_the_best_five_with_three_true_defenders():
     assert D_FACTOR_ROLES == {Role.Dc, Role.B, Role.Dd, Role.Ds, Role.E, Role.M} and TRUE_DEFENDERS < D_FACTOR_ROLES
     assert (COUNTED, MIN_TRUE_DEFENDERS) == (5, 3)

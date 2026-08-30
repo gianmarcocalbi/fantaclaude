@@ -143,6 +143,23 @@ def test_rank_exits_not_ready_for_an_unknown_voto_source_or_a_malformed_note(mon
     assert result.exit_code == ExitCode.NOT_READY and "depth" in result.stderr
 
 
+def test_rank_exits_not_ready_when_the_hand_written_d_factor_table_does_not_parse(monkeypatch, tmp_path, fixture_json,
+                                                                                   mcp_fixture_json):
+    """Finding 7. check_ready caught DFactorTableError only, so a YAML syntax
+    error in the one file a human transcribes by hand escaped as a traceback
+    at exit 1. A malformed config is exit 3."""
+    import fantaclaude.commands.rank as rank_module
+    from fantaclaude.model.d_factor import load_d_factor
+
+    _workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    bad = tmp_path / "d_factor.yml"
+    bad.write_text("bands: [ {min: 6.0, points: 1 }\n", encoding="utf-8")
+    monkeypatch.setattr(rank_module, "load_d_factor", lambda: load_d_factor(bad))
+    result = runner.invoke(app, ["rank", "--offline"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    assert "d_factor.yml" in result.stderr
+
+
 def test_provisional_note_reads_the_auction_date(tmp_path):
     # The plan's requirement (line 30) is seven days, not the two an earlier
     # draft of rank.py mis-copied into FINAL_WINDOW_DAYS.
