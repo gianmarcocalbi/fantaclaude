@@ -304,6 +304,23 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
         if name and match.player_id is None:
             warnings.append(_taker_warning(profile, name, match, candidates))
         takers[short] = match.player_id
+        team_name = candidates[0].team_name
+        if match.player_id is not None and team_name not in history.penalty_rate_clubs:
+            # The club penalty rate is keyed by the voti workbook's own club
+            # string and looked up by the listone's team_name: two free-text
+            # sources, no id, no alias table on the voti side. A promoted club,
+            # a rename or "Hellas Verona" against "Verona" all miss and yield
+            # 0.0 -- and because club_has_taker is true the moment a taker
+            # resolves, the projection then gives the taker zero penalties and
+            # takes away every other player's own, which is strictly worse
+            # than naming no taker at all. Only warned when a taker actually
+            # resolved: that is the only case where the rate is read (finding
+            # 12). A club the workbook does name but that took no penalty is a
+            # real 0.0, so it is in penalty_rate_clubs and stays quiet.
+            warnings.append(f"{profile.team}: the voti history never names {team_name!r} (promoted, renamed, or "
+                            f"spelled differently there), so its penalty rate is 0; penalty taker {name!r} therefore "
+                            f"projects no penalties and every other {team_name} player loses the ones his own history "
+                            f"records -- worse than naming no taker. Fix the spelling or drop takers.penalties")
     inputs: list[PlayerInputs] = []
     for player_id, name, team_name, team_short, classic_role, mantra_roles, quot, age in rows:
         roles = frozenset(Role(r) for r in mantra_roles)

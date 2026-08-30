@@ -72,6 +72,12 @@ class History:
     lines: dict[int, tuple[SeasonLine, ...]] = field(default_factory=dict)
     priors: dict[str, RolePrior] = field(default_factory=dict)
     club_penalty_rate: dict[str, float] = field(default_factory=dict)
+    # Every club the rate's season named, those that took no penalty included.
+    # club_penalty_rate cannot answer that on its own -- it drops the zeroes --
+    # and the caller has to tell "this club took none" from "this club is
+    # spelled differently here than in the listone, so the lookup misses and
+    # every penalty silently becomes zero" (finding 12).
+    penalty_rate_clubs: frozenset[str] = frozenset()
 
     def lines_for(self, player_id: int) -> tuple[SeasonLine, ...]:
         return self.lines.get(player_id, ())
@@ -143,7 +149,9 @@ def load_history(con: duckdb.DuckDBPyConnection, *, sheet: str, bm: BonusMalus, 
                                   fmean(rates) if rates else 0.0, len(pairs))
 
     last_back = max((s for s in seasons if s != current_season and s in giornate), default=None)
-    club_rate = ({team: n / giornate[last_back] for team, n in club_penalties[last_back].items() if n}
-                 if last_back is not None and giornate.get(last_back) else {})
+    rated = last_back is not None and bool(giornate.get(last_back))
+    club_rate = {team: n / giornate[last_back] for team, n in club_penalties[last_back].items() if n} if rated else {}
+    rate_clubs = frozenset(club_penalties[last_back]) if rated else frozenset()
     return History(sheet=sheet, current_season=current_season, seasons=seasons, giornate=giornate,
-                    lines={pid: tuple(ls) for pid, ls in lines.items()}, priors=priors, club_penalty_rate=club_rate)
+                    lines={pid: tuple(ls) for pid, ls in lines.items()}, priors=priors, club_penalty_rate=club_rate,
+                    penalty_rate_clubs=rate_clubs)

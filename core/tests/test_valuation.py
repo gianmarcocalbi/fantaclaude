@@ -246,6 +246,33 @@ def test_a_taker_the_listone_spells_with_an_initial_resolves_and_moves_the_penal
     assert by_id[5841].explain["penalties_per_presenza"] == 0.0          # Roma's taker resolves too (Calhanoglu is not Roma's)
 
 
+def test_a_taker_at_a_club_the_voti_history_never_names_warns(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 12. club_penalty_rate is keyed by the voti workbook's own club
+    string and looked up by the listone's team_name -- two free-text sources,
+    no id, and no alias table on the voti side. A promoted club, a rename, or
+    "Hellas Verona" against "Verona" all yield 0.0, and because club_has_taker
+    is true the moment a profile names a taker, the taker then projects zero
+    penalties *and* every other player of the club loses the penalties his own
+    history records: strictly worse than naming no taker at all. Silent
+    before; named now, so the operator can fix the spelling or drop the taker.
+
+    A club the workbook does name but that simply took no penalties is a real
+    0.0 and must stay quiet -- the warning is about the join, not the number."""
+    rows = [(pid, name, "Inter Milan" if team == "Inter" else team, role, voto, events)
+            for pid, name, team, role, voto, events in PENALTY_ROWS]
+    seeded(tmp_path, fixture_json, mcp_fixture_json, rows20=rows, penalties="Martinez L.")
+    result, con = run(tmp_path)
+    con.close()
+    inter = [w for w in result.warnings if w.startswith("Inter:")]
+    assert len(inter) == 1 and "penalty rate" in inter[0] and "'Inter'" in inter[0], result.warnings
+    assert "Martinez L." in inter[0]
+    by_id = {p.player_id: p for p in result.projections}
+    assert by_id[2764].explain["penalties_per_presenza"] == 0.0        # the taker himself projects none
+    assert by_id[2120].explain["penalties_per_presenza"] == 0.0        # and a non-taker's own history is gone too
+    # Roma is in the workbook and took no penalty: 0.0 is the honest answer, not a broken join
+    assert not any(w.startswith("Roma:") and "penalty rate" in w for w in result.warnings), result.warnings
+
+
 def test_an_unresolved_taker_says_which_way_it_failed(tmp_path, fixture_json, mcp_fixture_json):
     """"Not found in the listone" for a name the listone has is worse than no
     message: it names the wrong fix. A spelling nothing matches and a spelling
