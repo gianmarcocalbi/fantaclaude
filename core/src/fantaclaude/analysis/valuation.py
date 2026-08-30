@@ -283,8 +283,8 @@ class RunContext:
     budget: int
     roster_min: int
     roster_max: int
-    min_goalkeepers: int
-    max_goalkeepers: int
+    class_min: dict[str, int]       # per role class, from minrl/maxrl read as [goalkeepers, outfield]; a
+    class_max: dict[str, int]       # house rule ("3 portieri, 8 difensori") lands here, never in a branch
     calculate: dict[str, Any]
     listone_snapshot_id: int
 
@@ -307,7 +307,7 @@ def load_context(con: duckdb.DuckDBPyConnection) -> RunContext:
     if minrl[0] is None or maxrl[0] is None:
         raise ValuationError("league_settings.rosters lacks minrl/maxrl; the goalkeeper bounds are not known")
     return RunContext(int(row[0]), str(row[1]), int(row[2]), int(row[3]), int(row[4]), int(row[5]), int(row[6]),
-                      int(minrl[0]), int(maxrl[0]), payload.get("calculate") or {}, int(listone))
+                      {"Por": int(minrl[0])}, {"Por": int(maxrl[0])}, payload.get("calculate") or {}, int(listone))
 
 
 def _taker_warning(profile: TeamProfile, name: str, match: Match, candidates: list[Candidate]) -> str:
@@ -539,7 +539,7 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
                                targets=scenario.target_composition, target_weight=pricing_cfg.target_weight)
         state = PoolState(credits=ctx.budget, market_credits=ctx.team_count * ctx.budget, pool=pool, weights=weights,
                           hard_minimums=minimums, roster_min=ctx.roster_min, roster_max=ctx.roster_max,
-                          min_goalkeepers=ctx.min_goalkeepers, max_goalkeepers=ctx.max_goalkeepers,
+                          class_min=ctx.class_min, class_max=ctx.class_max,
                           targets=scenario.target_composition, class_budget_share=scenario.max_budget_share_per_role)
         boards[scenario.name] = price_board(state, pricing_cfg)
     reference = boards[scenarios[0].name]

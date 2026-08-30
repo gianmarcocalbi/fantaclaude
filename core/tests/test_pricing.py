@@ -50,7 +50,7 @@ def small_pool():
 
 def state(pool=None, **kw):
     base = {"credits": 500, "market_credits": 4000, "pool": pool or small_pool(), "weights": WEIGHTS,
-            "hard_minimums": HARD, "roster_min": 1, "roster_max": 40, "min_goalkeepers": 2, "max_goalkeepers": 6}
+            "hard_minimums": HARD, "roster_min": 1, "roster_max": 40, "class_min": {"Por": 2}, "class_max": {"Por": 6}}
     base.update(kw)
     return PoolState(**base)
 
@@ -133,7 +133,7 @@ CLIFF = (0.939, 0.12, 0.06)                     # the shape the real demand give
 def cliff_state(values=(230.0, 222.0, 207.0, 197.0), quots=(30, 28, 25, 23), **kw):
     pool = tuple(player(200 + i, "A", v, q, spread=0.05) for i, (v, q) in enumerate(zip(values, quots, strict=True)))
     base = {"credits": 500, "market_credits": 500, "pool": pool, "weights": {"A": CLIFF}, "hard_minimums": {},
-            "roster_min": 1, "roster_max": 40, "min_goalkeepers": 0, "max_goalkeepers": 6}
+            "roster_min": 1, "roster_max": 40}
     base.update(kw)
     return PoolState(**base)
 
@@ -203,6 +203,25 @@ def test_a_target_is_soft_and_a_departure_is_reported():
     assert nudged.composition["W"] >= plain.composition["W"] and nudged.targets_departed == ()
     impossible = price_board(state(weights=nudged_weights, targets={"W": 9}), CFG)
     assert impossible.targets_departed == ("W",) and impossible.completion_value > float("-inf")
+
+
+def test_a_class_bound_is_generic_not_a_goalkeeper_branch():
+    """Phase 1 carried the goalkeeper bounds as two scalars behind `cls ==
+    "Por"` branches, so a house rule like "3 portieri, 8 difensori" needed
+    new fields and more branches. The bounds are per class: the goalkeepers'
+    are one entry, and any other class takes the same two dicts."""
+    plain = price_board(state(), CFG)
+    floored = price_board(state(class_min={"Por": 2, "E": 3}), CFG)
+    assert floored.composition["E"] == 3 > plain.composition["E"]
+    e = by_class(small_pool(), "E")
+    assert floored.prices[e[2].player_id].band.p50 > plain.prices[e[2].player_id].band.p50       # the third E is needed now
+    capped = price_board(state(class_max={"Por": 6, "Pc": 1}), CFG)
+    pc = by_class(small_pool(), "Pc")
+    assert capped.composition["Pc"] == 1 < plain.composition["Pc"]
+    assert capped.prices[pc[1].player_id].band.p50 < plain.prices[pc[1].player_id].band.p50       # one Pc slot, and he is the second
+    # a class cannot be floored above the ranks the demand gives it: the floor binds through -inf, as a hard minimum does
+    starved = price_board(state(tuple(p for p in small_pool() if p.role_class != "Dc"), class_min={"Por": 2, "Dc": 2}), CFG)
+    assert starved.completion_value == float("-inf")
 
 
 def test_a_budget_share_caps_a_class():

@@ -5,19 +5,20 @@ Phase 1 calls this with the full listone and pre-auction expected prices;
 Phase 2 calls it with the live remaining pool. Same function, so the board
 cannot jump when the auction opens (spec, "One pricing function").
 
-State: my credits, the pool, what I already own, the demand weights per
-role class and rank (model/demand.py), the hard minimums, the league's
-bounds. V(c) is the value of the best completion of my roster with c
-credits at the pool's expected prices; for a player p offered at x,
-buy(x) = max over the rank a he could take of w_a * value(p) +
-V_{-p,-a}(C - x), and walk = V_{-p}(C) -- in both branches p leaves the
-pool: if I do not buy him, someone else does. He is not seated at his
-class's first rank by construction: which rank he carries depends on how
-many better players the completion also buys, so it is the DP's decision,
-and taking the maximum over the ranks is how it makes it. The max price is
-the largest x with buy(x) >= walk, found by binary search since every
-V_{-p,-a} is monotone in credits and so is their maximum; solved at p25,
-p50 and p75 of value(p), which is the band.
+State: my credits, the pool, what I already own, the demand weights per role
+class and rank (model/demand.py), the hard minimums, the league's bounds per
+class (class_min / class_max: the goalkeepers' 2-6 today, a house rule's "3
+portieri" tomorrow) and for the whole roster. V(c) is the value of the best
+completion of my roster with c credits at the pool's expected prices; for a
+player p offered at x, buy(x) = max over the rank a he could take of w_a *
+value(p) + V_{-p,-a}(C - x), and walk = V_{-p}(C) -- in both branches p leaves
+the pool: if I do not buy him, someone else does. He is not seated at his
+class's first rank by construction: which rank he carries depends on how many
+better players the completion also buys, so it is the DP's decision, and
+taking the maximum over the ranks is how it makes it. The max price is the
+largest x with buy(x) >= walk, found by binary search since every V_{-p,-a} is
+monotone in credits and so is their maximum; solved at p25, p50 and p75 of
+value(p), which is the band.
 
 The machinery (spec, "The algorithm, concretely"): expected prices are
 quotazione x inflation, inflation = credits still on the market over the
@@ -117,8 +118,8 @@ class PoolState:
     excluded: frozenset[int] = frozenset()
     roster_min: int = 23
     roster_max: int = 40
-    min_goalkeepers: int = 2
-    max_goalkeepers: int = 6
+    class_min: dict[str, int] = field(default_factory=dict)     # the league's or the house's floor per class (Por 2)
+    class_max: dict[str, int] = field(default_factory=dict)     # and its ceiling (Por 6); hard_minimums are the modules'
     targets: dict[str, int] = field(default_factory=dict)
     class_budget_share: dict[str, float] = field(default_factory=dict)
 
@@ -276,10 +277,11 @@ def _classes(state: PoolState, cfg: PricingConfig, expected: dict[int, int], bud
                   | {p.player_id for p in by_ratio[:cfg.candidates_per_class]})
         candidates = tuple(p for p in by_value if p.player_id in chosen)
         m = owned.get(cls, 0)
-        k_max = min(cfg.max_goalkeepers, state.max_goalkeepers) if cls == "Por" else cfg.max_per_class
-        k_max = min(k_max, len(ranks))
+        # the pricing knob for goalkeepers is named for them; the league's and the house's bounds are per class
+        cap_cfg = cfg.max_goalkeepers if cls == "Por" else cfg.max_per_class
+        k_max = min(cap_cfg, state.class_max.get(cls, cap_cfg), len(ranks))
         j_max = max(0, k_max - m)
-        need = max(state.hard_minimums.get(cls, 0), state.min_goalkeepers if cls == "Por" else 0)
+        need = max(state.hard_minimums.get(cls, 0), state.class_min.get(cls, 0))
         weights = tuple(ranks[m + i] if m + i < len(ranks) else ranks[-1] for i in range(j_max))
         cap = int(state.class_budget_share[cls] * budget) if cls in state.class_budget_share else None
         classes.append(_Class(cls, candidates, np.array([expected[p.player_id] for p in candidates], dtype=np.int64),
