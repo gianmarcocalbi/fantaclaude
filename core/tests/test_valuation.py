@@ -404,6 +404,59 @@ def test_inputs_hash_covers_the_team_short_the_profiles_are_joined_on(tmp_path, 
     assert second.inputs_hash != first.inputs_hash
 
 
+REBUILT_IDS = ("UPDATE league_settings SET snapshot_id = snapshot_id + 100",
+               "UPDATE listone_snapshots SET snapshot_id = snapshot_id + 100",
+               "UPDATE players SET snapshot_id = snapshot_id + 100",
+               "UPDATE teams SET snapshot_id = snapshot_id + 100",
+               "UPDATE advanced_stats SET snapshot_id = snapshot_id + 100",
+               ("UPDATE advanced_snapshots SET snapshot_id = snapshot_id + 100, "
+                "listone_snapshot_id = listone_snapshot_id + 100"),
+               "UPDATE fixtures SET snapshot_id = snapshot_id + 100",
+               "UPDATE fixture_snapshots SET snapshot_id = snapshot_id + 100")
+
+
+def test_inputs_hash_follows_a_rematch_under_the_same_snapshot_id(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 6(a). `ingest advanced --rematch` re-derives a snapshot in
+    place: ingest/advanced.py UPDATEs the counts and DELETE/re-INSERTs
+    advanced_stats under the *same* snapshot_id, because that row's UNIQUE key
+    -- sha256, aliases_sha256, listone_snapshot_id -- is exactly what "the same
+    derivation" means. So neither the id nor the raw digests move when the
+    match does, and Understat's minutes and xG land on different players while
+    the run is stamped identically. Hashing the derivation, not the id, is what
+    catches it."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    try:
+        profiles, notes = load_profiles(tmp_path / "kb"), load_player_notes(tmp_path / "kb")
+        before = inputs_hash(con, profiles=profiles, notes=notes)
+        moved = con.execute("SELECT snapshot_id, source_id, player_id FROM v_advanced_current "
+                            "WHERE player_id IS NOT NULL ORDER BY source_id LIMIT 1").fetchone()
+        con.execute("UPDATE advanced_stats SET player_id = player_id + 1 WHERE snapshot_id = ? AND source_id = ?",
+                    [moved[0], moved[1]])
+        assert inputs_hash(con, profiles=profiles, notes=notes) != before
+    finally:
+        con.close()
+
+
+def test_inputs_hash_is_reproducible_from_a_rebuilt_database(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 6(b). data/ is gitignored and documented as rebuildable from
+    data/raw/, but every snapshot_id is a DuckDB sequence value minted fresh on
+    the rebuild. A hash keyed on those ids names a run nobody can reproduce --
+    including the operator who committed it to records/. Keyed on content, the
+    same raw files stamp the same run whatever ids they land on."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    try:
+        profiles, notes = load_profiles(tmp_path / "kb"), load_player_notes(tmp_path / "kb")
+        before = inputs_hash(con, profiles=profiles, notes=notes)
+        for statement in REBUILT_IDS:
+            con.execute(statement)
+        assert con.execute("SELECT min(snapshot_id) FROM listone_snapshots").fetchone()[0] > 100
+        assert inputs_hash(con, profiles=profiles, notes=notes) == before
+    finally:
+        con.close()
+
+
 def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_fixture_json):
     from fantaclaude.analysis.exports import (
         export_records,

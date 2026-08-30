@@ -167,12 +167,34 @@ def model_hash(projection_cfg: ProjectionConfig, pricing_cfg: PricingConfig, pre
 
 
 def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], notes: dict[int, PlayerNote]) -> str:
-    listone = con.execute("SELECT snapshot_id, sha256 FROM listone_snapshots ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+    """Content, never a sequence id (finding 6). A snapshot_id is a DuckDB
+    sequence value: `data/` is gitignored and documented as rebuildable from
+    `data/raw/`, so the rebuild mints fresh ids for byte-identical raw files
+    and a hash keyed on them names a run nobody can reproduce -- including the
+    operator who committed it to records/. Every entry below is a sha256 the
+    ingest already stored, or a rules_hash, or the derivation itself. Ids are
+    still used to *select* the current snapshot; they are just not hashed.
+
+    advanced needs both its digests and its derivation, because
+    `ingest advanced --rematch` re-derives a snapshot in place: the row's
+    UNIQUE key is (sha256, aliases_sha256, listone_snapshot_id), so an
+    identical key is precisely what a rematch keeps while it rewrites which
+    listone player each Understat row belongs to. Only the ids are hashed, not
+    the stats: the DOUBLE columns are already fixed by sha256, and summing
+    them here would put a parallel float reduction inside a digest that has to
+    be byte-stable. Only matched rows, because only those are read."""
+    listone = con.execute("SELECT sha256 FROM listone_snapshots ORDER BY snapshot_id DESC LIMIT 1").fetchone()
     voti = con.execute("SELECT season_id, giornata, sha256 FROM v_voti_files_current ORDER BY 1, 2").fetchall()
-    advanced = con.execute("SELECT season_id, snapshot_id FROM advanced_snapshots WHERE snapshot_id IN "
-                           "(SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id) ORDER BY 1").fetchall()
-    fixtures = con.execute("SELECT competition, season_id, max(snapshot_id) FROM fixture_snapshots GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
-    settings = con.execute("SELECT snapshot_id FROM v_league_settings_current").fetchone()
+    advanced = con.execute("SELECT a.season_id, a.sha256, a.aliases_sha256, l.sha256 FROM advanced_snapshots a "
+                           "LEFT JOIN listone_snapshots l ON l.snapshot_id = a.listone_snapshot_id "
+                           "WHERE a.snapshot_id IN (SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id) "
+                           "ORDER BY 1").fetchall()
+    matches = con.execute("SELECT season_id, source_id, player_id FROM v_advanced_current "
+                          "WHERE player_id IS NOT NULL ORDER BY 1, 2").fetchall()
+    fixtures = con.execute("SELECT competition, season_id, sha256 FROM fixture_snapshots WHERE snapshot_id IN "
+                           "(SELECT max(snapshot_id) FROM fixture_snapshots GROUP BY competition, season_id) "
+                           "ORDER BY 1, 2").fetchall()
+    settings = con.execute("SELECT rules_hash FROM v_league_settings_current").fetchone()
     # team_short is the *only* key build_inputs joins a profile to its players
     # on, so it belongs here above all the rest: a typo there (INT -> INR)
     # unjoins a whole club -- its rotation factor and its penalty taker both
@@ -187,7 +209,8 @@ def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], 
                         "europe": p.europe, "rotation_factor": p.rotation_factor, "takers": p.takers} for p in profiles],
           "notes": [notes[k].to_dict() for k in sorted(notes)]}
     return _digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
-                    "advanced": [list(r) for r in advanced], "fixtures": [list(r) for r in fixtures],
+                    "advanced": [list(r) for r in advanced], "advanced_matches": [list(r) for r in matches],
+                    "fixtures": [list(r) for r in fixtures],
                     "settings": list(settings) if settings else None, "kb": kb})
 
 
