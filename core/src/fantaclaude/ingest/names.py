@@ -200,6 +200,25 @@ def match_listone(name: str, candidates: list[Candidate]) -> Match:
     return Match(None, UNMATCHED, ids)
 
 
+def unresolved_detail(team: str, match: Match, candidates: list[Candidate]) -> str:
+    """Why a name written the listone's way did not resolve, as an instruction.
+
+    The two failures need different corrections: none of that name in the
+    club's squad is a spelling to fix, several of it is an initial to add.
+    Never "not found in the listone" for a name the listone has -- that sent
+    the operator to re-spell a name that was already right, which is how it
+    stayed hidden. One implementation, because `rank`'s run warning and
+    `doctor`'s takers check must name the same fix for the same profile."""
+    named = {c.player_id: c.name for c in candidates}
+    close = ", ".join(repr(named[i]) for i in match.candidates if i in named)
+    if match.status == AMBIGUOUS:
+        return f"is {len(match.candidates)} {team} players ({close}); add the initial the listone uses"
+    if match.candidates:
+        return f"is not how the listone spells {close}; use the listone's spelling"
+    return (f"is not in the listone's {team} squad; write him the listone's way -- surname first, "
+            f'then the initial ("Martinez L.")')
+
+
 def resolve_team(source_name: str, teams: dict[str, str], aliases: dict[str, str]) -> str | None:
     """`teams`: lower-cased listone team name -> short code; `aliases`: the
     source's spelling -> the listone's name. None when the club is not in

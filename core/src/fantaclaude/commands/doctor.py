@@ -22,7 +22,14 @@ from fantaclaude.analysis.valuation import PreferencesError, load_preferences
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
-from fantaclaude.ingest.names import AliasError, load_aliases
+from fantaclaude.ingest.names import (
+    AliasError,
+    Candidate,
+    load_aliases,
+    load_candidates,
+    match_listone,
+    unresolved_detail,
+)
 from fantaclaude.kb.notes import (
     NoteError,
     load_player_notes,
@@ -287,6 +294,53 @@ def _profiles_check(kb: Path, db: Path) -> Check:
     return Check("kb_profiles", True, f"{head}; europe agrees with the fixtures")
 
 
+def _takers_check(kb: Path, db: Path) -> Check:
+    """Every set-piece taker a profile names, resolved against the listone the
+    way `rank` resolves them (finding 20b).
+
+    Notes get `orphan_notes` and `misdeclared_team_notes` precisely because
+    they carry a `player_id`. A taker carries only a name, so nothing checked
+    him at all: a taker who transferred, or whom the listone re-spelt
+    ("Martinez" -> "Martinez L."), silently dropped his whole club back to
+    historical penalty splits -- and the only thing that said so was a
+    `run.warnings` line from `rank`, i.e. after the live re-sync this command
+    exists to gate. Every role is resolved, not only `penalties`: only that
+    one feeds the model today, but a name the club's squad does not have is a
+    profile gone stale whichever line it sits on."""
+    try:
+        profiles = load_profiles(kb)
+    except ProfileError as exc:
+        return Check("kb_takers", False, str(exc))          # the kb_profiles check says the same; keep the names honest
+    con = _read_only(db)
+    if con is None:
+        return Check("kb_takers", False, "skipped: no database")
+    try:
+        candidates = load_candidates(con)
+    except duckdb.Error as exc:
+        return Check("kb_takers", False, f"skipped: {exc}")
+    finally:
+        con.close()
+    squads: dict[str, list[Candidate]] = {}
+    for candidate in candidates:
+        squads.setdefault(candidate.team_short, []).append(candidate)
+    named = 0
+    problems: list[str] = []
+    for profile in sorted(profiles, key=lambda p: p.team):
+        squad = squads.get(profile.team_short, [])
+        for role, name in sorted(profile.takers.items()):
+            if not name:
+                continue
+            named += 1
+            match = match_listone(name, squad)
+            if match.player_id is None:
+                problems.append(f"{profile.team} {role}: {name!r} "
+                                f"{unresolved_detail(profile.team, match, squad)}")
+    head = f"{named - len(problems)}/{named} takers resolve against the listone"
+    if problems:
+        return Check("kb_takers", False, f"{head}; " + "; ".join(problems))
+    return Check("kb_takers", True, head)
+
+
 def _read_only(db: Path) -> duckdb.DuckDBPyConnection | None:
     if not db.is_file():
         return None
@@ -469,6 +523,7 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
     except (AliasError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
         checks.append(Check("aliases", False, str(exc)))
     checks.append(_profiles_check(paths.kb, paths.db))
+    checks.append(_takers_check(paths.kb, paths.db))
     checks.append(_notes_check(paths.kb, paths.db))
     checks.append(_participants_check(paths.kb, paths.league_yml))
     checks.append(_scoring_check(paths.db))

@@ -57,7 +57,11 @@ Run once, on an empty tree (Phase 0b), or to add a promoted club.
    "Rotation" section says why. `ttl: 14d`, `confidence: medium` when two
    sources agree, `low` otherwise.
 7. `fantaclaude kb audit` must report 0 invalid; `fantaclaude doctor` must
-   report `kb_profiles` ok. Commit the tree once.
+   report `kb_profiles` and `kb_takers` ok. `kb_takers` resolves every
+   `takers:` name against the listone and names the fix for each that does
+   not: several players of that surname (add the initial the listone uses),
+   or a spelling the listone does not have (use the listone's). Commit the
+   tree once.
 
 ### `refresh`
 
@@ -179,7 +183,8 @@ twenty profiles; for Atalanta it writes `europe: UECL`, `rotation_factor:
 0.8` ("Conference League Thursdays plus a coach who rotates the front three
 on principle; the back line and the keeper play everything") and lists the
 penalty taker with the caveat that a January signing may take over; ends
-with `kb audit` → 0 invalid and `doctor` → `kb_profiles ok`, and one commit.
+with `kb audit` → 0 invalid and `doctor` → `kb_profiles ok`, `kb_takers ok`,
+and one commit.
 
 **Bad answer:** a profile that says "Lookman averaged 7.1 last season" (a
 number, unqueryable, soon wrong), `europe: Europa` (not a valid label —

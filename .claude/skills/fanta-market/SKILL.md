@@ -28,9 +28,11 @@ Three rules, defended hard:
 
 ### `rank`
 
-1. `fantaclaude doctor` — `scoring`, `pricing`, `kb_profiles`, `kb_notes`
-   must be ok; `valuations` says whether a run exists and whether a rules
-   change superseded it.
+1. `fantaclaude doctor` — `scoring`, `pricing`, `kb_profiles`, `kb_takers`,
+   `kb_notes` must be ok (`kb_takers` catches, before the re-sync, the taker
+   who transferred or whom the listone re-spelt — otherwise his whole club
+   quietly falls back to historical penalty splits); `valuations` says
+   whether a run exists and whether a rules change superseded it.
 2. `fantaclaude rank` — re-syncs the league first (one API call set; pass
    `--offline` when re-running after an edit of your own, since the rules
    did not change). Read the status line: the composition per scenario,

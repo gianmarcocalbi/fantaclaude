@@ -45,7 +45,12 @@ from fantaclaude.asta.pricing import (
     PricingConfig,
     price_board,
 )
-from fantaclaude.ingest.names import AMBIGUOUS, Candidate, Match, match_listone
+from fantaclaude.ingest.names import (
+    Candidate,
+    Match,
+    match_listone,
+    unresolved_detail,
+)
 from fantaclaude.kb.notes import (
     NoteError,
     PlayerNote,
@@ -302,21 +307,10 @@ def load_context(con: duckdb.DuckDBPyConnection) -> RunContext:
 
 
 def _taker_warning(profile: TeamProfile, name: str, match: Match, candidates: list[Candidate]) -> str:
-    """A taker who does not resolve needs an instruction, and the two failures
-    need different ones: none of that name in the club's squad is a spelling
-    to fix, several of it is an initial to add. Never "not found in the
-    listone" for a name the listone has -- that sent the operator to re-spell
-    a name that was already right, which is how this stayed hidden."""
-    named = {c.player_id: c.name for c in candidates}
-    close = ", ".join(repr(named[i]) for i in match.candidates)
-    if match.status == AMBIGUOUS:
-        detail = f"is {len(match.candidates)} {profile.team} players ({close}); add the initial the listone uses"
-    elif match.candidates:
-        detail = f"is not how the listone spells {close}; use the listone's spelling"
-    else:
-        detail = (f"is not in the listone's {profile.team} squad; write him the listone's way -- surname first, "
-                  f'then the initial ("Martinez L.")')
-    return f"{profile.team}: penalty taker {name!r} {detail}; history stands"
+    """The run's own wording around the shared diagnosis: what happens to this
+    run (the club's own history stands) is `rank`'s to say, while *why* the
+    name did not resolve is the same fact `doctor` reports."""
+    return f"{profile.team}: penalty taker {name!r} {unresolved_detail(profile.team, match, candidates)}; history stands"
 
 
 def _resolve_taker(profile: TeamProfile, candidates: list[Candidate]) -> Match:

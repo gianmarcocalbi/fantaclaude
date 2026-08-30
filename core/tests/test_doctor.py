@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_settings",
          "listone", "league_yml", "preferences", "kb", "modules",
          "web_session", "player_match", "advanced", "fixtures", "aliases",
-         "kb_profiles", "kb_notes", "kb_participants", "scoring", "pricing", "valuations"]
+         "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "scoring", "pricing", "valuations"]
 
 
 def _paths(root):
@@ -305,6 +305,54 @@ def test_the_preferences_check_is_the_loader_rank_will_use(tmp_path, fixture_jso
     check = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}["preferences"]
     assert check.ok, check
     prefs.write_text("target_composition: {Por: 2}\n")
+
+
+def test_takers_are_resolved_against_the_listone(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 20(b). A note gets `orphan_notes` and `misdeclared_team_notes`
+    because it carries a `player_id`; a taker carries only a name, and doctor
+    resolved none of them. So a taker who transfers, or who gets re-spelt
+    ("Martinez" -> "Martinez L."), silently dropped his whole club back to
+    historical penalty splits, with nothing but a `run.warnings` line from
+    `rank` -- after the live re-sync doctor exists to gate -- to say so."""
+    from test_kb_profiles import _write as write_profile
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    kb = tmp_path / "kb"
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["kb_takers"].ok and "0" in by["kb_takers"].detail          # no profiles, nothing to resolve
+
+    # Inter's listone squad has both Calhanoglu and Dimarco: every taker resolves
+    write_profile(kb, "Inter", "INT", penalties="Calhanoglu")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["kb_takers"].ok, by["kb_takers"].detail
+    assert "2/2" in by["kb_takers"].detail
+
+    # the re-spelling the finding names: the listone writes the initial, the profile does not
+    write_profile(kb, "Inter", "INT", penalties="Martinez")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_takers"].ok
+    detail = by["kb_takers"].detail
+    assert "1/2" in detail and "Inter" in detail and "penalties" in detail
+    assert "'Martinez'" in detail and "'Martinez L.'" in detail and "add the initial" in detail
+
+    # and the transfer: a name the club's listone squad does not have at all
+    write_profile(kb, "Inter", "INT", penalties="Dybala")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_takers"].ok
+    assert "'Dybala'" in by["kb_takers"].detail and "not in the listone's Inter squad" in by["kb_takers"].detail
+
+    # every taker role is resolved, not only the one the model reads
+    write_profile(kb, "Roma", "ROM", penalties="Dybala")     # corners: Dimarco, who is Inter's
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert "Roma corners" in by["kb_takers"].detail and "'Dimarco'" in by["kb_takers"].detail
+
+
+def test_takers_check_is_skipped_not_raised_without_a_database(tmp_path):
+    from test_kb_profiles import _write as write_profile
+
+    write_profile(tmp_path / "kb", "Inter", "INT")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_takers"].ok and "no database" in by["kb_takers"].detail
 
 
 def test_the_phase_1_checks(tmp_path, fixture_json, mcp_fixture_json):
