@@ -23,7 +23,7 @@ module: 3-5-2
 europe: {europe}
 rotation_factor: {rotation}
 takers:
-  penalties: Calhanoglu
+  penalties: {penalties}
   corners: Dimarco
 ---
 
@@ -34,11 +34,12 @@ Prose.
 """
 
 
-def _write(kb, team, short, *, europe="UCL", rotation="0.9", slug=None):
+def _write(kb, team, short, *, europe="UCL", rotation="0.9", slug=None, penalties="Calhanoglu"):
     folder = kb / "serie-a" / "teams" / (slug or team_slug(team))
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "profile.md"
-    path.write_text(PROFILE.format(team=team, short=short, europe=europe, rotation=rotation), encoding="utf-8")
+    path.write_text(PROFILE.format(team=team, short=short, europe=europe, rotation=rotation, penalties=penalties),
+                    encoding="utf-8")
     return path
 
 
@@ -101,7 +102,7 @@ def test_doctor_kb_profiles_check(tmp_path, fixture_json, mcp_fixture_json):
 
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)          # listone sample: 8 clubs; UECL ties for ATA
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
-    assert NAMES[-1] == "kb_profiles" and not by["kb_profiles"].ok
+    assert "kb_profiles" in NAMES and not by["kb_profiles"].ok
     assert "0/8 teams profiled" in by["kb_profiles"].detail and "Atalanta" in by["kb_profiles"].detail
 
     kb = tmp_path / "kb"

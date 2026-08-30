@@ -1431,13 +1431,86 @@ the network.
 | **0a — spine** | uv workspace (including `.mcp.json` still resolving via the root lock), MCP token-cache hardening and `players()`, DuckDB schema, `sync-league` with the `league.yml` cross-check, Mantra role model with the module table, listone ingestion through the API, the CLI contract (`schema`, `query`, `doctor`, `kb audit`), `kb/` scaffold | 26 Aug |
 | **0b — history** | website-session discovery, then `stats_web` (`player_season` and `player_match` from the voti XLSX), `calendar`, `advanced`; `kb/` bootstrap through `fanta-kb` | after 0a |
 | **1 — market** | projection, VOR, allocation, tiers, max prices, asta plan; opponent dossiers via `fanta-kb interview` | 29 Aug |
-| **2a — asta core** | state machine, advisor, adjustment layer, state snapshot, CLI entry | 31 Aug |
+| **2a — asta core** | state machine, advisor, adjustment layer, state snapshot, CLI entry; plus the six items carried from Phase 1's review (below): the `exact`/focused decision **first**, then the `sync-league` helper and per-class roster bounds as groundwork, the continuous demand fold, and the cleanup | 31 Aug |
 | **2b — dashboard** | FastAPI + WebSocket + Vite/shadcn UI, FantaAstaLive feed, `fantaclaude-mcp` | 2 Sep |
 | **freeze + rehearsal** | no new features; full mock auction end to end | 3 Sep |
 | **3 — manager** | news ingestion, lineup optimiser, weekly loop, post-giornata calibration | from mid-Sep |
 
 The knowledge base is not a phase — it is the spine plus `kb/`, which every phase
 reads and writes back into.
+
+### Carried into 2a from Phase 1's review
+
+Five items were found reviewing Phase 1 and deliberately not fixed there, because each
+is either a decision 2a has to make anyway or a refactor that gets harder once the live
+auction is built on top of it. They are recorded here rather than in a backlog so 2a
+starts from them.
+
+**Order within 2a.** The `exact`/focused decision comes first, before the advisor is
+written, because it determines whether the advisor may call `price_board` per state
+change at all. The two refactors come next and before the state machine: both are
+cheap, neither changes behaviour, and both get materially harder once `asta` is a third
+caller of the sync flow and once live state is expressed through `PoolState`. The
+continuous demand fold and the cleanup are last and are the first things to drop.
+
+**Against the cut-line below.** If the dynamic max price is cut, the `exact`/focused
+decision goes with it — a static board has no focused mode to reconcile — so that
+decision is worth making early precisely because it is the one that becomes free if the
+cut-line is reached. The two refactors survive every cut: they are groundwork for the
+state machine, which is the floor.
+
+**One design question 2a must answer, not a defect:**
+
+- **`exact` is a second pricing mode behind one function name.** The pre-auction board
+  prices everyone with `exact=True`; the latency-bounded live board prices only `focus`
+  exactly, so the committed `records/` board and the live board disagree for every
+  non-focused player the moment the auction opens. "The live pricer reproduces the
+  pre-auction board exactly" is tested only for the focused player, and the discrepancy
+  is explained in a prose `note` in `explain()` rather than designed away. 2a has to
+  choose: re-run `exact=True` per state change against the latency budget (the exact
+  board measures ~270 ms against a 100 ms budget), or ship a board that jumps and say
+  by how much. Decide it before the advisor is written, not during the auction.
+
+**Two refactors to do first, as groundwork:**
+
+- **`rank_cmd` re-implements `sync_league_cmd`'s fetch/conflict/apply flow** and drops
+  the `SyncReport`, so a rules change detected during `rank` supersedes every earlier
+  run without showing the diff or count that `sync-league` renders. The two copies have
+  already diverged. Do the shared helper **before** 2a's `asta` command becomes the
+  third copy.
+- **Goalkeeper bounds are two scalar `PoolState` fields plus `cls == "Por"` branches**,
+  while every other class already has the per-class `hard_minimums` dict. A "3 portieri,
+  8 difensori" house rule, or the roster-bound contingency this document already
+  anticipates, needs new fields and more branches. `class_min` / `class_max:
+  dict[str, int]` is the general shape, and `PoolState` is how 2a expresses live state —
+  widen it before building on it.
+
+**One modelling improvement, deferred because it moves every price:**
+
+- **The unsatisfiable-demand fold is all-or-nothing.** Phase 1 folds a role class's
+  module demand onto the classes its players actually pin to, but only when that class
+  has *literally zero* pinned supply, so one listone row can move ~0.5 slots of demand
+  per module and every price with it, from a routine re-sync. A class with one supplier
+  against six league-wide slots is as unsatisfiable as one with none. Phase 1 ships a
+  `thin_classes` warning so the cliff is visible; the continuous version — fold in
+  proportion to the shortfall — should **replace** that warning rather than sit beside
+  it. Held back because the retained-fraction shape is a design question rather than a
+  derivation, and because it would move every price a third time in one branch.
+
+**Cleanup carried forward,** none of it load-bearing: `analysis/valuation._digest`
+duplicates `league/settings.rules_hash`'s formula; `doctor._read_only` re-implements
+`connect(read_only=True)` and the database is opened up to six times per `doctor` run,
+so a file held by a writer reports "cannot open database" and "skipped: no database"
+two lines apart; `rank._load_preferences` is another copy of the `safe_load … or {}`
+loader and catches only `yaml.YAMLError`; the front-matter prologue is copied across
+`kb/notes.py`, `kb/participants.py` and `kb/profiles.py`, and `kb/audit._validator_for`
+re-encodes the loaders' globs as parent-name checks so audit and `rank` can accept
+different files; `analysis/history.EVENT_COLUMNS` re-lists `Events`' fields, making a
+mismatch a `TypeError` at rank time rather than an import error; `valuation._finite` and
+`pricing._json` are two scrubbers for one JSON-safety rule while `pricing.explain()`
+applies neither; and `exports._rows` is rebuilt five times per rank, with
+`exports._header` and `cli/app._render_rank` hand-kept near-copies that already print
+different fields.
 
 **Cut-line, decided now rather than in a panic.** If Phase 2 runs late, capability
 drops in this order: the opponent pressure model, then the dynamic max price,
@@ -1507,9 +1580,16 @@ often than to bad models.
    and `tipo: 2` is consistent with that. `sroles: 2` showing roster bounds that are
    not Mantra-shaped is no contradiction: Mantra governs lineup roles, not roster
    composition.
-3. **Is the modificatore di difesa active?** Every modifier field is currently null,
-   which reads as inactive. Re-check once the league is configured; it materially
-   changes both valuation and lineup choice.
+3. **~~Is the modificatore di difesa active?~~ Decided 2026-08-29.** Inactive
+   (every modifier field null on every snapshot since 2026-08-22). In Mantra
+   the modifier is the D-Factor — the five best voti among Dc/B/Dd/Ds/E/M with
+   at least three true defenders, optionally the goalkeeper, averaged and
+   mapped to points; its thresholds are not published and are customisable
+   per league, so they live in `model/d_factor.yml` as data, empty until
+   transcribed from the league's settings page. Phase 1 models the mechanism
+   (`model/d_factor.py`) and applies a per-player uplift when
+   `calculate.smodd` is non-null; any other modifier key turning non-null
+   makes `rank` refuse.
 4. **~~Does the admin record sales during the auction?~~ Resolved 2026-08-23.** No:
    the admin runs the auction in FantaAstaLive and transfers the results into the
    lega afterwards. That retired the reconciliation design in favour of the live feed
@@ -1563,7 +1643,10 @@ often than to bad models.
    and the admin has confirmed the auction keeps that freedom (two goalkeepers
    mandatory, the rest as chosen), so the shape is chosen rather than given. The optimiser can
    propose one; the user should state a preference in `preferences.yml` to start
-   from.
+   from. Decided 2026-08-29: the optimiser proposes the composition;
+   `preferences.yml` keeps `target_composition: {Por: 2}` as a soft prior
+   (raised demand weights, never a bound), and `rank` prints the composition
+   it chose per scenario.
 8. **~~Does Firebase `playerId` equal the listone `Id`?~~ Resolved 2026-08-24.** It
    does: FantaAstaLive's player directory (539 rows, the ids `picks[].playerId` is
    drawn from) joins the league API listone on `id` with all 539 names agreeing.

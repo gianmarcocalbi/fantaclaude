@@ -1,6 +1,6 @@
 ---
 name: fanta-kb
-description: Build and maintain the fantaclaude knowledge base under kb/ — `bootstrap` writes the rules documents and one profile per Serie A club, `refresh` renews what `fantaclaude kb audit` reports as expired. Use when the knowledge base is empty, stale, or a club changed coach, module or European status.
+description: Build and maintain the fantaclaude knowledge base under kb/ — `bootstrap` writes the rules documents and one profile per Serie A club, `refresh` renews what `fantaclaude kb audit` reports as expired, `interview` writes an opponent dossier. Use when the knowledge base is empty, stale, or a club changed coach, module or European status.
 ---
 
 # fanta-kb
@@ -57,7 +57,11 @@ Run once, on an empty tree (Phase 0b), or to add a promoted club.
    "Rotation" section says why. `ttl: 14d`, `confidence: medium` when two
    sources agree, `low` otherwise.
 7. `fantaclaude kb audit` must report 0 invalid; `fantaclaude doctor` must
-   report `kb_profiles` ok. Commit the tree once.
+   report `kb_profiles` and `kb_takers` ok. `kb_takers` resolves every
+   `takers:` name against the listone and names the fix for each that does
+   not: several players of that surname (add the initial the listone uses),
+   or a spelling the listone does not have (use the listone's). Commit the
+   tree once.
 
 ### `refresh`
 
@@ -71,9 +75,64 @@ Run once, on an empty tree (Phase 0b), or to add a promoted club.
    (the journal is append-only) or `kb/rules/aliases.yml` (that file belongs
    to ingestion).
 
-### `interview` — Phase 1
+### `interview`
 
-Opponent dossiers under `kb/league/participants/` are elicited conversationally in Phase 1; this skill does not write them yet.
+Opponent dossiers, one per rival manager, elicited conversationally. Output
+is `kb/league/participants/<nick>.md` in the fixed schema
+`fantaclaude.kb.participants` validates, plus one line in `league.yml`.
+
+1. `fantaclaude query --sql "SELECT payload->'teams' AS teams FROM v_league_settings_current" --json`
+   — the league's team names and owner nicks (`n`, `nu`); never invent a
+   nick, and never write an email address anywhere.
+2. Ask, for one rival at a time, only what predicts auction behaviour: who
+   they support; whether they spend early, steadily, or hoard; the roles
+   they overpay and the ones they neglect; the biggest single buy you have
+   seen them make, as a share of the budget; last year's regrets. Ten
+   minutes per rival; stop when the answers repeat.
+3. Write the dossier from the template below. Front-matter: `nick`, `team`
+   (the league team name, or omit until the auction assigns one),
+   `budget_style` (`early | steady | hoarder`), `favourite_clubs` (listone
+   spellings), `overpays` / `avoids` (role classes: Por, Dd, Ds, Dc, E, M,
+   C, W, T, A, Pc), `max_single_share` (optional, 0–1). `ttl: 90d`,
+   `confidence: medium` when the user is sure, `low` when guessing.
+4. Add to `league.yml` under `participants:` —
+   `<nick>: {value: kb/league/participants/<nick>.md, source: interview, verified_on: <date>}`.
+5. `fantaclaude kb audit` → 0 invalid; `fantaclaude doctor` → `kb_participants` ok. One commit per interview session.
+
+Dossier template:
+
+```markdown
+---
+updated: 2026-09-01
+ttl: 90d
+confidence: medium
+source: "interview 2026-09-01"
+nick: Marco
+team: Sanzimippi FC
+budget_style: early
+favourite_clubs: [Juventus]
+overpays: [Pc, A]
+avoids: [Por]
+max_single_share: 0.3
+---
+
+# Marco
+
+## How he bids
+Two to four sentences: when he spends, what he chases, what he never buys.
+
+## Last year
+The buys he regrets and the ones he brags about — prose, no prices.
+
+## Watch
+What would change this dossier.
+```
+
+**Ask:** "let's do the dossier for Marco." **Good answer:** lists the nicks
+from the settings payload, asks the six questions in turn, writes the file
+above, adds the `league.yml` line, runs `kb audit` and `doctor`, commits.
+**Bad answer:** a dossier with a price table, an email address, a role
+`avoids: [striker]`, or a nick the league does not have.
 
 ## Profile template
 
@@ -90,7 +149,9 @@ module: 3-5-2
 europe: UCL
 rotation_factor: 0.9
 takers:
-  penalties: <player>
+  penalties: <player>          # as the listone writes him: surname first,
+                               # then the initial it uses to tell two of them
+                               # apart ("Martinez L.", not "Lautaro Martinez")
   corners: <player>
   free_kicks: <player>
 ---
@@ -122,7 +183,8 @@ twenty profiles; for Atalanta it writes `europe: UECL`, `rotation_factor:
 0.8` ("Conference League Thursdays plus a coach who rotates the front three
 on principle; the back line and the keeper play everything") and lists the
 penalty taker with the caveat that a January signing may take over; ends
-with `kb audit` → 0 invalid and `doctor` → `kb_profiles ok`, and one commit.
+with `kb audit` → 0 invalid and `doctor` → `kb_profiles ok`, `kb_takers ok`,
+and one commit.
 
 **Bad answer:** a profile that says "Lookman averaged 7.1 last season" (a
 number, unqueryable, soon wrong), `europe: Europa` (not a valid label —

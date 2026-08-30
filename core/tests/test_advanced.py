@@ -74,10 +74,12 @@ def test_record_advanced_matches_flags_and_dedupes(db, tmp_path, fixture_json):
     season_id, rows = load_advanced(raw.path)
     aliases = Aliases(players={"understat": {"Pietro Terracciano": 3}},        # any listone id: the mechanism is what is tested
                       teams={"understat": {"AC Milan": "Milan"}})
+    key = {"aliases_sha256": "a1", "listone_snapshot_id": 1}
     result = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
-                             teams=load_teams(db), aliases=aliases)
+                             teams=load_teams(db), aliases=aliases, **key)
     assert result.snapshot_id == 1 and result.inserted == 10 and not result.skipped_duplicate
     assert (result.matched, result.alias, result.ambiguous, result.unmatched) == (5, 1, 1, 3)
+    assert (result.aliases_sha256, result.listone_snapshot_id) == ("a1", 1)
     assert result.ambiguous_names == [{"name": "Josep Martínez", "teams": ["Inter"],
                                        "candidates": [{"player_id": 2764, "name": "Martinez L."}]}]
     assert result.unresolved_teams == ["Bologna", "Cremonese", "Pisa", "Sassuolo"]
@@ -95,7 +97,7 @@ def test_record_advanced_matches_flags_and_dedupes(db, tmp_path, fixture_json):
     assert db.execute("SELECT minutes FROM v_player_season").fetchall() == []          # no voti yet: the view stays empty
 
     again = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
-                            teams=load_teams(db), aliases=aliases)
+                            teams=load_teams(db), aliases=aliases, **key)
     assert again.skipped_duplicate and again.snapshot_id == 1 and again.inserted == 0
     assert (again.matched, again.ambiguous, again.unmatched) == (5, 1, 3)
 
@@ -103,52 +105,49 @@ def test_record_advanced_matches_flags_and_dedupes(db, tmp_path, fixture_json):
     changed["payload"]["players"][0]["goals"] = "18"
     raw2 = store.write("advanced", changed, label="20")
     second = record_advanced(db, *load_advanced(raw2.path), raw2, candidates=load_candidates(db),
-                             teams=load_teams(db), aliases=aliases)
+                             teams=load_teams(db), aliases=aliases, **key)
     assert second.snapshot_id == 2
     assert db.execute("SELECT count(*) FROM advanced_stats").fetchone()[0] == 20         # history kept
     assert db.execute("SELECT goals FROM v_advanced_current WHERE source_id = '7006'").fetchone()[0] == 18
 
 
-def test_record_advanced_force_re_matches_the_same_file(db, tmp_path, fixture_json):
-    """Ruling R11: record_advanced's sha256 short-circuit means a later
-    alias never gets a chance to re-match the same raw content -- force=True
-    (ingest advanced --rematch's mechanism) must skip it and re-derive the
-    match, and a plain re-record (force=False, the default) must stay a
-    no-op even after that -- it dedupes on the same sha256 either way.
-
-    advanced_snapshots.sha256 is UNIQUE, so a forced re-match cannot append
-    a second snapshot for identical content (a real DB constraint, not just
-    the Python-level short-circuit) -- it re-derives the *same* snapshot_id's
-    matched/ambiguous/unmatched counts and advanced_stats rows in place. The
-    raw file's own identity (snapshot_id, sha256, fetched_at, raw_path) does
-    not change; only the join onto the listone does."""
+def test_the_dedupe_key_covers_the_aliases_file_and_the_listone(db, tmp_path, fixture_json):
+    """The match is a function of three inputs -- the raw bytes, the aliases
+    file and the listone snapshot -- so a change to any of them is a new
+    derivation and appends a snapshot on its own; `force` is only for
+    re-deriving an identical key in place (a matcher code change)."""
     _listone(db, tmp_path, fixture_json)
     store = RawStore(tmp_path / "raw")
     raw = store.write("advanced", fixture_json("understat_sample"), label="20")
     season_id, rows = load_advanced(raw.path)
-    no_alias = Aliases()
-    first = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
-                            teams=load_teams(db), aliases=no_alias)
+    common = {"candidates": load_candidates(db), "teams": load_teams(db)}
+    first = record_advanced(db, season_id, rows, raw, aliases=Aliases(), aliases_sha256="a1", listone_snapshot_id=1, **common)
     assert first.snapshot_id == 1 and not first.skipped_duplicate
     assert db.execute("SELECT player_id FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()[0] is None
 
-    still_a_noop = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
-                                   teams=load_teams(db), aliases=no_alias, force=False)
-    assert still_a_noop.skipped_duplicate and still_a_noop.snapshot_id == 1
-    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+    # The same three inputs again: a no-op, as before.
+    noop = record_advanced(db, season_id, rows, raw, aliases=Aliases(), aliases_sha256="a1", listone_snapshot_id=1, **common)
+    assert noop.skipped_duplicate and noop.snapshot_id == 1
 
-    # An alias added *after* the first recording: force=True is the only way
-    # to make it apply to the same, already-recorded raw file.
+    # An alias added after the first recording: a different aliases_sha256, so
+    # it re-matches and appends -- no flag needed, nothing overwritten.
     aliased = Aliases(players={"understat": {"Josep Martínez": 2764}})
-    forced = record_advanced(db, season_id, rows, raw, candidates=load_candidates(db),
-                             teams=load_teams(db), aliases=aliased, force=True)
-    assert not forced.skipped_duplicate and forced.snapshot_id == 1            # same snapshot, re-derived in place
-    assert forced.alias == 1                                                   # the one alias added above
-    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1   # not a new row: UNIQUE(sha256)
-    assert db.execute("SELECT count(*) FROM advanced_stats").fetchone()[0] == 10      # replaced in place, not appended
-    current = db.execute(
-        "SELECT player_id, match_status FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()
-    assert current == (2764, "alias")
+    second = record_advanced(db, season_id, rows, raw, aliases=aliased, aliases_sha256="a2", listone_snapshot_id=1, **common)
+    assert not second.skipped_duplicate and second.snapshot_id == 2 and second.alias == 1
+    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM advanced_stats").fetchone()[0] == 20           # both derivations kept
+    assert db.execute("SELECT player_id, match_status FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone() == (2764, "alias")
+
+    # A new listone snapshot: the same again.
+    third = record_advanced(db, season_id, rows, raw, aliases=aliased, aliases_sha256="a2", listone_snapshot_id=2, **common)
+    assert third.snapshot_id == 3
+
+    # force=True on an identical key re-derives that snapshot in place.
+    forced = record_advanced(db, season_id, rows, raw, aliases=aliased, aliases_sha256="a2", listone_snapshot_id=2,
+                             force=True, **common)
+    assert forced.snapshot_id == 3 and not forced.skipped_duplicate
+    assert db.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 3
+    assert db.execute("SELECT count(*) FROM advanced_stats").fetchone()[0] == 30
 
 
 @respx.mock
@@ -273,10 +272,11 @@ def test_cli_ingest_advanced_rematch_re_derives_without_any_network_call(monkeyp
     assert route.call_count == 1                                              # zero new network calls
     after = json.loads(result.stdout)["advanced"][0]
     assert after["ambiguous"] == 0 and after["alias"] == 1 and after["skipped_duplicate"] is False
-    assert after["snapshot_id"] == before["snapshot_id"]                       # re-derived in place, not a new one
+    assert after["snapshot_id"] == before["snapshot_id"] + 1                   # a new derivation: appended, not overwritten
+    assert after["aliases_sha256"] != before["aliases_sha256"]
 
     con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
-    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 2
     current = con.execute(
         "SELECT player_id, match_status FROM v_advanced_current WHERE player_name = 'Josep Martínez'").fetchone()
     assert current == (2764, "alias")
@@ -349,16 +349,89 @@ def test_cli_ingest_advanced_without_a_database_is_not_ready(monkeypatch, tmp_pa
 
 
 @respx.mock
-def test_cli_ingest_advanced_with_explicit_season_creates_no_phantom_database(monkeypatch, tmp_path):
+def test_cli_ingest_advanced_with_explicit_season_creates_no_phantom_database(monkeypatch, tmp_path, fixture_json):
     """Finding F2: --season bypasses _seasons_or_exit's database check --
     it short-circuits to list(season) without ever calling current_season_id,
     so ensure_schema() is the only thing standing between a fresh workspace
     and a phantom database. connect(path) read-write creates the file; if
     ensure_schema() called it unconditionally, a failed fetch here would
     leave a fully-schema'd, empty database behind -- the same contract
-    test_a_failed_ingest_leaves_no_database_behind protects for `ingest listone`."""
+    test_a_failed_ingest_leaves_no_database_behind protects for `ingest listone`.
+    A listone snapshot is seeded so this exercises the fetch failure itself
+    (Finding 3 now refuses *before* the fetch on a workspace with no listone
+    at all -- covered separately by test_cli_ingest_advanced_needs_a_listone)."""
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _listone(con, tmp_path, fixture_json)
+    con.close()
     respx.post(URL).mock(return_value=httpx.Response(503, text="down"))
     result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
     assert result.exit_code == ExitCode.ERROR, result.output
-    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 0, "a failed fetch recorded a row"
+    con.close()
+
+
+@respx.mock
+def test_cli_ingest_advanced_needs_a_listone(monkeypatch, tmp_path, mcp_fixture_json):
+    """The dedupe key names the listone snapshot the match was made against,
+    so there is nothing to record before one exists -- exit 3, not a silent
+    all-unmatched snapshot. Finding 3: the check must happen before the
+    fetch, or a NotReady response still spends the Understat round-trips
+    the caller cannot use -- impolite to the source, and it strands raw
+    files on disk from a run that never recorded them."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _league(con, mcp_fixture_json)
+    con.close()
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True, "players": [
+        {"id": "1", "player_name": "X", "games": "1", "time": "90", "goals": "0", "assists": "0", "xG": "0", "xA": "0",
+         "npg": "0", "npxG": "0", "shots": "0", "key_passes": "0", "yellow_cards": "0", "red_cards": "0",
+         "position": "F", "team_title": "Inter", "xGChain": "0", "xGBuildup": "0"}]}))
+
+    async def no_pause(seconds=None):
+        pass
+
+    monkeypatch.setattr("fantaclaude.commands.ingest.polite_pause", no_pause)
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
+    assert result.exit_code == ExitCode.NOT_READY and "ingest listone" in result.stderr
+    assert route.call_count == 0, "Understat was fetched before the listone check"
+    assert not (tmp_path / "data" / "raw" / "advanced").exists(), "raw files written before the listone check"
+
+
+@respx.mock
+def test_cli_ingest_advanced_names_rematch_when_raw_files_already_exist(monkeypatch, tmp_path, mcp_fixture_json,
+                                                                         fixture_json):
+    """A season already fetched to disk (an older binary that fetched before
+    checking, or a stats-web-only workspace someone primed by hand) must be
+    pointed at `--rematch`, the zero-network route -- not sent back through
+    a second `ingest advanced` that fetches the same season again."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _league(con, mcp_fixture_json)
+    con.close()
+    RawStore(tmp_path / "data" / "raw").write(
+        "advanced", {"season_id": 20, "understat_season": 2025, "payload": fixture_json("understat_sample")["payload"]},
+        label="20")
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True, "players": []}))
+
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
+    assert result.exit_code == ExitCode.NOT_READY
+    assert "ingest listone" in result.stderr and "--rematch" in result.stderr
+    assert route.call_count == 0, "Understat was fetched before the listone check"

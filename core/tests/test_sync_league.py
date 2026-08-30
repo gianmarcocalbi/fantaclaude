@@ -51,6 +51,38 @@ def test_cli_sync_league_json_and_exit_codes(monkeypatch, tmp_path, fake_api):
     assert "budget" in result.stdout and "1000" in result.stdout and "500" in result.stdout
 
 
+def test_a_rule_change_reports_the_runs_it_supersedes(db, mcp_fixture_json, fake_api):
+    import asyncio
+
+    from fantaclaude.commands.sync_league import sync_league
+
+    first = asyncio.run(sync_league(fake_api(), db, None))
+    assert first.changed and first.superseded_runs == 0
+    db.execute("INSERT INTO valuation_runs VALUES ('r1', now(), ?, 'm', 'i', 1, 1, 21, 2, ['balanced'], '{}', '{}')",
+               [first.rules_hash])
+    unchanged = asyncio.run(sync_league(fake_api(), db, None))
+    assert not unchanged.changed and unchanged.superseded_runs == 0
+    rosters = mcp_fixture_json("roster_settings")
+    rosters["budg"] = 600
+    changed = asyncio.run(sync_league(fake_api({"roster_settings": rosters}), db, None))
+    assert changed.changed and changed.superseded_runs == 1 and changed.to_dict()["superseded_runs"] == 1
+    assert db.execute("SELECT superseded FROM v_valuation_runs WHERE run_id = 'r1'").fetchone()[0] is True
+
+    # Finding 8. The count was every run whose rules_hash is not the new one --
+    # every run ever superseded, not the ones *this* change supersedes. With a
+    # single rules change the two are the same number, which is why one change
+    # was never enough to see it. Rank again under the new rules, change the
+    # rules a second time, and only the run that was current may be reported.
+    db.execute("INSERT INTO valuation_runs VALUES ('r2', now(), ?, 'm', 'i', 2, 1, 21, 2, ['balanced'], '{}', '{}')",
+               [changed.rules_hash])
+    rosters["budg"] = 700
+    again = asyncio.run(sync_league(fake_api({"roster_settings": rosters}), db, None))
+    assert again.changed and again.superseded_runs == 1, "r1 was already superseded by the first change"
+    assert again.previous_hash == changed.rules_hash
+    superseded = dict(db.execute("SELECT run_id, superseded FROM v_valuation_runs ORDER BY run_id").fetchall())
+    assert superseded == {"r1": True, "r2": True}                # both stale now; only one became stale here
+
+
 def test_a_failed_fetch_leaves_no_database_behind(monkeypatch, tmp_path):
     """The database must not exist until there is something to record. A file
     created before the first network call survives the failure and then answers

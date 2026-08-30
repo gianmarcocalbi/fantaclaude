@@ -76,6 +76,25 @@ class AuditEntry:
         return asdict(self)
 
 
+def _validator_for(path: Path):
+    """The structured loader a document must satisfy beyond the four keys:
+    profiles, player notes and participant dossiers each have one. Imported
+    lazily -- those modules import this one."""
+    if path.name == "profile.md" and path.parent.parent.name == "teams":
+        from fantaclaude.kb.profiles import load_profile
+
+        return load_profile
+    if path.parent.name == "players" and path.parent.parent.parent.name == "teams":
+        from fantaclaude.kb.notes import load_note
+
+        return load_note
+    if path.parent.name == "participants" and path.parent.parent.name == "league":
+        from fantaclaude.kb.participants import load_participant
+
+        return load_participant
+    return None
+
+
 def audit(kb_dir: Path, today: date) -> list[AuditEntry]:
     entries: list[AuditEntry] = []
     if not kb_dir.is_dir():
@@ -94,15 +113,11 @@ def audit(kb_dir: Path, today: date) -> list[AuditEntry]:
                 entries.append(AuditEntry(rel, "invalid", f"missing {missing}"))
                 continue
             days = ttl_days(fm.ttl)
-            if path.name == "profile.md" and path.parent.parent.name == "teams":
-                from fantaclaude.kb.profiles import (  # audit is imported by profiles
-                    ProfileError,
-                    load_profile,
-                )
-
+            validator = _validator_for(path)
+            if validator is not None:
                 try:
-                    load_profile(path)
-                except ProfileError as exc:
+                    validator(path)
+                except ValueError as exc:
                     entries.append(AuditEntry(rel, "invalid", str(exc).split(": ", 1)[-1]))
                     continue
         except (FrontMatterError, OSError, UnicodeDecodeError, yaml.YAMLError) as exc:

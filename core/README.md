@@ -19,9 +19,10 @@ Every read command takes `--json`; exit codes are a contract
 | `fantaclaude schema` | tables, views, columns — what `query` may name |
 | `fantaclaude query --sql …` | read-only SQL; prefer the `v_*` views |
 | `fantaclaude kb audit` | expired or malformed knowledge-base documents |
+| `fantaclaude rank [--offline] [--scenario NAME]…` | one valuation run: every listone player projected from his own history under the league's scoring, priced against the best completion of a roster whose composition the optimiser chooses; writes `valuation_runs`/`valuations`/`valuation_prices`, renders `data/exports/rankings.md`, `rankings.csv`, `asta-plan.md`, and copies the run to `records/` as parquet. Re-syncs `league_settings` first unless `--offline` |
 | `fantaclaude doctor` | readiness: credentials, token cache, website session, database, every snapshot's coverage, `league.yml`, `kb/`, aliases, module table |
 
-`sync-league` and `ingest` call the live league API with the account in `.env`.
+`sync-league`, `ingest` and `rank` (unless `--offline`) call the live league API with the account in `.env`.
 **Run them when you need fresh data, once — never in a loop.** Everything else
 is local.
 
@@ -51,8 +52,7 @@ question 5.
 `data/` (gitignored) holds `fanta.duckdb` and the immutable dated raw files;
 `data/raw/` holds `listone/`, `advanced/`, `calendar/` (one HTML page per
 giornata, one JSON page per UEFA competition) and `voti/` (one workbook per
-giornata); `records/` (committed) will hold durable exports from Phase 1;
-`kb/` is the knowledge base -- `kb/rules/aliases.yml` is where an ambiguous
+giornata); `kb/` is the knowledge base -- `kb/rules/aliases.yml` is where an ambiguous
 Understat name or a UEFA club spelling is resolved by hand. Adding an alias
 there does not, by itself, change anything already recorded: `ingest
 advanced` dedupes each season's Understat payload by its raw bytes, so a
@@ -61,7 +61,12 @@ alias -- run `fantaclaude ingest advanced --rematch` afterward (zero
 network) to apply it, which is the only way to fix a back season, since its
 Understat content will never change again on its own. `league.yml` carries
 provenanced facts the API cannot express; `preferences.yml` the user's
-computation-affecting choices.
+computation-affecting choices. `data/exports/` holds the regenerable
+renderings of the newest run; `records/` (committed) the parquet copies of
+every run; `pricing.yml` the pricing knobs (they feed `model_hash`);
+`core/src/fantaclaude/model/d_factor.yml` the D-Factor table, empty until
+the league activates the modifier and the account holder transcribes its
+bands from the league's settings page.
 
 ## Development
 

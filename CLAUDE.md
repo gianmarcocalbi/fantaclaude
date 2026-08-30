@@ -79,9 +79,17 @@ The repository is a uv workspace: `core/` (package `fantaclaude`) and
 `.venv` at the root. `uv run poe test` runs both suites; neither touches the
 network.
 
-`fantaclaude sync-league` and `fantaclaude ingest …` call the live league API
-with the real account — the same rule as `smoke.py`: run once when data is
-needed, never repeatedly "to check". Everything else in the CLI is local.
+`fantaclaude sync-league`, `fantaclaude ingest …` and `fantaclaude rank`
+(unless `--offline`) call the live league API with the real account — the
+same rule as `smoke.py`: run once when data is needed, never repeatedly
+"to check". Everything else in the CLI is local.
+
+`records/` is committed: `fantaclaude rank` writes parquet copies of every run
+there, named by `run_id`, and they are never rewritten — commit them with the
+run you intend to keep. `data/exports/` is a rendering and is gitignored.
+`pricing.yml` and `preferences.yml` feed `model_hash`: a change there is a new
+model, not a tweak. `core/src/fantaclaude/model/d_factor.yml` is league data
+read off the league's own settings page — never fill it from memory.
 
 `captured/` (gitignored) holds the 2026-08-23 listone and FantaAstaLive
 local-state captures the test fixtures were extracted from; regenerate a

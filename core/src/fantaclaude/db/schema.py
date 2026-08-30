@@ -4,10 +4,16 @@ Snapshot tables, never overwrites: league_settings appends one row per
 observed rule change, listone_snapshots/players append one snapshot per
 ingest, and the v_*_current views pick the latest. Raw payloads travel in a
 JSON column so a field the models do not name is still there to query.
-Version 2 (Phase 0b) adds the observed history -- player_match from the voti
-workbooks, advanced_stats from Understat, fixtures from the Serie A calendar
-and UEFA -- and the views over them. The DDL is additive: apply_schema
-upgrades an older file in place and refuses only a newer one.
+Version 2 (Phase 0b) added the observed history -- player_match from the
+voti workbooks, advanced_stats from Understat, fixtures from the Serie A
+calendar and UEFA -- and the views over them. Version 3 (Phase 1) adds the
+derived layer -- valuation_runs, valuations and valuation_prices, every row
+immutable, supersession a view -- and rebuilds advanced_snapshots around a
+dedupe key that covers every input of the match: the raw bytes, the aliases
+file and the listone snapshot, so a changed alias re-matches on its own.
+The DDL is additive: apply_schema upgrades an older file in place and
+refuses only a newer one; the one table whose constraint changed (version 2
+to 3) is rebuilt around its rows, because DuckDB cannot drop a constraint.
 """
 
 from __future__ import annotations
@@ -16,7 +22,24 @@ from dataclasses import asdict, dataclass
 
 import duckdb
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+ADVANCED_SNAPSHOTS_DDL = """
+CREATE TABLE IF NOT EXISTS advanced_snapshots (
+    snapshot_id         INTEGER PRIMARY KEY DEFAULT nextval('seq_advanced_snapshots'),
+    season_id           INTEGER NOT NULL,
+    fetched_at          TIMESTAMP NOT NULL,
+    source              VARCHAR NOT NULL,
+    raw_path            VARCHAR NOT NULL,
+    sha256              VARCHAR NOT NULL,
+    aliases_sha256      VARCHAR,
+    listone_snapshot_id INTEGER,
+    row_count           INTEGER NOT NULL,
+    matched             INTEGER NOT NULL,
+    ambiguous           INTEGER NOT NULL,
+    unmatched           INTEGER NOT NULL,
+    UNIQUE (sha256, aliases_sha256, listone_snapshot_id)
+)"""
 
 DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -129,18 +152,7 @@ CREATE TABLE IF NOT EXISTS player_match (
     PRIMARY KEY (file_id, sheet, player_id)
 );
 CREATE SEQUENCE IF NOT EXISTS seq_advanced_snapshots START 1;
-CREATE TABLE IF NOT EXISTS advanced_snapshots (
-    snapshot_id INTEGER PRIMARY KEY DEFAULT nextval('seq_advanced_snapshots'),
-    season_id   INTEGER NOT NULL,
-    fetched_at  TIMESTAMP NOT NULL,
-    source      VARCHAR NOT NULL,
-    raw_path    VARCHAR NOT NULL,
-    sha256      VARCHAR NOT NULL UNIQUE,
-    row_count   INTEGER NOT NULL,
-    matched     INTEGER NOT NULL,
-    ambiguous   INTEGER NOT NULL,
-    unmatched   INTEGER NOT NULL
-);
+""" + ADVANCED_SNAPSHOTS_DDL + """;
 CREATE TABLE IF NOT EXISTS advanced_stats (
     snapshot_id  INTEGER NOT NULL,
     season_id    INTEGER NOT NULL,
@@ -194,6 +206,57 @@ CREATE TABLE IF NOT EXISTS fixtures (
     away_short  VARCHAR,
     raw         JSON NOT NULL,
     PRIMARY KEY (snapshot_id, source_id)
+);
+CREATE TABLE IF NOT EXISTS valuation_runs (
+    run_id               VARCHAR PRIMARY KEY,
+    created_at           TIMESTAMP NOT NULL,
+    rules_hash           VARCHAR NOT NULL,
+    model_hash           VARCHAR NOT NULL,
+    inputs_hash          VARCHAR NOT NULL,
+    settings_snapshot_id INTEGER NOT NULL,
+    listone_snapshot_id  INTEGER NOT NULL,
+    season_id            INTEGER NOT NULL,
+    giornata             INTEGER NOT NULL,
+    scenarios            VARCHAR[] NOT NULL,
+    config               JSON NOT NULL,
+    summary              JSON NOT NULL
+);
+CREATE TABLE IF NOT EXISTS valuations (
+    run_id         VARCHAR NOT NULL,
+    player_id      INTEGER NOT NULL,
+    name           VARCHAR NOT NULL,
+    team_short     VARCHAR,
+    classic_role   VARCHAR NOT NULL,
+    role_class     VARCHAR NOT NULL,
+    roles          VARCHAR[] NOT NULL,
+    exp_presenze   DOUBLE NOT NULL,
+    exp_fantamedia DOUBLE NOT NULL,
+    exp_voto       DOUBLE NOT NULL,
+    value_p25      DOUBLE NOT NULL,
+    value_p50      DOUBLE NOT NULL,
+    value_p75      DOUBLE NOT NULL,
+    replacement    DOUBLE NOT NULL,
+    vor            DOUBLE NOT NULL,
+    tier           INTEGER NOT NULL,
+    quot_mantra    INTEGER,
+    implied_value  DOUBLE,
+    divergence     DOUBLE,
+    explain        JSON NOT NULL,
+    PRIMARY KEY (run_id, player_id)
+);
+CREATE TABLE IF NOT EXISTS valuation_prices (
+    run_id         VARCHAR NOT NULL,
+    scenario       VARCHAR NOT NULL,
+    player_id      INTEGER NOT NULL,
+    role_class     VARCHAR NOT NULL,
+    expected_price INTEGER NOT NULL,
+    max_p25        INTEGER NOT NULL,
+    max_p50        INTEGER NOT NULL,
+    max_p75        INTEGER NOT NULL,
+    walk_value     DOUBLE NOT NULL,
+    exact          BOOLEAN NOT NULL,
+    explain        JSON NOT NULL,
+    PRIMARY KEY (run_id, scenario, player_id)
 );
 CREATE OR REPLACE VIEW v_voti_files_current AS
     SELECT f.* FROM voti_files f
@@ -249,6 +312,17 @@ CREATE OR REPLACE VIEW v_european_ties AS
                unnest([home_short, away_short]) AS team_short
         FROM v_fixtures_current WHERE competition <> 'SA')
     WHERE team_short IS NOT NULL;
+CREATE OR REPLACE VIEW v_valuation_runs AS
+    SELECT r.*, coalesce(r.rules_hash <> (SELECT rules_hash FROM v_league_settings_current), true) AS superseded
+    FROM valuation_runs r;
+CREATE OR REPLACE VIEW v_valuations_current AS
+    SELECT v.* FROM valuations v
+    WHERE v.run_id = (SELECT run_id FROM v_valuation_runs WHERE NOT superseded
+                      ORDER BY created_at DESC, run_id DESC LIMIT 1);
+CREATE OR REPLACE VIEW v_valuation_prices_current AS
+    SELECT p.* FROM valuation_prices p
+    WHERE p.run_id = (SELECT run_id FROM v_valuation_runs WHERE NOT superseded
+                      ORDER BY created_at DESC, run_id DESC LIMIT 1);
 """
 
 
@@ -256,21 +330,88 @@ class SchemaVersionMismatch(RuntimeError):
     """The file was written by a different schema version; migrate before use."""
 
 
+def _stored_version(con: duckdb.DuckDBPyConnection) -> int | None:
+    try:
+        return con.execute("SELECT max(version) FROM schema_version").fetchone()[0]
+    except duckdb.CatalogException:
+        return None
+
+
+def _has_column(con: duckdb.DuckDBPyConnection, table: str, column: str) -> bool | None:
+    """None when the table does not exist."""
+    exists = con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'main' "
+                         "AND table_name = ?", [table]).fetchone()[0]
+    if not exists:
+        return None
+    return column in {r[0] for r in con.execute(f'DESCRIBE "{table}"').fetchall()}
+
+
+def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
+    return con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'main' "
+                       "AND table_name = ?", [table]).fetchone()[0] > 0
+
+
+def _migrate_advanced_snapshots_to_v3(con: duckdb.DuckDBPyConnection) -> None:
+    """Version 2 keyed advanced_snapshots on sha256 alone (UNIQUE), so a
+    changed alias or listone could never re-match an already-recorded file.
+    DuckDB cannot drop a UNIQUE constraint, so the table is rebuilt around
+    its rows: the old rows keep their snapshot_id (advanced_stats points at
+    it) and get a NULL aliases_sha256/listone_snapshot_id, which no new row
+    ever has -- the next ingest re-matches them under the full key and
+    appends. The sequence is untouched, so new ids continue past the old.
+
+    Gated on the table's actual shape, never on schema_version: a stored
+    version is not proof the rebuild happened (an interrupted run, or an
+    older binary that hit the bug this docstring used to describe, can
+    stamp version 3 without ever finishing it) and its absence is not proof
+    the rebuild is unneeded (an old-shape table can carry no version row at
+    all). RENAME, CREATE, INSERT and DROP all run inside one transaction --
+    they commit together or none of them do, so a crash mid-migration never
+    leaves advanced_snapshots renamed away with nothing standing in its
+    place. A leftover advanced_snapshots_v2 table -- from exactly that kind
+    of crash, or from a full run of the old, non-transactional version of
+    this function -- is the resume point: the rows still missing from
+    advanced_snapshots (there may be none, if only the final DROP was lost)
+    are pulled from it by snapshot_id, and it is then dropped."""
+    has_v2 = _table_exists(con, "advanced_snapshots_v2")
+    wrong_shape = _has_column(con, "advanced_snapshots", "aliases_sha256") is False
+    if not has_v2 and not wrong_shape:
+        return
+    con.begin()
+    try:
+        if wrong_shape:
+            con.execute("ALTER TABLE advanced_snapshots RENAME TO advanced_snapshots_v2")
+            has_v2 = True
+        if has_v2:
+            con.execute(ADVANCED_SNAPSHOTS_DDL)
+            con.execute(
+                "INSERT INTO advanced_snapshots SELECT snapshot_id, season_id, fetched_at, source, raw_path, "
+                "sha256, NULL, NULL, row_count, matched, ambiguous, unmatched FROM advanced_snapshots_v2 "
+                "WHERE snapshot_id NOT IN (SELECT snapshot_id FROM advanced_snapshots)")
+            con.execute("DROP TABLE advanced_snapshots_v2")
+    except Exception:
+        con.rollback()
+        raise
+    con.commit()
+
+
 def apply_schema(con: duckdb.DuckDBPyConnection) -> int:
     """Create what is missing, then reconcile the version row.
 
     The DDL is additive (CREATE ... IF NOT EXISTS, CREATE OR REPLACE VIEW),
-    so running it against an older file upgrades it in place -- the Phase 0a
-    database keeps its league_settings and listone rows instead of being
-    rebuilt with more live-API calls. A stored version *newer* than the code
-    is the one case that is refused: the code cannot know what that file holds.
+    so running it against an older file upgrades it in place -- the live
+    database keeps its rows instead of being rebuilt with more live-API
+    calls. A table whose *constraint* changed is rebuilt first, around its
+    rows. A stored version *newer* than the code is the one case that is
+    refused: the code cannot know what that file holds.
     """
+    stored = _stored_version(con)
+    if stored is not None and stored > SCHEMA_VERSION:
+        raise SchemaVersionMismatch(f"database is at schema {stored}, code expects {SCHEMA_VERSION}")
+    _migrate_advanced_snapshots_to_v3(con)
     for statement in DDL.split(";"):
         if statement.strip():
             con.execute(statement)
-    stored = con.execute("SELECT max(version) FROM schema_version").fetchone()[0]
-    if stored is not None and stored > SCHEMA_VERSION:
-        raise SchemaVersionMismatch(f"database is at schema {stored}, code expects {SCHEMA_VERSION}")
     if stored is None or stored < SCHEMA_VERSION:
         con.execute("INSERT INTO schema_version (version) VALUES (?)", [SCHEMA_VERSION])
     return SCHEMA_VERSION

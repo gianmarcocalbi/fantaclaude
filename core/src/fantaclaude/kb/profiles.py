@@ -19,6 +19,7 @@ import yaml
 
 from fantaclaude.ingest.names import normalise
 from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
+from fantaclaude.values import is_number
 
 PROFILE_KEYS = ("team", "team_short", "coach", "module", "europe", "rotation_factor")
 EUROPE = ("none", "UCL", "UEL", "UECL")
@@ -67,8 +68,7 @@ def load_profile(path: Path) -> TeamProfile:
     if data["europe"] not in EUROPE:
         raise ProfileError(f"{path}: europe must be one of {EUROPE}, got {data['europe']!r}")
     rotation = data["rotation_factor"]
-    if isinstance(rotation, bool) or not isinstance(rotation, (int, float)) \
-            or not ROTATION_RANGE[0] <= float(rotation) <= ROTATION_RANGE[1]:
+    if not is_number(rotation) or not ROTATION_RANGE[0] <= float(rotation) <= ROTATION_RANGE[1]:
         raise ProfileError(f"{path}: rotation_factor must be a number in {ROTATION_RANGE}, got {rotation!r}")
     takers = data.get("takers") or {}
     if not isinstance(takers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in takers.items()):

@@ -21,6 +21,15 @@ import yaml
 
 MATCHED, ALIAS, AMBIGUOUS, UNMATCHED = "matched", "alias", "ambiguous", "unmatched"
 
+# The nobiliary particles that belong to a surname rather than in front of it.
+# "De Rossi" is a surname; "Rossi" with "De" as a given name is not a reading
+# anybody means, so match_listone's given-name-first fallback stops here rather
+# than resolving a name the listone does not have onto a shorter one it does.
+_SURNAME_PARTICLES = frozenset({
+    "de", "del", "dela", "della", "dello", "dei", "degli", "delle", "di", "da", "dal", "dalla", "das", "dos",
+    "du", "van", "von", "der", "den", "ten", "ter", "la", "le", "lo", "el", "al", "bin", "ibn", "mac", "mc", "st",
+})
+
 # Letters NFKD does not decompose, plus the punctuation that splits a name.
 _EXTRA = str.maketrans({"ø": "o", "Ø": "O", "ł": "l", "Ł": "L", "đ": "d", "Đ": "D",
                         "ß": "ss", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE",
@@ -119,6 +128,95 @@ class Matcher:
         if len(by_club) == 1:
             return Match(by_club[0].player_id, MATCHED, ids)
         return Match(None, AMBIGUOUS, ids)
+
+
+def _given_name_first(tokens: list[str], candidates: list[Candidate]) -> Match:
+    """The one fallback for a name written the *other* way round: "Hakan
+    Calhanoglu" where the listone writes "Calhanoglu" (finding 20a).
+
+    Deliberately narrower than `Matcher.match`, which does the same walk for
+    every source: it runs only when the direct listone reading found nobody
+    and the name carries no listone initial (a given-name-first spelling never
+    does), and it stops at a surname particle -- "De Rossi" must not resolve to
+    a "Rossi" the listone happens to have. Everything it does find still has to
+    survive `_compatible` and be the sole survivor. A wrong match here silently
+    mis-attributes a whole club's penalties, so ambiguity is refused, not
+    guessed."""
+    for split_at in range(1, len(tokens)):
+        given, tail = tokens[:split_at], tokens[split_at:]
+        if given[-1] in _SURNAME_PARTICLES:
+            break
+        found = [c for c in candidates if split_listone_name(c.name)[0] == tail]
+        if not found:
+            continue
+        ids = tuple(c.player_id for c in found)
+        narrowed = [c for c in found if _compatible(c, given)]
+        if len(narrowed) == 1:
+            return Match(narrowed[0].player_id, MATCHED, ids)
+        return Match(None, AMBIGUOUS, ids)
+    return Match(None, UNMATCHED)
+
+
+def match_listone(name: str, candidates: list[Candidate]) -> Match:
+    """Match a name already written the listone's way -- surname first, then
+    the initial that tells two of them apart -- against the listone.
+
+    `Matcher.match` cannot do this: it is built for the sources that put the
+    given name first, so it walks *suffixes* of the tokens and reads the
+    trailing initial of "Adams A." as the surname. A name the listone spells
+    character for character comes back unmatched. The knowledge base writes
+    its takers the listone's way, so it needs this door instead. Several
+    players of the surname and none of them are told apart, because they ask
+    the reader for different things.
+
+    A name that reads as no listone spelling at all falls back to
+    `_given_name_first`, so a profile written "Hakan Calhanoglu" still
+    resolves -- under stricter rules than Matcher's walk, because a wrong
+    match here mis-attributes a club's penalties in silence."""
+    surname, initial = split_listone_name(name)
+    found = [c for c in candidates if split_listone_name(c.name)[0] == surname] if surname else []
+    if not found:
+        # Nothing reads as a listone spelling; try the other order before
+        # giving up, but only for a name with no listone initial.
+        return _given_name_first(surname, candidates) if initial is None else Match(None, UNMATCHED)
+    ids = tuple(c.player_id for c in found)
+    # When the name omits the initial, only a candidate the listone itself does not
+    # distinguish (no initial of its own) is a safe match: a lone "Martinez" must not
+    # silently become "Martinez L." when the listone bothered to write the "L.".
+    # When the name gives an initial, an exact match wins; short of that, a bare
+    # surname is a safe fallback only when it is the *sole* candidate at all -- not
+    # whenever some other, differently-initialled player happens to share the surname
+    # and lack an initial of their own. Otherwise a typo'd initial ("Terracciano X.")
+    # would silently match the wrong player instead of failing to match anyone.
+    if initial is None:
+        narrowed = [c for c in found if c.initial is None]
+    else:
+        exact = [c for c in found if c.initial == initial]
+        narrowed = exact if exact else (found if len(found) == 1 else [])
+    if len(narrowed) == 1:
+        return Match(narrowed[0].player_id, MATCHED, ids)
+    if narrowed or initial is None:
+        return Match(None, AMBIGUOUS, ids)
+    return Match(None, UNMATCHED, ids)
+
+
+def unresolved_detail(team: str, match: Match, candidates: list[Candidate]) -> str:
+    """Why a name written the listone's way did not resolve, as an instruction.
+
+    The two failures need different corrections: none of that name in the
+    club's squad is a spelling to fix, several of it is an initial to add.
+    Never "not found in the listone" for a name the listone has -- that sent
+    the operator to re-spell a name that was already right, which is how it
+    stayed hidden. One implementation, because `rank`'s run warning and
+    `doctor`'s takers check must name the same fix for the same profile."""
+    named = {c.player_id: c.name for c in candidates}
+    close = ", ".join(repr(named[i]) for i in match.candidates if i in named)
+    if match.status == AMBIGUOUS:
+        return f"is {len(match.candidates)} {team} players ({close}); add the initial the listone uses"
+    if match.candidates:
+        return f"is not how the listone spells {close}; use the listone's spelling"
+    return (f"is not in the listone's {team} squad; write him the listone's way -- surname first, "
+            f'then the initial ("Martinez L.")')
 
 
 def resolve_team(source_name: str, teams: dict[str, str], aliases: dict[str, str]) -> str | None:

@@ -6,6 +6,7 @@ import pytest
 import respx
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.commands.ingest import fetch_everything, record_everything
+from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.ingest.advanced import URL as UNDERSTAT_URL
 from fantaclaude.ingest.calendar import UEFA_URL
 from fantaclaude.ingest.listone_api import load_listone, record_listone
@@ -329,12 +330,12 @@ def test_cli_ingest_all_migrates_a_stale_v1_database(monkeypatch, tmp_path, fixt
 
     result = CliRunner().invoke(app, ["ingest", "all", "--json"])
     assert result.exit_code == ExitCode.OK, result.output
-    assert seen_versions[0] == 2          # already migrated by the time the first network request lands
+    assert seen_versions[0] == SCHEMA_VERSION          # already migrated by the time the first network request lands
     payload = json.loads(result.stdout)
     assert [(f["season_id"], f["giornata"]) for f in payload["stats_web"]["files"]] == [(18, 1), (19, 1), (20, 1), (21, 1)]
 
     con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == SCHEMA_VERSION
     con.close()
 
 
