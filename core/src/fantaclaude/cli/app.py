@@ -302,6 +302,7 @@ def ingest_advanced_cmd(
     from fantaclaude.commands.ingest import (
         ensure_schema,
         fetch_advanced_seasons,
+        has_listone_snapshot,
         record_advanced_seasons,
         rematch_advanced_seasons,
     )
@@ -338,6 +339,19 @@ def ingest_advanced_cmd(
         emit({"advanced": [r.to_dict() for r in results]}, json_=json_, render=_render_advanced)
         return
     from fantaclaude.commands.ingest import NotReady
+
+    if not has_listone_snapshot():
+        # Finding 3: checked before the fetch below -- record_advanced_seasons
+        # raises the same NotReady, but only after the Understat round-trips
+        # already ran and wrote raw files to disk the caller cannot use yet.
+        on_disk = [s for s in seasons if store.list("advanced", ext="json", label=str(s))]
+        if on_disk:
+            typer.echo("no listone snapshot -- run `fantaclaude ingest listone`, then `fantaclaude ingest advanced "
+                      f"--rematch` to record season(s) {on_disk} from the raw files already on disk (zero network)",
+                      err=True)
+        else:
+            typer.echo("no listone snapshot -- run `fantaclaude ingest listone` first", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
 
     with _source_errors():
         raws = run_web(lambda http: fetch_advanced_seasons(http, store, seasons))

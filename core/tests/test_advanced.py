@@ -349,26 +349,41 @@ def test_cli_ingest_advanced_without_a_database_is_not_ready(monkeypatch, tmp_pa
 
 
 @respx.mock
-def test_cli_ingest_advanced_with_explicit_season_creates_no_phantom_database(monkeypatch, tmp_path):
+def test_cli_ingest_advanced_with_explicit_season_creates_no_phantom_database(monkeypatch, tmp_path, fixture_json):
     """Finding F2: --season bypasses _seasons_or_exit's database check --
     it short-circuits to list(season) without ever calling current_season_id,
     so ensure_schema() is the only thing standing between a fresh workspace
     and a phantom database. connect(path) read-write creates the file; if
     ensure_schema() called it unconditionally, a failed fetch here would
     leave a fully-schema'd, empty database behind -- the same contract
-    test_a_failed_ingest_leaves_no_database_behind protects for `ingest listone`."""
+    test_a_failed_ingest_leaves_no_database_behind protects for `ingest listone`.
+    A listone snapshot is seeded so this exercises the fetch failure itself
+    (Finding 3 now refuses *before* the fetch on a workspace with no listone
+    at all -- covered separately by test_cli_ingest_advanced_needs_a_listone)."""
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _listone(con, tmp_path, fixture_json)
+    con.close()
     respx.post(URL).mock(return_value=httpx.Response(503, text="down"))
     result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
     assert result.exit_code == ExitCode.ERROR, result.output
-    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 0, "a failed fetch recorded a row"
+    con.close()
 
 
 @respx.mock
 def test_cli_ingest_advanced_needs_a_listone(monkeypatch, tmp_path, mcp_fixture_json):
     """The dedupe key names the listone snapshot the match was made against,
     so there is nothing to record before one exists -- exit 3, not a silent
-    all-unmatched snapshot."""
+    all-unmatched snapshot. Finding 3: the check must happen before the
+    fetch, or a NotReady response still spends the Understat round-trips
+    the caller cannot use -- impolite to the source, and it strands raw
+    files on disk from a run that never recorded them."""
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
     (tmp_path / "kb" / "rules").mkdir(parents=True)
     (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
@@ -379,7 +394,7 @@ def test_cli_ingest_advanced_needs_a_listone(monkeypatch, tmp_path, mcp_fixture_
     apply_schema(con)
     _league(con, mcp_fixture_json)
     con.close()
-    respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True, "players": [
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True, "players": [
         {"id": "1", "player_name": "X", "games": "1", "time": "90", "goals": "0", "assists": "0", "xG": "0", "xA": "0",
          "npg": "0", "npxG": "0", "shots": "0", "key_passes": "0", "yellow_cards": "0", "red_cards": "0",
          "position": "F", "team_title": "Inter", "xGChain": "0", "xGBuildup": "0"}]}))
@@ -390,3 +405,33 @@ def test_cli_ingest_advanced_needs_a_listone(monkeypatch, tmp_path, mcp_fixture_
     monkeypatch.setattr("fantaclaude.commands.ingest.polite_pause", no_pause)
     result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
     assert result.exit_code == ExitCode.NOT_READY and "ingest listone" in result.stderr
+    assert route.call_count == 0, "Understat was fetched before the listone check"
+    assert not (tmp_path / "data" / "raw" / "advanced").exists(), "raw files written before the listone check"
+
+
+@respx.mock
+def test_cli_ingest_advanced_names_rematch_when_raw_files_already_exist(monkeypatch, tmp_path, mcp_fixture_json,
+                                                                         fixture_json):
+    """A season already fetched to disk (an older binary that fetched before
+    checking, or a stats-web-only workspace someone primed by hand) must be
+    pointed at `--rematch`, the zero-network route -- not sent back through
+    a second `ingest advanced` that fetches the same season again."""
+    monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
+    (tmp_path / "kb" / "rules").mkdir(parents=True)
+    (tmp_path / "kb" / "rules" / "aliases.yml").write_text("understat: {}\n")
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    apply_schema(con)
+    _league(con, mcp_fixture_json)
+    con.close()
+    RawStore(tmp_path / "data" / "raw").write(
+        "advanced", {"season_id": 20, "understat_season": 2025, "payload": fixture_json("understat_sample")["payload"]},
+        label="20")
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True, "players": []}))
+
+    result = CliRunner().invoke(app, ["ingest", "advanced", "--season", "20"])
+    assert result.exit_code == ExitCode.NOT_READY
+    assert "ingest listone" in result.stderr and "--rematch" in result.stderr
+    assert route.call_count == 0, "Understat was fetched before the listone check"

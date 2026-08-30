@@ -72,6 +72,22 @@ def advanced_key(con: duckdb.DuckDBPyConnection, aliases_path: Path) -> tuple[st
     return RawStore.sha256_of(aliases_path), int(listone)
 
 
+def has_listone_snapshot(path: Path | None = None) -> bool:
+    """Read-only probe, no write lock held: is there a listone snapshot for
+    record_advanced_seasons to match against? Checked before the Understat
+    fetch (Finding 3) so a season with no listone yet never spends a fetch
+    the caller cannot record -- polite to the source, and it never strands
+    raw files on disk from a run that fails downstream anyway."""
+    try:
+        con = connect(path, read_only=True)
+    except DatabaseMissing:
+        return False
+    try:
+        return con.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0] is not None
+    finally:
+        con.close()
+
+
 def current_season_id(path: Path | None = None) -> int:
     """The season the league is in, from the latest league_settings snapshot.
 
