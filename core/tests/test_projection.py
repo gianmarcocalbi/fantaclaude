@@ -12,6 +12,7 @@ from fantaclaude.analysis.projection import (
 )
 from fantaclaude.kb.audit import FrontMatter
 from fantaclaude.kb.notes import PlayerNote
+from fantaclaude.kb.profiles import ROTATION_RANGE
 from fantaclaude.model.d_factor import D_FACTOR_ROLES, Band, DFactorTable
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import BonusMalus, Events
@@ -91,16 +92,18 @@ def test_quotazione_is_not_in_the_value_path(bm):
 
 # (exp_presenze, sigma_presenze, p25, p50, p75) at rotation_factor 1.0, as the
 # club-level multiplier produced them before the depth-aware transfer replaced
-# it. No rotation must still mean no change, whatever the depth.
+# it. No rotation must still mean no change, whatever the depth. The key is the
+# depth and the note's availability (av), never a rotation factor -- every row
+# here is rotation_factor 1.0.
 ROTATION_NEUTRAL = {
-    "starter/1.0": (32.4, 1.7999999999999998, 245.2320181275353, 256.6421052631579, 268.05219239878045),
-    "starter/0.8": (25.92, 2.6939933184772373, 190.10517276833713, 205.31368421052633, 220.52219565271554),
-    "contested/1.0": (23.400000000000002, 2.8618176042508368, 169.4325138908813, 185.35263157894738, 201.27274926701347),
-    "contested/0.8": (18.72, 2.9975990392312313, 131.8784321926776, 148.2821052631579, 164.68577833363818),
-    "cover/1.0": (12.6, 2.8618176042508368, 84.32994186876232, 99.80526315789474, 115.28058444702717),
-    "cover/0.8": (10.079999999999998, 2.6939933184772373, 65.32465685110937, 79.84421052631578, 94.36376420152219),
-    "out/1.0": (0.0, 0.0, 0.0, 0.0, 0.0),
-    "out/0.8": (0.0, 0.0, 0.0, 0.0, 0.0),
+    "starter/av1.0": (32.4, 1.7999999999999998, 245.2320181275353, 256.6421052631579, 268.05219239878045),
+    "starter/av0.8": (25.92, 2.6939933184772373, 190.10517276833713, 205.31368421052633, 220.52219565271554),
+    "contested/av1.0": (23.400000000000002, 2.8618176042508368, 169.4325138908813, 185.35263157894738, 201.27274926701347),
+    "contested/av0.8": (18.72, 2.9975990392312313, 131.8784321926776, 148.2821052631579, 164.68577833363818),
+    "cover/av1.0": (12.6, 2.8618176042508368, 84.32994186876232, 99.80526315789474, 115.28058444702717),
+    "cover/av0.8": (10.079999999999998, 2.6939933184772373, 65.32465685110937, 79.84421052631578, 94.36376420152219),
+    "out/av1.0": (0.0, 0.0, 0.0, 0.0, 0.0),
+    "out/av0.8": (0.0, 0.0, 0.0, 0.0, 0.0),
     "history": (28.42105263157895, 2.4460947449731054, 210.98931804519356, 225.1246537396122, 239.25998943403084),
     "newcomer": (18.0, 4.5, 95.65159550301533, 117.0, 138.34840449698467),
 }
@@ -117,7 +120,7 @@ def test_rotation_factor_one_changes_nothing_at_any_depth(bm):
     for depth in ("starter", "contested", "cover", "out"):
         for availability in (1.0, 0.8):
             p = project(inputs(note=note(depth=depth, availability=availability), rotation_factor=1.0), bm=bm)
-            assert _presenze_shape(p) == ROTATION_NEUTRAL[f"{depth}/{availability}"], f"{depth}/{availability}"
+            assert _presenze_shape(p) == ROTATION_NEUTRAL[f"{depth}/av{availability}"], f"{depth}/av{availability}"
     assert _presenze_shape(project(inputs(rotation_factor=1.0), bm=bm)) == ROTATION_NEUTRAL["history"]
     assert _presenze_shape(project(inputs(lines=(), rotation_factor=1.0), bm=bm)) == ROTATION_NEUTRAL["newcomer"]
 
@@ -160,6 +163,43 @@ def test_rotation_transfers_rather_than_destroys_the_depth_chart_minutes(bm):
         rotated = project(inputs(note=note(depth=depth), rotation_factor=0.8), bm=bm)
         moved += rotated.exp_presenze - still.exp_presenze
     assert moved == pytest.approx(0.0, abs=1e-9)
+
+
+def test_rotation_widens_the_band_in_proportion_to_the_matches_it_actually_moves(bm):
+    """"It widens the band as much as it lowers the mean" (spec): the matches
+    rotation moves are themselves uncertain, so the widening has to be scaled
+    to the matches that moved for *this* player.
+
+    Scaled to anything else -- to the club factor times his own rate, which is
+    what the mean used to move by when rotation was a multiplier -- the man who
+    cedes matches is charged for uncertainty several times harder per match
+    than the man who inherits them, and the cheap value this model exists to
+    surface arrives with a p25 the model still treats as nearly as firm as
+    before."""
+    def widening_per_match(depth):
+        still = project(inputs(note=note(depth=depth), rotation_factor=1.0), bm=bm)
+        rotated = project(inputs(note=note(depth=depth), rotation_factor=0.8), bm=bm)
+        matches = abs(rotated.exp_presenze - still.exp_presenze)
+        wider = rotated.explain["sigma_presenze"] - still.explain["sigma_presenze"]
+        assert matches > 0 and wider > 0, depth
+        return wider / matches
+
+    cedes, inherits = widening_per_match("starter"), widening_per_match("cover")
+    assert 1 / 1.5 < cedes / inherits < 1.5
+
+
+@pytest.mark.parametrize("factor", (0.5, 0.6, 0.7, 0.8, 0.9, 1.0))
+def test_rotation_never_more_than_doubles_a_player_at_any_factor_a_profile_may_state(bm, factor):
+    """A hand-typed club number must not turn a fringe player into a regular on
+    its own. The bound has to hold across the whole range profiles.py accepts,
+    not merely the 0.80-0.95 the knowledge base happens to carry today: an
+    operator can type the floor into a profile tomorrow."""
+    assert ROTATION_RANGE == (0.5, 1.0)
+    for presenze in range(39):
+        still = project(inputs(lines=(line(20, presenze),), rotation_factor=1.0), bm=bm)
+        rotated = project(inputs(lines=(line(20, presenze),), rotation_factor=factor), bm=bm)
+        assert 0.0 <= rotated.exp_presenze <= 36, (presenze, factor)
+        assert rotated.exp_presenze <= 2 * still.exp_presenze + 1e-9, (presenze, factor)
 
 
 @pytest.mark.parametrize("factor", (1.0, 0.9, 0.75, 0.5, 0.05))

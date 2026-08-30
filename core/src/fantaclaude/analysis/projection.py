@@ -23,10 +23,18 @@ the men behind him, which is how the model surfaces the backup who starts
 sixteen matches at a big club instead of only penalising his team-mates.
 `_rotation_transfer` is that shape, and it is nil at rotation_factor 1.0, so
 a club that does not rotate projects exactly what it projected before it
-existed. Rotation still widens the band as much as it moves the mean: the
-matches it moves around are themselves uncertain, so their churn is added to
-the variance whichever way the mean went, which is what prices the
-uncertainty at the quantiles.
+existed. It is added to the rate rather than multiplied into it, which
+departs from the one line the spec writes as `base x depth_factor x
+rotation_factor x availability_factor`: a transfer has to be able to hand a
+man matches, and a multiplier below one can only take them away. The prose
+either side of that line is what is implemented here.
+
+Rotation still widens the band as much as it moves the mean: the matches it
+moves around are themselves uncertain, so their churn is added to the
+variance whichever way the mean went, which is what prices the uncertainty
+at the quantiles. The churn is scaled to the matches that moved for this
+player, so a man inheriting matches is charged the same uncertainty per
+match as the man ceding them.
 
 A player with a D-Factor-eligible Mantra role -- his role set against
 d_factor.D_FACTOR_ROLES, never the single class pin_class picked for
@@ -66,16 +74,25 @@ class ProjectionConfig:
     depth_rates: tuple[tuple[str, float], ...] = (("starter", 0.9), ("contested", 0.65), ("cover", 0.35), ("out", 0.0))
     newcomer_rate: float = 0.5             # presenze rate with no history and no note
     newcomer_dispersion: float = 1.5       # the presenze band of a newcomer, relative to a known player's
-    rotation_uncertainty: float = 1.0      # the rotation churn's own sigma, as a share of the churn
+    rotation_uncertainty: float = 2.0      # sigma of the matches rotation moved, as a share of them
     # how far a fully rotating club (rotation_factor 0) moves the most exposed
     # rung of its own depth chart, in presenze rate. Rotation redistributes
     # rather than removes: the rungs above the chart's balance point cede
     # matches and the rungs below inherit them, in proportion to how contested
     # each place is, so the sum over the chart is nil (see _rotation_transfer).
-    # 1.0 leaves a second-tier player roughly the bite the old club-level
-    # multiplier gave him, while an untouchable first choice keeps two thirds
-    # of it back and a cover turns it into a gain.
-    rotation_swing: float = 1.0
+    # 0.5 keeps a heavy-rotation club's board close to the profile the flat
+    # club multiplier gave it -- the same inflation and much the same
+    # composition -- while moving the matches down the chart instead of
+    # deleting them. Turn it down if the fringe of a rotating squad reads too
+    # rich; it is the only number that scales the effect.
+    rotation_swing: float = 0.5
+    # a bound, not a shape: the most rotation may add to a place, as a multiple
+    # of the player's own baseline rate. 1.0 says one hand-typed club number
+    # can at most double a man's presenze -- it binds only well below the
+    # knowledge base's usual 0.80-0.95, on the fringe rates where the shape
+    # peaks, and it is what makes the worst case stateable across the whole
+    # range profiles.py accepts (0.5 to 1.0).
+    rotation_max_gain: float = 1.0
     quantile_z: float = 0.6745             # p25 / p75 of a normal
     # roles are a set, not a single slot; a player who can fill more Mantra
     # roles gives the manager more lineup choices, so each role beyond the
@@ -163,8 +180,12 @@ def _rotation_shape(depth_rates: tuple[tuple[str, float], ...]) -> tuple[float, 
     its rates, the one share at which what the rungs above cede is exactly what
     the rungs below inherit. That is what makes the transfer a transfer -- it
     is a definition, not a tuning constant, so editing depth_rates moves it
-    with them. The scale is the largest move the shape makes anywhere on the
-    chart, so `rotation_swing` reads in presenze rate."""
+    with them. The scale is the largest move the shape makes on the chart's own
+    rungs -- the rates depth_rates names, which are the only ones a note can
+    state -- so `rotation_swing` reads in presenze rate. Over continuous rates
+    the shape peaks a little higher, at 1.094 times the scale around r = 0.29,
+    so a history-derived fringe rate can move up to 9% more than the knob's
+    nominal; rotation_max_gain is what bounds that, not this."""
     rates = [rate for _, rate in depth_rates]
     shares = [_contested_share(rate) for rate in rates]
     total = sum(shares)
@@ -177,9 +198,16 @@ def _rotation_shape(depth_rates: tuple[tuple[str, float], ...]) -> tuple[float, 
 
 def _rotation_transfer(rate0: float, rotation_factor: float, cfg: ProjectionConfig) -> float:
     """The presenze rate rotation moves onto (positive) or off (negative) this
-    player's place. Zero at rotation_factor 1.0, whatever his depth."""
+    player's place. Zero at rotation_factor 1.0, whatever his depth, and never
+    more than rotation_max_gain times his own rate on the way up: a single
+    hand-typed club number should not be able to turn a fringe player into a
+    regular by itself. The cap binds only at rotation factors well below the
+    ones the knowledge base carries, and only on the fringe rates where the
+    shape peaks, so within its band the transfer stops being exactly
+    conservative -- a bound is worth more there than the identity."""
     pivot, scale = _rotation_shape(cfg.depth_rates)
-    return cfg.rotation_swing * (1 - rotation_factor) * _contested_share(rate0) * (pivot - rate0) / scale
+    shift = cfg.rotation_swing * (1 - rotation_factor) * _contested_share(rate0) * (pivot - rate0) / scale
+    return min(shift, cfg.rotation_max_gain * rate0) if shift > 0 else shift
 
 
 def _per_presenza(line: SeasonLine, cfg: ProjectionConfig, inp: PlayerInputs) -> tuple[Events, dict[str, float]]:
@@ -268,8 +296,13 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     exp_presenze = g * rate
     # The matches rotation moves are uncertain whichever way they went, so the
     # churn widens the band for the man who inherits them as much as for the
-    # man who cedes them.
-    churn = g * rate0 * availability * (1 - inp.rotation_factor)
+    # man who cedes them -- and it is scaled to the matches that actually moved
+    # for *him*. It used to be scaled to rate0 x (1 - rotation_factor), which
+    # was the size of the old multiplier's own cut: under a transfer that is a
+    # different quantity from the one the mean moved by, and it charged the man
+    # who cedes matches roughly four times more uncertainty per match than the
+    # man who inherits them.
+    churn = g * abs(shift) * availability
     dispersion = cfg.newcomer_dispersion if source == "newcomer" else 1.0
     sigma_pres = math.sqrt(g * rate * (1 - rate) * dispersion ** 2 + (churn * cfg.rotation_uncertainty) ** 2)
 
