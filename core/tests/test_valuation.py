@@ -136,7 +136,7 @@ def test_run_valuation_projects_prices_and_stamps(tmp_path, fixture_json, mcp_fi
         assert all(result.vor[pid] >= 0 for pid in by_id)                                    # no negative VOR
         assert all(1 <= result.tiers[pid] <= PricingConfig().tiers_per_class + 1 for pid in by_id)
         board = result.boards["balanced"]
-        assert set(board.prices) == set(by_id) and all(p.exact for p in board.prices.values())
+        assert set(board.prices) == set(by_id)
         assert all(p.band.p75 <= board.budget for p in board.prices.values())
         assert board.composition["Por"] >= 2 and board.budget <= 500
         assert sum(board.credits_by_class.values()) <= 500                                  # max prices sum sanely

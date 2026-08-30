@@ -26,10 +26,16 @@ top candidates gives f_r(j, c), the best weighted value of exactly j
 players for at most c credits, the j-th chosen (in value order) carrying
 the j-th rank weight; the classes combine by max-plus convolution; a
 class's curve with one rank left free is what the buy branch completes
-from, one such curve per rank. Removing p from his class's curve is done
-exactly for the player on the block (`focus`) and, with `exact=True`, for
-every player of a pre-auction run; otherwise the board is priced from the
-full-pool tables and says so (`PlayerPrice.exact`). Composition is a
+from, one such curve per rank. Every player is priced with himself removed
+from his class's curve -- one knapsack per candidate, and the class's own
+curves for a player the DP never considered, who leaves nothing behind when
+he leaves the pool. There is one mode, decided in Phase 2a (2026-08-30):
+an earlier version priced only the lot on the block exactly and the rest
+of the board from full-pool tables, so the committed pre-auction board and
+the live board disagreed for every other player the moment the auction
+opened. The exact board re-prices 553 players in about a quarter of a
+second on the auction laptop, which a human-paced auction never notices,
+so the approximation was removed rather than explained. Composition is a
 decision variable: the DP chooses how many of each class within the ranks
 the demand gives it; a target only raises weights (a soft prior), and a
 departure from it is reported. A completion that cannot meet a hard
@@ -44,8 +50,8 @@ per player until it fits, and reported.
 
 Pure: no I/O, no clock, numpy inside, frozen dataclasses at the edges.
 Every tunable is in PricingConfig, loaded from pricing.yml elsewhere. A
--inf inside is an impossible branch, and `to_dict` reports it as None so a
-board is valid JSON for whoever stores it.
+-inf inside is an impossible branch, and `to_dict` reports it as None
+(values.json_safe) so a board is valid JSON for whoever stores it.
 """
 
 from __future__ import annotations
@@ -57,15 +63,10 @@ from typing import Any
 
 import numpy as np
 
+from fantaclaude.values import json_safe
+
 NEG = -math.inf
 SLOT_PRICE_STEPS = 12
-
-
-def _json(x: float) -> float | None:
-    """-inf is a real answer inside (no completion exists, or no slot is left
-    for the class) and not a number JSON has: a board is written to a JSON
-    column, so `to_dict` reports the impossible branch as None."""
-    return x if math.isfinite(x) else None
 
 
 @dataclass(frozen=True)
@@ -141,12 +142,11 @@ class PlayerPrice:
     rank_weight: float        # the rank the completion leaves him at his p50 max price, not his class's first
     walk_value: float
     buy_value: float          # rank_weight * value_p50 - the slot price + the completion at the p50 max price
-    exact: bool
 
     def to_dict(self) -> dict[str, Any]:
-        return {"player_id": self.player_id, "role_class": self.role_class, "band": self.band.to_dict(),
-                "expected_price": self.expected_price, "rank_weight": self.rank_weight,
-                "walk_value": _json(self.walk_value), "buy_value": _json(self.buy_value), "exact": self.exact}
+        return json_safe({"player_id": self.player_id, "role_class": self.role_class, "band": self.band.to_dict(),
+                          "expected_price": self.expected_price, "rank_weight": self.rank_weight,
+                          "walk_value": self.walk_value, "buy_value": self.buy_value})
 
 
 @dataclass(frozen=True)
@@ -163,11 +163,11 @@ class BoardPricing:
     targets_departed: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"prices": {str(k): v.to_dict() for k, v in self.prices.items()}, "inflation": self.inflation,
-                "expected_prices": {str(k): v for k, v in self.expected_prices.items()},
-                "composition": self.composition, "credits_by_class": self.credits_by_class,
-                "completion_value": _json(self.completion_value), "reserve": self.reserve, "budget": self.budget,
-                "slot_price": self.slot_price, "targets_departed": list(self.targets_departed)}
+        return json_safe({"prices": {str(k): v.to_dict() for k, v in self.prices.items()}, "inflation": self.inflation,
+                          "expected_prices": {str(k): v for k, v in self.expected_prices.items()},
+                          "composition": self.composition, "credits_by_class": self.credits_by_class,
+                          "completion_value": self.completion_value, "reserve": self.reserve, "budget": self.budget,
+                          "slot_price": self.slot_price, "targets_departed": list(self.targets_departed)})
 
 
 @dataclass(frozen=True)
@@ -188,7 +188,10 @@ def _curve(costs: np.ndarray, values: np.ndarray, weights: tuple[float, ...] | n
     credits, less the slot price each, under rank weighting v. `weights` is a
     stack of weightings (a single row broadcasts to one): they share the one
     pass over the class, because they differ in what the j-th chosen player is
-    worth and not in which players exist."""
+    worth and not in which players exist. Every rank is updated in one numpy
+    operation per player: the right-hand side reads the tables as they stood
+    before him, which is what a descending loop over j used to guarantee one
+    rank at a time, at k times the Python overhead."""
     w = np.atleast_2d(np.asarray(weights, dtype=np.float64))
     k = w.shape[1]
     dp = np.full((w.shape[0], k + 1, budget + 1), NEG)
@@ -196,9 +199,8 @@ def _curve(costs: np.ndarray, values: np.ndarray, weights: tuple[float, ...] | n
     for cost, value in zip(costs.tolist(), values.tolist()):
         if cost > budget:
             continue
-        for j in range(k, 0, -1):
-            gain = dp[:, j - 1, :budget + 1 - cost] + (w[:, j - 1, None] * value - penalty)
-            np.maximum(dp[:, j, cost:], gain, out=dp[:, j, cost:])
+        gain = dp[:, :-1, :budget + 1 - cost] + (w * value - penalty)[:, :, None]
+        np.maximum(dp[:, 1:, cost:], gain, out=dp[:, 1:, cost:])
     return dp
 
 
@@ -296,16 +298,6 @@ class _Solution:
     credits: dict[str, int]
 
 
-def _holes(c: _Class, solution: _Solution, budget: int) -> np.ndarray:
-    """others ⊕ the class curve around each rank a player on the block might
-    take: row a is what the rest of the roster is worth while he carries rank
-    a, with the class still holding him (the board price's approximation).
-    Built for the settled solution and only for a class that needs it -- the
-    bisection that finds the slot price does not, nor does an exact board."""
-    dp = _curve(c.costs, c.values, _hole_weights(c.weights), budget, solution.penalty)
-    return _maxplus(solution.others[c.name], _best(dp, max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap))
-
-
 def _solve(classes: list[_Class], budget: int, penalty: float = 0.0) -> _Solution:
     zero = np.zeros(budget + 1)
     dps = {c.name: _curve(c.costs, c.values, c.weights, budget, penalty)[0] for c in classes}
@@ -354,30 +346,31 @@ def _fit_roster(classes: list[_Class], budget: int, slots: int) -> _Solution:
     return fit
 
 
-def _column(buy: np.ndarray, others: np.ndarray | None, c: int) -> np.ndarray:
-    """Per rank he could take, buying him with c credits left for the rest.
-    `others` is the rest of the roster when the class curve has not been
-    convolved with it: the exact board rebuilds the class per player, and a
-    whole max-plus convolution each is what it cannot afford, so the split of
-    c between the class and the rest is maximised over point by point instead
-    -- the binary search asks for a handful of points, not the whole curve."""
+def _class_holes(c: _Class, budget: int, penalty: float) -> np.ndarray:
+    """The class's curves with one rank left free and nobody removed: row a is
+    the best the class does around a player seated at rank a. Exact for a
+    player the DP never considered -- he was in no table, so his leaving the
+    pool leaves every table as it is -- and shared by all of them."""
+    dp = _curve(c.costs, c.values, _hole_weights(c.weights), budget, penalty)
+    return _best(dp, max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap)
+
+
+def _column(buy: np.ndarray, others: np.ndarray, c: int) -> np.ndarray:
+    """Per rank he could take, buying him with c credits left for the rest:
+    the split of c between his class and the rest of the roster, maximised
+    point by point. The binary search asks for a handful of points, and a
+    whole max-plus convolution per player is what an exact board cannot
+    afford."""
     if c < 0:
         return np.full(buy.shape[0], NEG)
-    if others is None:
-        return buy[:, c]
     return (others[:c + 1] + buy[:, :c + 1][:, ::-1]).max(axis=1)
 
 
-def _max_price(buy: np.ndarray, others: np.ndarray | None, walk: float, budget: int) -> int:
+def _max_price(buy: np.ndarray, others: np.ndarray, walk: float, budget: int) -> int:
     """The largest x in [0, budget] with buy(budget - x) >= walk; buy(.) is a
     maximum of non-decreasing curves, so the predicate is monotone in x. No
     completion without him (walk = -inf) makes it every credit that still
     leaves the buy branch feasible."""
-    if others is None:                  # the whole curve is in hand, so the search is a lookup: it is
-        curve = buy.max(axis=0)         # non-decreasing, and -inf sorts before every number
-        first = int(np.searchsorted(curve, walk, side="right" if walk == NEG else "left"))
-        return budget - first if first <= budget else 0
-
     def ok(c: int) -> bool:
         value = float(_column(buy, others, c).max())
         return value > NEG if walk == NEG else value >= walk
@@ -393,8 +386,7 @@ def _max_price(buy: np.ndarray, others: np.ndarray | None, walk: float, budget: 
     return lo
 
 
-def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, *,
-                exact: bool = False) -> BoardPricing:
+def price_board(state: PoolState, cfg: PricingConfig) -> BoardPricing:
     if state.credits < 0:
         raise ValueError("credits cannot be negative")
     inflation, expected = _expected_prices(state, cfg)
@@ -421,24 +413,22 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
         c = by_class[p.role_class]
         if c.j_max == 0:
             prices[p.player_id] = PlayerPrice(p.player_id, c.name, Band(0, 0, 0), expected[p.player_id], 0.0,
-                                              float(solution.total[budget]), NEG, True)
+                                              float(solution.total[budget]), NEG)
             continue
         k = len(c.weights)
-        wants_exact = exact or p.player_id == focus
-        if wants_exact and p.player_id in candidate_of:
+        others = solution.others[c.name]
+        if p.player_id in candidate_of:
             keep = [i for i, q in enumerate(c.players) if q.player_id != p.player_id]
-            costs, values = c.costs[keep], c.values[keep]
             stack = np.zeros((k + 1, k))                        # row 0 walks away from him, row a + 1 seats him at rank a
             stack[0] = c.weights
             stack[1:, :k - 1] = _hole_weights(c.weights)        # the padding column is never read: j stops at j_max - 1
-            dp = _curve(costs, values, stack, budget, penalty)
-            others = solution.others[c.name]
+            dp = _curve(c.costs[keep], c.values[keep], stack, budget, penalty)
             walk = _at(others, _best(dp[0], c.j_min, c.j_max, c.cap), budget)
             holes = _best(dp[1:], max(0, c.j_min - 1), max(0, c.j_max - 1), c.cap)
-        else:                                        # the shared rows are convolved with `others` already
+        else:                                        # in no table, so the class's own curves are exact for him
             if c.name not in shared:
-                shared[c.name] = _holes(c, solution, budget)
-            walk, holes, others = float(solution.total[budget]), shared[c.name], None
+                shared[c.name] = _class_holes(c, budget, penalty)
+            walk, holes = float(solution.total[budget]), shared[c.name]
         # buy(c) = max over the rank he takes; every row already leaves that rank
         # free, so scarcity and the rank weight both fall out of the same maximum.
         ranks = np.asarray(c.weights)[:, None]
@@ -449,8 +439,7 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
         at_p50 = _column(buys[1], others, budget - band.p50)
         taken = int(np.argmax(at_p50))
         buy = float(at_p50[taken]) if at_p50[taken] > NEG else NEG
-        prices[p.player_id] = PlayerPrice(p.player_id, c.name, band, expected[p.player_id], c.weights[taken], walk, buy,
-                                          wants_exact)
+        prices[p.player_id] = PlayerPrice(p.player_id, c.name, band, expected[p.player_id], c.weights[taken], walk, buy)
     owned = Counter(o.role_class for o in state.owned)
     departed = tuple(cls for cls, n in state.targets.items()
                      if solution.composition.get(cls, 0) + owned.get(cls, 0) < n)
@@ -461,12 +450,10 @@ def price_board(state: PoolState, cfg: PricingConfig, focus: int | None = None, 
 def explain(board: BoardPricing, player_id: int) -> dict[str, Any]:
     """The trace behind one price, for the model to read: never a recomputation."""
     price = board.prices[player_id]
-    return {"player_id": player_id, "role_class": price.role_class, "band": price.band.to_dict(),
-            "expected_price": price.expected_price, "rank_weight": price.rank_weight,
-            "walk_value": price.walk_value, "buy_value": price.buy_value, "exact": price.exact,
-            "inflation": board.inflation, "composition": board.composition,
-            "credits_by_class": board.credits_by_class, "completion_value": board.completion_value,
-            "reserve": board.reserve, "budget": board.budget, "slot_price": board.slot_price,
-            "targets_departed": list(board.targets_departed),
-            "note": ("priced with him removed from the pool in both branches" if price.exact
-                     else "board price: the walk-away plan still counts him as available; the lot on the block is exact")}
+    return json_safe({"player_id": player_id, "role_class": price.role_class, "band": price.band.to_dict(),
+                      "expected_price": price.expected_price, "rank_weight": price.rank_weight,
+                      "walk_value": price.walk_value, "buy_value": price.buy_value,
+                      "inflation": board.inflation, "composition": board.composition,
+                      "credits_by_class": board.credits_by_class, "completion_value": board.completion_value,
+                      "reserve": board.reserve, "budget": board.budget, "slot_price": board.slot_price,
+                      "targets_departed": list(board.targets_departed)})

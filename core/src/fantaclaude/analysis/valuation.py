@@ -12,8 +12,8 @@ is reproducible from what it names. The permanent record is the run_id
 The stages, in the spec's order: project (Task 6), Mantra-adjust (the
 flexibility bonus in the projection and the role pinning here), value
 above replacement (against the best player expected to cost one credit at
-the class), allocate (price_board with exact=True, once per scenario --
-the composition is the DP's), tier (the largest gaps in value within the
+the class), allocate (price_board, once per scenario -- the composition is
+the DP's), tier (the largest gaps in value within the
 class). The quotazione enters only as the expected price and, at the end,
 as the divergence check: where we disagree most with the market is either
 the edge or a bug, and it is the list worth reading by hand.
@@ -541,7 +541,7 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
                           hard_minimums=minimums, roster_min=ctx.roster_min, roster_max=ctx.roster_max,
                           min_goalkeepers=ctx.min_goalkeepers, max_goalkeepers=ctx.max_goalkeepers,
                           targets=scenario.target_composition, class_budget_share=scenario.max_budget_share_per_role)
-        boards[scenario.name] = price_board(state, pricing_cfg, exact=True)
+        boards[scenario.name] = price_board(state, pricing_cfg)
     reference = boards[scenarios[0].name]
     replacement = replacement_levels(pool, reference.expected_prices, pricing_cfg)
     vor = {p.player_id: max(0.0, p.value_p50 - replacement[p.role_class]) for p in pool}
@@ -598,7 +598,9 @@ def record_run(con: duckdb.DuckDBPyConnection, run: ValuationRun) -> None:
         con.executemany(
             "INSERT INTO valuation_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[run.run_id, name, price.player_id, price.role_class, price.expected_price, price.band.p25, price.band.p50,
-              price.band.p75, price.walk_value, price.exact, canonical_json(_finite(price.to_dict()))]
+              # `exact` is always true since Phase 2a decided on one pricing mode; the column
+              # stays, so the runs recorded before the decision still read the same way.
+              price.band.p75, price.walk_value, True, canonical_json(price.to_dict())]
              for name, board in run.boards.items() for price in board.prices.values()])
     except Exception:
         con.rollback()
