@@ -24,7 +24,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -70,7 +69,6 @@ from fantaclaude.model.demand import (
     pin_class,
     rank_weights,
     satisfiable_demand,
-    thin_classes,
 )
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import (
@@ -512,26 +510,26 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     # values him draws slots nobody is ever priced for, and leaves the classes
     # that do field them weighted as though they had only their own to cover
     # (see satisfiable_demand).
-    demand = satisfiable_demand(module_demand(), listone_role_sets(con), max_rank=max_rank,
+    folded = satisfiable_demand(module_demand(), listone_role_sets(con), teams=ctx.team_count, max_rank=max_rank,
                                 bench_weight=pricing_cfg.bench_weight, bench_decay=pricing_cfg.bench_decay,
                                 bench_slots=pricing_cfg.bench_slots_per_class)
     # In module-code order, which is the order canonical_json stores it in: the
     # rank weights are floating-point sums over the modules, so the live board
     # (asta/pinned.py reads config["demand_by_module"] back) must add them in
     # the same order to reproduce this run's board to the last bit.
-    demand = {code: demand[code] for code in sorted(demand)}
+    demand = {code: folded.by_module[code] for code in sorted(folded.by_module)}
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                 bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class)
     inputs, warnings = build_inputs(con, history, profiles, notes, base_weights)
-    # satisfiable_demand asks only whether a class has any player, so a class
-    # that keeps its demand off one or two of them is standing on a knife edge:
-    # one more listed player of that class, or one fewer, moves every price on
-    # the board. The run cannot make that transition smooth without moving
-    # every price itself, but it can refuse to make it silently.
-    for cls, pinned, slots in thin_classes(demand, Counter(i.role_class for i in inputs), teams=ctx.team_count):
-        warnings.append(f"{cls}: only {pinned} player(s) in the listone price as one, against the {slots:.1f} starting "
-                        f"slots the league draws from the class -- its demand rests on that handful, and one more or "
-                        f"one fewer listed {cls} moves every price on the board")
+    # A class the listone supplies at less than the league's starting slots keeps
+    # only that share of its demand; the rest is priced through the classes its
+    # players price as. Said once per run, so a partially supplied class is never
+    # a surprise on the board.
+    for cls, fraction in sorted(folded.kept.items()):
+        if 0.0 < fraction < 1.0:
+            warnings.append(f"{cls}: the listone supplies the class at {fraction:.0%} of the starting slots the league draws "
+                            f"from it; the other {1 - fraction:.0%} of its demand is priced through the classes its players "
+                            f"price as")
     table = d_factor if status.d_factor else None
     projections = project_all(inputs, cfg=projection_cfg, priors=history.priors, bm=bm,
                               giornate_remaining=giornate_remaining, current_season=ctx.season_id, d_factor=table)
@@ -565,6 +563,15 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
               # and the same demand per module, so the live board reads the run's own
               # weights back instead of re-deriving them (asta/pinned.py)
               "demand_by_module": demand,
+              # the retained fraction the fold's fixed point settled at for each class --
+              # min(1, supply / need), 1.0 where the listone supplies it in full -- so a
+              # partially supplied class is on the record even where the warning below is
+              # silent (a re-run computing divergence, not a human reading warnings). Not
+              # the share of the class's own demand that actually ended up priced in
+              # demand_by_module: classes fold in a fixed order within one pass, so a class
+              # folded early can receive demand back from one folded later in the same pass
+              # (see FoldedDemand.kept).
+              "demand_kept": folded.kept,
               # with the hard minimums beside them, for the same reason: both are read
               # off modules.yml, which is in neither model_hash nor rules_hash, so an
               # edit there supersedes no run and changes no model id. Without this the

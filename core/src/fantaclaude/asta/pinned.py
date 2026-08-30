@@ -142,15 +142,15 @@ def newest_run_id(con: duckdb.DuckDBPyConnection) -> str | None:
     return None if row is None else str(row[0])
 
 
-def _rederive_demand(players: dict[int, PinnedPlayer], cfg: PricingConfig) -> dict[str, dict[str, float]]:
+def _rederive_demand(players: dict[int, PinnedPlayer], cfg: PricingConfig, teams: int) -> dict[str, dict[str, float]]:
     """The folded demand of a run recorded before `config` carried it, from
     the run's own rows: the same fold, against the same supply, in the same
     module-code order the config would have stored it in."""
     supply = [frozenset(Role(r) for r in p.roles) for p in players.values()]
-    demand = satisfiable_demand(module_demand(), supply, max_rank=max(cfg.max_per_class, cfg.max_goalkeepers),
+    folded = satisfiable_demand(module_demand(), supply, teams=teams, max_rank=max(cfg.max_per_class, cfg.max_goalkeepers),
                                 bench_weight=cfg.bench_weight, bench_decay=cfg.bench_decay,
                                 bench_slots=cfg.bench_slots_per_class)
-    return {code: demand[code] for code in sorted(demand)}
+    return {code: folded.by_module[code] for code in sorted(folded.by_module)}
 
 
 def load_pinned_run(con: duckdb.DuckDBPyConnection, run_id: str | None = None) -> PinnedRun:
@@ -178,20 +178,23 @@ def load_pinned_run(con: duckdb.DuckDBPyConnection, run_id: str | None = None) -
                                     "ORDER BY player_id", [run_id]).fetchall()}
     if not players:
         raise PinnedRunError(f"run {run_id} has no valuations rows")
-    # modules.yml's two contributions to a price, both read from the run. They
-    # were recorded by the same commit, so a run predating one predates both;
-    # either missing is a run whose board is not wholly its own, and it says so.
-    demand = config.get("demand_by_module")
-    minimums = config.get("hard_minimums")
-    rederived = not demand or not minimums
-    if not demand:
-        demand = _rederive_demand(players, pricing_cfg)
-    if not minimums:
-        minimums = hard_minimums()
     try:
         league = league_bounds(con, int(row[5]))
     except SessionError as exc:
         raise PinnedRunError(f"run {run_id}: {exc}") from None
+    # modules.yml's two contributions to a price, both read from the run. They
+    # were recorded by the same commit, so a run predating one predates both;
+    # either missing is a run whose board is not wholly its own, and it says
+    # so. Re-deriving the demand needs the league's own team count -- `need`
+    # is the starting slots the *league* draws from a class -- which is why
+    # the league is read back before this.
+    demand = config.get("demand_by_module")
+    minimums = config.get("hard_minimums")
+    rederived = not demand or not minimums
+    if not demand:
+        demand = _rederive_demand(players, pricing_cfg, league.team_count)
+    if not minimums:
+        minimums = hard_minimums()
     prices: dict[str, dict[int, Band]] = {}
     for scenario, pid, p25, p50, p75 in con.execute(
             "SELECT scenario, player_id, max_p25, max_p50, max_p75 FROM valuation_prices WHERE run_id = ?", [run_id]).fetchall():

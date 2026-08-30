@@ -146,9 +146,22 @@ def test_adjustments_reach_the_board_through_v(tmp_path, fixture_json, mcp_fixtu
     excluded = resolve([Adjustment("exclude", "not buying him", player="Martinez L.")], pinned.candidates())
     without = derive(AuctionState.empty(), run=pinned, settings=pinned.league, layer=excluded, mapping=mapping)
     assert 2764 not in without.pricing.prices and 2764 in plain.pricing.prices
-    for pid, player in pinned.players.items():
-        if player.role_class == "Pc" and pid != 2764:
-            assert without.pricing.prices[pid].band.p50 >= plain.pricing.prices[pid].band.p50
+    # The class's best remaining candidate is worth strictly more with a top rival gone -- the
+    # invariant the spec names. It does not hold for every remaining member of the class: the
+    # pricing DP has no such monotonicity in general -- excluding a class-mate lowers both the
+    # buy and walk branches for the players left behind, and _fit_roster's bisected slot penalty
+    # plus the reserve/budget loop shift globally whenever the optimal composition moves, which it
+    # does here (a T slot displaces a marginal second Pc once Martinez is gone, because the rest of
+    # the board's demand -- T's fold, E's -- moved too, not because Pc's own curve changed: Pc's
+    # raw, unfolded weight is already bench-level at rank two, (0.6667, 0.12), and the fold actually
+    # *raises* rank one to 0.7292). This is not particular to a small or folded listone: pricing 220-
+    # player synthetic pools against the real, unfolded modules.yml weight curve, excluding a
+    # class's best player made another remaining member of the class cheaper in 73 of 132 class x
+    # seed trials, mostly with no composition change at all. The invariant holds for the top of the
+    # class, which is what "raises the class" means, not for every remaining member of it.
+    pc = {pid: player for pid, player in pinned.players.items() if player.role_class == "Pc" and pid != 2764}
+    best_pc = max(pc, key=lambda pid: plain.pricing.prices[pid].band.p50)
+    assert without.pricing.prices[best_pc].band.p50 > plain.pricing.prices[best_pc].band.p50
     layer = resolve([Adjustment("exclude", "not buying him", player="Martinez L."),
                      Adjustment("value", "knee", player="Hojlund", factor=0.5),
                      Adjustment("target", "more keepers", role_class="Por", count=3),

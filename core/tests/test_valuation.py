@@ -142,9 +142,13 @@ def test_run_valuation_projects_prices_and_stamps(tmp_path, fixture_json, mcp_fi
         assert sum(board.credits_by_class.values()) <= 500                                  # max prices sum sanely
         assert result.implied[2764][0] > 0 and isinstance(result.implied[2764][1], float)
         # every club has a profile, so no "no profile" warning; the template's taker (Calhanoglu) is Inter's
-        # alone and a taker is resolved among his own club's players, so the other seven clubs warn
+        # alone and a taker is resolved among his own club's players, so the other seven clubs warn. This
+        # 17-player fixture is also far short of the league's team-scaled need in most classes (Task 10's
+        # fold, unlike the old any-player-at-all check, says so for those too) -- every warning is one of
+        # those two kinds, never a third.
         assert not any("no profile" in w for w in result.warnings)
-        assert all("penalty taker" in w for w in result.warnings)
+        assert any("penalty taker" in w for w in result.warnings)
+        assert all("penalty taker" in w or "supplies the class at" in w for w in result.warnings)
         assert result.summary["team_count"] == 8 and result.summary["market_credits"] == 4000
         assert result.summary["giornate_remaining"] == 37
     finally:
@@ -173,18 +177,23 @@ def test_the_run_prices_only_demand_its_own_listone_can_supply(tmp_path, fixture
         board = result.boards["balanced"]
         assert board.composition["E"] == 2 and board.composition["Pc"] == 1
         assert board.credits_by_class["E"] > board.credits_by_class["Dc"]
-        # a listone that supplies every class in proportion says nothing
-        assert not any("rests on that handful" in w for w in result.warnings)
+        # Dd and Ds fold to nothing -- structurally nobody ever pins to them, whatever the
+        # listone's size -- and a wholly unsupplied class is never treated as merely "partial"
+        # (the warning fires only for 0 < kept < 1), so neither one says anything.
+        assert result.config["demand_kept"]["Dd"] == 0.0 and result.config["demand_kept"]["Ds"] == 0.0
+        assert not any(w.startswith(("Dd:", "Ds:")) for w in result.warnings)
+        # this 17-player fixture is itself far short of the league's team-scaled need in most
+        # classes -- need is fixed by modules.yml x team_count, not by how big the listone is --
+        # so, unlike the old any-player-at-all check, several other classes do say something here
+        assert any("supplies the class at" in w for w in result.warnings)
     finally:
         con.close()
 
 
-def test_one_listed_player_of_a_class_is_the_edge_the_fold_stands_on(tmp_path, fixture_json, mcp_fixture_json):
-    """`satisfiable_demand` asks only whether a class has *any* player, so a
-    single listed pure `Dd` hands the class back half a slot of every module
-    and moves every price -- off nothing louder than a routine re-sync. Phase
-    2a may make the fold continuous in the shortfall; until then the edge is
-    real and this is what it does."""
+def test_one_listed_player_of_a_class_moves_the_board_by_his_share_of_the_demand(tmp_path, fixture_json, mcp_fixture_json):
+    """The fold is continuous in the shortfall: a single listed pure `Dd`
+    keeps 1 / (6/11 x 8) of the class's demand, not all of it, and the run
+    says so in a warning instead of standing on a knife edge."""
     seeded(tmp_path, fixture_json, mcp_fixture_json)
     before, con = run(tmp_path)
     con.close()
@@ -195,14 +204,22 @@ def test_one_listed_player_of_a_class_is_the_edge_the_fold_stands_on(tmp_path, f
     con.close()
     after, con = run(tmp_path)
     try:
-        assert before.config["demand"]["Dd"] == 0.0
-        assert after.config["demand"]["Dd"] == pytest.approx(6 / 11)      # a Dd slot in the six back-four modules
+        kept = 1 / (6 / 11 * 8)
+        assert before.config["demand_kept"]["Dd"] == 0.0 and before.config["demand"]["Dd"] == 0.0
+        assert after.config["demand_kept"]["Dd"] == pytest.approx(kept)
+        # 6/11 x kept is Dd's own remaining share, module-averaged; this fixture is small enough
+        # that other classes fold too (a keeper never carries a second role, so a listone this
+        # short of goalkeepers folds Por the same "nobody else carries it" way Ds always does),
+        # landing part of their own shortfall back in Dd's modules -- so the observed average sits
+        # above the bare share but nowhere near the 6/11 a fully-unsupplied class would keep at 0
+        assert 6 / 11 * kept < after.config["demand"]["Dd"] < 6 / 11
         assert after.config["demand"]["E"] < before.config["demand"]["E"]
         assert sum(after.config["demand"].values()) == pytest.approx(11.0)
+        assert any(w.startswith("Dd: the listone supplies the class at 23%") for w in after.warnings)
         moved = [p.player_id for p in before.pool
                  if after.boards["balanced"].prices[p.player_id].band.p50
                  != before.boards["balanced"].prices[p.player_id].band.p50]
-        assert moved, "one listed Dd is meant to move the board, which is why the run says so"
+        assert moved, "one listed Dd still moves the board -- by a quarter of a slot, not half a slot per module"
     finally:
         con.close()
 

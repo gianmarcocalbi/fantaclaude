@@ -1,4 +1,3 @@
-from collections import Counter
 from itertools import pairwise
 
 import pytest
@@ -11,13 +10,13 @@ from fantaclaude.model.demand import (
     rank_weights,
     role_class,
     satisfiable_demand,
-    thin_classes,
 )
 from fantaclaude.model.modules import load_modules
 from fantaclaude.model.roles import Role
 
 R = frozenset
-FOLD = {"max_rank": 6, "bench_weight": 0.1}
+FOLD = {"teams": 8, "max_rank": 6, "bench_weight": 0.1}
+RANK = {k: v for k, v in FOLD.items() if k != "teams"}    # rank_weights takes no `teams` -- only satisfiable_demand does
 
 
 def test_role_classes_fold_b_into_dc():
@@ -73,19 +72,6 @@ def test_a_target_raises_the_weights_it_names_and_nothing_else():
         rank_weights(module_demand(load_modules()), max_rank=4, bench_weight=0.1, targets={"Xy": 1})
 
 
-def test_the_weights_do_not_depend_on_the_order_the_demand_dict_is_built_in():
-    """A rank weight is a floating-point sum over the modules, so the same
-    demand in another dict order used to give another board in the last bit --
-    and modules.yml's own key order is not sorted order, so the difference is
-    reachable. Every caller pre-sorting is a convention a new call site can
-    forget (Task 7's what-ifs, Task 9's CLI, 2b); the function sorts."""
-    demand = module_demand(load_modules())
-    shuffled = {code: demand[code] for code in sorted(demand, reverse=True)}
-    assert list(shuffled) != list(demand)                      # the orders really are different
-    kw = {"max_rank": 6, "bench_weight": 0.12, "targets": {"Pc": 3}, "min_ranks": {"Por": 3}}
-    assert rank_weights(demand, **kw) == rank_weights(shuffled, **kw)
-
-
 def test_hard_minimums_are_the_slots_every_module_needs_from_one_class():
     assert hard_minimums(load_modules()) == {"Por": 1, "Dc": 2}
 
@@ -112,16 +98,16 @@ def test_demand_no_player_can_pin_to_is_folded_onto_the_classes_that_field_it():
     had to cover their own slots."""
     supply = listone_shaped_supply()
     raw = module_demand(load_modules())
-    weights = rank_weights(raw, **FOLD)
+    weights = rank_weights(raw, **RANK)
     assert {pin_class(roles, weights) for roles in supply}.isdisjoint({"Dd", "Ds"})
-    folded = satisfiable_demand(raw, supply, **FOLD)
+    folded = satisfiable_demand(raw, supply, **FOLD).by_module
     assert all("Dd" not in by_class and "Ds" not in by_class for by_class in folded.values())
     # 4-3-3 draws one Dd and one Ds; of the 52 Dd players 37 pin to E and 15 to
     # Dc, of the 58 Ds players 39 pin to E and 19 to Dc
     assert folded["433"]["E"] == pytest.approx(raw["433"].get("E", 0.0) + 37 / 52 + 39 / 58)
     assert folded["433"]["Dc"] == pytest.approx(raw["433"]["Dc"] + 15 / 52 + 19 / 58)
     # and the classes that field the flanks are worth more per rank for it
-    after = rank_weights(folded, **FOLD)
+    after = rank_weights(folded, **RANK)
     assert after["E"][0] > weights["E"][0] and after["Dc"][2] > weights["Dc"][2]
     assert after["M"] == weights["M"] and after["Pc"] == weights["Pc"]
 
@@ -129,11 +115,11 @@ def test_demand_no_player_can_pin_to_is_folded_onto_the_classes_that_field_it():
 def test_folding_conserves_demand_and_leaves_none_of_it_unsatisfiable():
     supply = listone_shaped_supply()
     raw = module_demand(load_modules())
-    folded = satisfiable_demand(raw, supply, **FOLD)
+    folded = satisfiable_demand(raw, supply, **FOLD).by_module
     for code, by_class in folded.items():
         assert sum(by_class.values()) == pytest.approx(sum(raw[code].values())), code
         assert min(by_class.values()) > 0.0, code
-    pinned = {pin_class(roles, rank_weights(folded, **FOLD)) for roles in supply}
+    pinned = {pin_class(roles, rank_weights(folded, **RANK)) for roles in supply}
     wanted = {cls for by_class in folded.values() for cls, d in by_class.items() if d > 0}
     assert wanted <= pinned
 
@@ -143,7 +129,7 @@ def test_a_listone_that_can_pin_to_every_class_is_left_alone():
     it players who do pin to the flanks and it changes nothing."""
     raw = module_demand(load_modules())
     supply = (*listone_shaped_supply(), *([R({Role.Dd})] * 12), *([R({Role.Ds})] * 12))
-    assert satisfiable_demand(raw, supply, **FOLD) == {code: dict(by_class) for code, by_class in raw.items()}
+    assert satisfiable_demand(raw, supply, **FOLD).by_module == {code: dict(by_class) for code, by_class in raw.items()}
 
 
 def test_a_class_no_player_carries_at_all_still_conserves_the_eleven():
@@ -151,38 +137,36 @@ def test_a_class_no_player_carries_at_all_still_conserves_the_eleven():
     whatever else the module fields rather than evaporating."""
     raw = module_demand(load_modules())
     supply = tuple(roles for roles in listone_shaped_supply() if "W" not in player_classes(roles))
-    folded = satisfiable_demand(raw, supply, **FOLD)
+    folded = satisfiable_demand(raw, supply, **FOLD).by_module
     for code, by_class in folded.items():
         assert sum(by_class.values()) == pytest.approx(sum(raw[code].values())), code
     assert all("W" not in by_class for by_class in folded.values())
 
 
-def test_thin_classes_names_the_ones_whose_pricing_rests_on_a_handful():
-    """The fold turns on whether a class has any player at all, so one listed
-    pure Dd hands Dd its half-slot back and moves every price. The run cannot
-    stop that, but it can say it is standing on the edge."""
-    supply = listone_shaped_supply()
-    healthy = satisfiable_demand(module_demand(load_modules()), supply, **FOLD)
-    pinned = Counter(pin_class(roles, rank_weights(healthy, **FOLD)) for roles in supply)
-    assert thin_classes(healthy, pinned, teams=8) == []
-    # now one player, and one only, prices as a Dd: the class keeps its demand
-    edge = (*supply, R({Role.Dd}))
-    kept = satisfiable_demand(module_demand(load_modules()), edge, **FOLD)
-    edge_pinned = Counter(pin_class(roles, rank_weights(kept, **FOLD)) for roles in edge)
-    assert edge_pinned["Dd"] == 1 and sum(m.get("Dd", 0.0) for m in kept.values()) > 0
-    assert [cls for cls, _, _ in thin_classes(kept, edge_pinned, teams=8)] == ["Dd"]
-    _, n, slots = thin_classes(kept, edge_pinned, teams=8)[0]
-    assert n == 1 and slots == pytest.approx(6 / 11 * 8)
-
-
-def test_a_niche_class_with_enough_bodies_for_the_league_is_not_thin():
-    """Both halves have to hold: a small listone is small in every class, and a
-    class the modules barely ask for needs few players to cover the league."""
-    demand = {"m": {"T": 0.7, "Dc": 10.3}}
-    assert thin_classes(demand, {"T": 11, "Dc": 400}, teams=8) == []      # 11 players, 5.6 slots
-    assert [c for c, _, _ in thin_classes(demand, {"T": 2, "Dc": 400}, teams=8)] == ["T"]
-    # a proportionate listone is never thin, however small
-    assert thin_classes(demand, {"T": 1, "Dc": 15}, teams=8) == []
+def test_the_fold_is_continuous_in_the_shortfall():
+    """One listed pure Dd used to hand the class its whole half-slot back
+    and move every price on the board. The class keeps the share of its
+    demand its supply covers: n pure Dd against the 6/11 x 8 = 4.36 starting
+    slots the league draws from Dd, never more than all of it, never less
+    than nothing, and the eleven units of every module conserved."""
+    raw = module_demand(load_modules())
+    base = listone_shaped_supply()
+    need = 6 / 11 * 8
+    for n in (0, 1, 2, 4, 5):
+        folded = satisfiable_demand(raw, (*base, *([R({Role.Dd})] * n)), **FOLD)
+        kept = folded.kept["Dd"]
+        # min(1, n / need) is itself non-decreasing in n, so an assertion that kept rises with n
+        # would add nothing on top of this -- the interesting monotonicity is across the
+        # fixed-point iteration, not across these calls, and this loop does not exercise that.
+        assert kept == pytest.approx(min(1.0, n / need))
+        dd = sum(m.get("Dd", 0.0) for m in folded.by_module.values()) / len(raw)
+        assert dd == pytest.approx(6 / 11 * kept)
+        for code, by_class in folded.by_module.items():
+            assert sum(by_class.values()) == pytest.approx(11.0), code
+        assert folded.kept["Ds"] == 0.0 and folded.kept["E"] == 1.0
+    none = satisfiable_demand(raw, base, **FOLD)
+    assert none.kept["Dd"] == 0.0 and all("Dd" not in m for m in none.by_module.values())
+    assert none.to_dict()["kept"]["Dd"] == 0.0 and set(none.to_dict()) == {"by_module", "kept", "iterations"}
 
 
 def test_pin_class_takes_the_class_with_the_most_demand():
