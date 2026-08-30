@@ -25,7 +25,7 @@ from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_cred
 
 from fantaclaude.analysis.valuation import PreferencesError, load_preferences
 from fantaclaude.asta.adjustments import AdjustmentsError, load_adjustments, resolve
-from fantaclaude.asta.pinned import PinnedRunError, load_pinned_run
+from fantaclaude.asta.pinned import PinnedRun, PinnedRunError, load_pinned_run
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
 from fantaclaude.asta.snapshot import StateFileError, read_state
 from fantaclaude.config import WEB_COOKIE_KEY
@@ -392,6 +392,47 @@ def _participants_check(kb: Path, league_yml: Path) -> Check:
     return Check("kb_participants", True, head)
 
 
+def _favourite_clubs_check(kb: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+    """Every club a dossier calls a favourite, resolved against the listone's
+    own club names -- the set-piece takers' problem again, one field over.
+
+    `pressure.pressure_for` tests `club in dossier.favourite_clubs` against
+    `club_names.get(player.team_short, player.team_short)`: exact, and case
+    sensitive. `kb/participants.py` validates `overpays` and `avoids` against
+    ROLE_CLASSES but cannot validate this one, because it has no listone. So
+    a dossier written `favourite_clubs: [Internazionale]`, or lowercase,
+    never fires the keen signal at all: the pressure estimate is quietly one
+    1.25x factor too low for exactly the clubs the dossier was written to
+    flag, with nothing anywhere saying so. Nothing else can catch it -- an
+    unresolved club is not a parse error, not a problem line, and not
+    visible on the board."""
+    try:
+        dossiers = load_participants(kb)
+    except ParticipantError as exc:
+        return Check("kb_favourite_clubs", False, str(exc))      # the kb_participants check says the same
+    if con is None:
+        return Check("kb_favourite_clubs", False, skip)
+    try:
+        clubs = {str(name) for name, in con.execute("SELECT DISTINCT name FROM v_teams_current").fetchall() if name}
+    except duckdb.Error as exc:
+        return Check("kb_favourite_clubs", False, f"skipped: {exc}")
+    by_fold = {name.casefold(): name for name in clubs}
+    named = 0
+    problems: list[str] = []
+    for dossier in dossiers:
+        for club in dossier.favourite_clubs:
+            named += 1
+            if club in clubs:
+                continue
+            spelt = by_fold.get(club.casefold())
+            problems.append(f"{dossier.nick}: {club!r} " + (f"is spelt {spelt!r} in the listone" if spelt
+                                                            else "names no club of the listone"))
+    head = f"{named - len(problems)}/{named} favourite clubs resolve against the listone's {len(clubs)} clubs"
+    if problems:
+        return Check("kb_favourite_clubs", False, f"{head}; " + "; ".join(problems))
+    return Check("kb_favourite_clubs", True, head)
+
+
 def _scoring_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
     if con is None:
         return Check("scoring", False, skip)
@@ -446,20 +487,24 @@ def _valuations_check(con: duckdb.DuckDBPyConnection | None, skip: str, now: dat
     return Check("valuations", not row[2], f"run {row[0]}, {_age(row[1], now)}, scenarios {', '.join(row[3])}; {state}")
 
 
-def _pinned_run_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
-    """Is the run `asta` would pin loadable -- rows, config, its settings row (spec: a doctor check for the night)."""
+def _pinned_run_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> tuple[Check, PinnedRun | None]:
+    """Is the run `asta` would pin loadable -- rows, config, its settings row (spec: a doctor check for the night).
+
+    Returns the run beside the check so `_adjustments_check` can resolve
+    against it: both used to load it, and load_pinned_run reads the whole
+    `valuations` table."""
     if con is None:
-        return Check("pinned_run", False, skip)
+        return Check("pinned_run", False, skip), None
     try:
         run = load_pinned_run(con)
     except PinnedRunError as exc:
-        return Check("pinned_run", False, str(exc))
+        return Check("pinned_run", False, str(exc)), None
     except duckdb.Error as exc:
-        return Check("pinned_run", False, f"skipped: {exc}")
-    return Check("pinned_run", True, run.describe())
+        return Check("pinned_run", False, f"skipped: {exc}"), None
+    return Check("pinned_run", True, run.describe()), run
 
 
-def _adjustments_check(path: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+def _adjustments_check(path: Path, con: duckdb.DuckDBPyConnection | None, run: PinnedRun | None, skip: str) -> Check:
     """Does data/adjustments.yml parse, and does every entry resolve against the run it would be applied to.
 
     The file parses with or without a database, so the parse verdict stands
@@ -477,9 +522,7 @@ def _adjustments_check(path: Path, con: duckdb.DuckDBPyConnection | None, skip: 
     head = f"{len(adjustments)} adjustment(s)"
     if con is None:
         return Check("adjustments", True, f"{head}, parse; {skip} -- not resolved against a run")
-    try:
-        run = load_pinned_run(con)
-    except (PinnedRunError, duckdb.Error):
+    if run is None:
         return Check("adjustments", True, f"{head}, parse; no run to resolve them against (see pinned_run)")
     layer = resolve(adjustments, run.candidates())
     if layer.problems:
@@ -563,11 +606,13 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         checks.append(_takers_check(paths.kb, con, skip))
         checks.append(_notes_check(paths.kb, con))
         checks.append(_participants_check(paths.kb, paths.league_yml))
+        checks.append(_favourite_clubs_check(paths.kb, con, skip))
         checks.append(_scoring_check(con, skip))
         checks.append(_pricing_check(paths.pricing))
         checks.append(_valuations_check(con, skip, now))
-        checks.append(_pinned_run_check(con, skip))
-        checks.append(_adjustments_check(paths.adjustments, con, skip))
+        pinned_run, run = _pinned_run_check(con, skip)
+        checks.append(pinned_run)
+        checks.append(_adjustments_check(paths.adjustments, con, run, skip))
         checks.append(_asta_state_check(paths.asta_state, now))
     finally:
         if con is not None:

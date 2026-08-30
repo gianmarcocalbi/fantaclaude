@@ -14,7 +14,7 @@ from fantaclaude.asta.pressure import (
     pressure_for,
     room_ratio,
 )
-from fantaclaude.asta.session import session_from_feed
+from fantaclaude.asta.session import SessionSettings, session_from_feed
 from fantaclaude.asta.state import Pick
 from fantaclaude.kb.audit import FrontMatter
 from fantaclaude.kb.participants import Participant
@@ -117,3 +117,56 @@ def test_pressure_board_puts_an_estimate_beside_every_unsold_band(tmp_path, fixt
     # not because there is no lot -- state.selected is still 2764 -- but because plain carries no pressure at all
     assert plain.pressure == {} and "pressure" not in plain.to_dict()["prices"]["2764"] and plain.to_dict()["lot_pressure"] is None
     assert pressure_board(plain, participants).to_dict() == payload
+
+
+LEAGUE = SessionSettings(budget=500, goalkeepers=(2, 6), outfield=(21, 34), size=(23, 40), game=2, team_count=8,
+                         source="league")
+
+
+def test_the_reservation_is_against_the_slots_a_rival_must_fill_not_the_ones_he_may():
+    """The offline board -- `asta board --fresh`, the pre-auction planning path
+    -- runs on `run.league`, whose bounds are the league's *ranges* (23-40
+    here). Reserving one credit per open slot reserved against the roster
+    ceiling, so a rival with 20 picks and 30 credits looked 11 credits deep
+    instead of the 28 his obligation of 23 actually leaves him, and every
+    ceiling on that board was capped far too low. A live session's bounds are
+    exact, so nothing there moves."""
+    picks = tuple((900 + i, cost) for i, cost in enumerate([23] * 19 + [33]))            # 20 picks, 470 spent
+    rival = ledger(1, picks=picks, gk=2, mov=18)
+    assert rival.credits == 30 and len(rival.picks) == 20
+    assert rival.open_slots(LEAGUE) == 20 and rival.required_slots(LEAGUE) == 3
+    # open_slots keeps its meaning -- "slots the session still lets him buy" -- and its place in the payload
+    assert rival.to_dict(LEAGUE)["open_slots"] == 20
+
+    p = pressure_for(LAUTARO, 40, ledgers={0: ledger(0), 1: rival}, mine=0, settings=LEAGUE, players=PLAYERS,
+                     club_names=CLUBS, participants={})
+    only = p.bidders[0]
+    assert only.team_id == 1 and only.depth == 28 and only.ceiling == 28 and p.estimate == 29
+
+    # and under a session's exact bounds the obligation and the permission are the same number
+    full = ledger(2, picks=tuple((900 + i, 1) for i in range(3)), gk=1, mov=2)
+    assert full.required_slots(SETTINGS) == full.open_slots(SETTINGS) == 5
+
+
+def test_the_rooms_overpay_is_computed_once_for_the_whole_board(tmp_path, fixture_json, mcp_fixture_json, monkeypatch):
+    """room_ratio is invariant across players -- it reads every ledger's picks
+    and nothing about the lot -- and pressure_board called it once per priced
+    player (~550 rescans of the whole room on the real listone)."""
+    from fantaclaude.asta import pressure as pressure_module
+
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    board = derive(node([(3, 2, 1)], selected=2764), run=pinned, settings=session_from_feed(SESSION, team_count=3),
+                   mapping=TeamMapping(mine=1, nicks={0: "Marco"}))
+    real, calls = pressure_module.room_ratio, []
+
+    def counted(ledgers, players):
+        calls.append(1)
+        return real(ledgers, players)
+
+    monkeypatch.setattr(pressure_module, "room_ratio", counted)
+    priced = pressure_board(board, {})
+    assert len(priced.pressure) > 1 and len(calls) == 1, (len(priced.pressure), len(calls))
+    # and pricing one lot on its own still computes it: the parameter is an optimisation, not a requirement
+    pressure_for(LAUTARO, 100, ledgers=board.ledgers, mine=1, settings=board.settings, players=board.players,
+                 club_names=board.club_names, participants={})
+    assert len(calls) == 2

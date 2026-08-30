@@ -73,10 +73,14 @@ harness: run it before the night with the capture from the rehearsal session.
 ### `close`
 
 `fantaclaude asta close --session FA-xxx-xxx` — copies the state file to
-`records/asta/<session>-<UTC stamp>.json`; commit `records/`. Nothing offline
-knows the session code, so pass `--session`: without it the copy is named
-`session-<UTC stamp>.json`, which is a record nobody can tie to a night. The
-file is deleted only once `verify-transfer` (2b) confirms the lega.
+`records/asta/<session>-<the state file's written_at, UTC>.json`; commit
+`records/`. The name comes from the state file, not from the clock at close,
+so closing twice over an unchanged state file writes one record and not two
+identical ones under two names. Nothing offline knows the session code, so
+pass `--session`: without it the copy is named `session-<UTC stamp>.json`,
+which is a record nobody can tie to a night (and it names one file, so it may
+not contain `/`). The file is deleted only once `verify-transfer` (2b)
+confirms the lega.
 
 ## Worked example
 

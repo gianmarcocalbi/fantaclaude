@@ -297,3 +297,90 @@ def test_the_board_says_so_when_it_prices_a_scenario_the_state_file_was_not_writ
     matched = json.loads(runner.invoke(app, ["asta", "board", "--scenario", "value-hunting", "--json"]).stdout)
     assert matched["scenario"] == "value-hunting"
     assert not [n for n in matched["notes"] if "scenario" in n]      # agreeing is silent; only the swap is noted
+
+
+def test_a_state_file_that_does_not_exist_is_a_bad_argument_not_an_empty_board(monkeypatch, tmp_path, fixture_json,
+                                                                               mcp_fixture_json):
+    """An explicit --state naming nothing used to read exactly like "no state
+    file yet": 500 credits, no picks, exit 0 -- mid-auction, with nothing
+    saying the file named was never opened. The exit-code contract calls a
+    flag naming something that does not exist a usage error, and `replay`
+    already refuses a missing session file that way."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--write-state"]).exit_code == ExitCode.OK
+    typo = tmp_path / "rehearsal.jsno"
+    for args in (["asta", "board", "--state", str(typo)],
+                 ["asta", "explain", "Martinez L.", "--state", str(typo)],
+                 ["asta", "adjust", "--type", "exclude", "--player", "Martinez L.", "--reason", "r", "--state", str(typo)]):
+        bad = runner.invoke(app, args)
+        # the message too, not only the code: an exit 2 for an unrelated cause reads the same
+        assert bad.exit_code == ExitCode.USAGE, (args, bad.exit_code, bad.output)
+        assert f"--state names {typo}, which is not a file" in bad.stderr, (args, bad.stderr)
+    assert not (tmp_path / "data" / "adjustments.yml").exists()       # and the refused adjust wrote nothing
+
+    state_file = tmp_path / "data" / "asta-state.json"
+    named = runner.invoke(app, ["asta", "board", "--state", str(state_file), "--json"])
+    assert named.exit_code == ExitCode.OK and json.loads(named.stdout)["picks"] == 3
+    # --fresh asks for an empty board outright and opens no state file at all, so it stands
+    with_fresh = runner.invoke(app, ["asta", "board", "--fresh", "--state", str(typo), "--json"])
+    assert with_fresh.exit_code == ExitCode.OK and json.loads(with_fresh.stdout)["picks"] == 0
+    # the implicit default is the one that may be absent: before the first mirror it always is
+    state_file.unlink()
+    default = runner.invoke(app, ["asta", "board", "--json"])
+    assert default.exit_code == ExitCode.OK and json.loads(default.stdout)["source"].startswith("an empty auction")
+
+
+def _rewrite_state(path, **fields):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.update(fields)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def test_the_records_copy_is_named_by_the_state_file_not_by_the_clock_at_close(monkeypatch, tmp_path, fixture_json,
+                                                                               mcp_fixture_json):
+    """The copy used to be stamped with the instant of the close, so two
+    `asta close` runs more than a second apart wrote two files with different
+    names and identical bytes -- and the same-bytes/different-bytes guard
+    copy_to_records documents could never fire. records/ is committed and
+    never rewritten, so it silently accumulated copies of one auction."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    _rewrite_state(state_file, written_at="2026-09-05T22:30:00+00:00")
+    asta = tmp_path / "records" / "asta"
+
+    first = runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm", "--json"])
+    assert first.exit_code == ExitCode.OK, first.output
+    copy = Path(json.loads(first.stdout)["records"])
+    assert copy.name == "FA-nri-okm-20260905T223000Z.json"          # the file's own written_at, not today
+    second = runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm", "--json"])
+    assert second.exit_code == ExitCode.OK and Path(json.loads(second.stdout)["records"]) == copy
+    assert [p.name for p in asta.iterdir()] == [copy.name]          # one record, not two identical ones
+
+    # a state file that genuinely moved on is a different record, which is correct
+    _rewrite_state(state_file, written_at="2026-09-05T23:05:00+00:00")
+    third = runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm", "--json"])
+    assert third.exit_code == ExitCode.OK, third.output
+    assert Path(json.loads(third.stdout)["records"]).name == "FA-nri-okm-20260905T230500Z.json"
+    assert len(list(asta.iterdir())) == 2
+
+    # and the guard the stable name makes reachable at last: same name, different bytes, refused
+    _rewrite_state(state_file, me=2)
+    conflict = runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm"])
+    assert conflict.exit_code == ExitCode.NOT_READY and "never rewritten" in conflict.stderr
+    assert len(list(asta.iterdir())) == 2
+
+
+def test_a_session_code_with_a_path_separator_is_refused(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """--session goes straight into one path component under records/asta/, so
+    a value carrying a separator would write outside records/ altogether. A
+    typo guard: the code the league shows is FA-xxx-xxx."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--write-state"]).exit_code == ExitCode.OK
+    for code in ("../FA-nri-okm", "nested/FA-nri-okm", "..", r"back\slash"):
+        bad = runner.invoke(app, ["asta", "close", "--session", code])
+        assert bad.exit_code == ExitCode.USAGE, (code, bad.exit_code, bad.output)
+        assert "is a path, not a session code" in bad.stderr, (code, bad.stderr)
+    assert not (tmp_path / "records" / "asta").exists()             # and nothing was written on the way out
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm"]).exit_code == ExitCode.OK

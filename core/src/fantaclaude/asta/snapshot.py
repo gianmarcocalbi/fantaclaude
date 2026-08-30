@@ -104,15 +104,26 @@ def read_state(path: Path) -> StoredState:
         raise StateFileError(f"{path}: {exc}") from None
 
 
-def copy_to_records(path: Path, records_dir: Path, *, session_code: str | None, closed_at: datetime) -> Path:
+def copy_to_records(path: Path, records_dir: Path, *, session_code: str | None, written_at: datetime) -> Path:
     """The state file's copy under records/asta/, written once: a file that
     exists with the same bytes is fine, one with different bytes is refused
-    -- records are never rewritten."""
+    -- records are never rewritten.
+
+    The name comes from the state file's *own* `written_at`, never from the
+    clock at close. Stamped with the close instant, two `fantaclaude asta
+    close` runs a second apart produced two files with different names and
+    identical bytes, so the same-bytes guard below could never fire and
+    records/ -- committed, never rewritten -- silently accumulated copies of
+    one auction. Named by what it holds, an unchanged state file closes to
+    the same name and no-ops, and a state file that genuinely moved on gets
+    its own record.
+    """
     try:
         data = path.read_bytes()
     except OSError as exc:
         raise StateFileError(f"{path}: {exc}") from None
-    stamp = closed_at.astimezone(UTC)          # the filename names an instant, never a local clock -- records/ is committed and never rewritten
+    # The filename names an instant, never a local clock -- records/ is committed and never rewritten.
+    stamp = written_at.astimezone(UTC) if written_at.tzinfo is not None else written_at.replace(tzinfo=UTC)
     target = records_dir / "asta" / f"{session_code or 'session'}-{stamp:%Y%m%dT%H%M%SZ}.json"
     if target.exists():
         if target.read_bytes() == data:

@@ -98,3 +98,45 @@ def test_a_settings_change_mid_auction_is_an_event_and_re_prices_the_board(tmp_p
     assert auction.board.to_dict() == before and auction.settings.budget == 1000
     with pytest.raises(TypeError):
         auction.mutate("not a change")
+
+
+def test_a_snapshot_with_no_settings_leaves_the_state_reproducing_its_own_board(tmp_path, fixture_json, mcp_fixture_json,
+                                                                                 fixture_file):
+    """mutate() kept the settings in force but apply_snapshot replaces
+    AuctionState.settings with the snapshot's unconditionally, so a snapshot
+    arriving without a settings node announced every key as removed and left
+    board.settings and board.state.settings disagreeing. render_state writes
+    the *state's* node under `feed`, so a state file written at that moment no
+    longer reproduced its own board: read back with no feed, `_settings` saw
+    none and fell back to the run's league ranges -- the night's rules swapped
+    for the league's, silently, which is the one thing the snapshot module
+    exists to prevent."""
+    from datetime import UTC, datetime
+
+    from fantaclaude.asta.session import session_from_feed
+    from fantaclaude.asta.snapshot import read_state, render_state, write_state
+    from fantaclaude.commands.asta import _settings
+
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    auction = Auction(pinned, TeamMapping(mine=1, nicks={0: "Marco"}))
+    snapshots = read_snapshots(fixture_file("asta_session_sample.jsonl"))
+    auction.mutate(snapshots[1])
+    assert auction.settings.source == "session" and auction.settings.goalkeepers == (3, 3)
+
+    node = snapshots[2].to_node()
+    del node["settings"]                                     # a snapshot the feed sent without one
+    silent = auction.mutate(parse_snapshot(node))
+    assert not [e for e in silent.events if isinstance(e, SettingsChanged)]      # nothing changed, so nothing is announced
+    assert auction.settings.goalkeepers == (3, 3) and auction.board.settings is auction.settings
+    assert auction.board.state.settings == auction.settings.raw                 # the board and its own state agree
+
+    path = tmp_path / "data" / "asta-state.json"
+    write_state(path, render_state(auction.board, session_code="FA-nri-okm",
+                                   written_at=datetime(2026, 9, 5, 22, 30, tzinfo=UTC)))
+    stored = read_state(path)
+    assert _settings(stored.snapshot, pinned).to_dict() == auction.settings.to_dict()      # the night's rules, not the league's
+    reloaded, _ = apply_snapshot(AuctionState.empty(), stored.snapshot)
+    again = derive(reloaded, run=pinned, settings=session_from_feed(stored.snapshot.settings,
+                                                                   team_count=len(stored.snapshot.teams)),
+                   mapping=stored.mapping)
+    assert again.to_dict() == auction.board.to_dict()

@@ -1068,10 +1068,9 @@ def asta_close_cmd(
 ) -> None:
     """Copy data/asta-state.json to records/asta/ when the auction closes -- the record of what the room paid, until the transfer is verified."""
     from fantaclaude.commands.asta import close_auction
-    from fantaclaude.timeutil import utc_now
 
     with _asta_errors():
-        path = close_auction(_asta_paths(), now=utc_now(), session_code=session)
+        path = close_auction(_asta_paths(), session_code=session)
     emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
 
 

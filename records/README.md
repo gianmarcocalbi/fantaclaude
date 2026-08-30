@@ -9,7 +9,9 @@ be resolvable from here even if `data/` is lost:
 - `league_settings/<rules_hash>.parquet` — the settings row a run used.
 - `asta/<session>-<UTC stamp>.json` — the auction state file as it stood when
   the auction closed, copied by `fantaclaude asta close` (`<session>` is the
-  code passed as `--session`, and the literal `session` when none was); it and
+  code passed as `--session`, and the literal `session` when none was; the
+  stamp is the state file's own `written_at`, so closing twice over an
+  unchanged file writes one record rather than two identical ones); it and
   `data/asta-state.json` are deleted only once `verify-transfer` (Phase 2b)
   confirms the lega matches the room.
 

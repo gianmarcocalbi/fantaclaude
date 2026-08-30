@@ -164,8 +164,26 @@ def resolve_mapping(teams: tuple[Team, ...], *, me: str | None, maps: tuple[str,
 
 
 def _stored(paths: AstaPaths, state_file: Path | None, fresh: bool) -> tuple[StoredState | None, Path]:
+    """The mirrored auction the board prices, or None for an empty one.
+
+    An *explicit* `--state` naming nothing is a bad argument (exit 2), never
+    an empty board: `state_file or paths.state` erased the difference, so a
+    typo'd `--state rehearsal.jsno` read exactly like "no state file yet" --
+    500 credits, no picks, exit 0, mid-auction, with nothing saying the file
+    named was never opened. `replay` already refuses a missing session file
+    the same way. Only the implicit `data/asta-state.json` default may be
+    absent, because before the first mirror it always is.
+
+    `--fresh` wins over both, including alongside an explicit `--state`: it
+    asks for an empty auction under the run's own league settings and reads
+    no state file at all, so there is no file whose absence could mislead --
+    the board it prints is the board that was asked for either way."""
     path = state_file or paths.state
-    if fresh or not path.is_file():
+    if fresh:
+        return None, path
+    if not path.is_file():
+        if state_file is not None:
+            raise UsageError(f"--state names {path}, which is not a file")
         return None, path
     try:
         return read_state(path), path
@@ -432,14 +450,30 @@ def adjust(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, adjustment: Adju
                         _effect(after.board, player_id, cls))
 
 
-def close_auction(paths: AstaPaths, *, now: datetime, session_code: str | None = None) -> Path:
+def close_auction(paths: AstaPaths, *, session_code: str | None = None) -> Path:
     """Copy the state file to records/ when the auction closes (live-event
     requirement 5): the days between the room and the transfer are not spent
-    with the only record of what was paid on one gitignored disk."""
+    with the only record of what was paid on one gitignored disk.
+
+    The copy is named by the state file's own `written_at`, not by the clock
+    at close, so closing twice over an unchanged state file writes one record
+    rather than two identical ones under two names (`copy_to_records`)."""
     if not paths.state.is_file():
         raise NotReady(f"no state file at {paths.state} -- nothing mirrored yet")
+    if session_code is not None and (set(session_code) & {"/", "\\"} or session_code in (".", "..")):
+        # --session becomes one path component under records/asta/: a value
+        # with a separator in it would write outside records/ entirely. A
+        # typo guard, and the code the league shows never contains one.
+        raise UsageError(f"--session {session_code!r} is a path, not a session code; it names one file under records/asta/")
     try:
         stored = read_state(paths.state)
-        return copy_to_records(paths.state, paths.records, session_code=session_code or stored.session_code, closed_at=now)
+        written_at = datetime.fromisoformat(stored.written_at)
+    except StateFileError as exc:
+        raise NotReady(str(exc)) from None
+    except ValueError as exc:
+        raise NotReady(f"{paths.state}: written_at {stored.written_at!r} is not a timestamp: {exc}") from None
+    try:
+        return copy_to_records(paths.state, paths.records, session_code=session_code or stored.session_code,
+                               written_at=written_at)
     except StateFileError as exc:
         raise NotReady(str(exc)) from None

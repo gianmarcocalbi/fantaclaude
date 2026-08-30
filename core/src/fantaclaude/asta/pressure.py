@@ -6,7 +6,12 @@ the band is what he is worth to me, the pressure is what he will cost.
 
 Per rival, from his ledger: he can bid when the session still lets him buy
 in the lot's bucket (goalkeeper or outfield) and his credits exceed one
-per other open slot -- that difference is his depth. From his dossier
+per other slot he is still *obliged* to fill -- that difference is his
+depth. The reservation is against the obligation, not the permission
+(`Ledger.required_slots`, the roster floor, never `open_slots`, the
+ceiling): under a live session the bounds are exact and the two agree, but
+the offline board runs on the league's ranges, where reserving one credit
+per slot he merely *may* buy capped every ceiling far too low. From his dossier
 (kb/league/participants, loaded at startup, spec "Dossiers are loaded, not
 read live"): `avoids` the class is reluctant; `overpays` the class, or the
 lot's club among his `favourite_clubs`, is keen; `max_single_share` caps
@@ -104,8 +109,13 @@ def _intent(reasons_keen: list[str], reasons_reluctant: list[str]) -> str:
 
 def pressure_for(player: PinnedPlayer, expected: int, *, ledgers: dict[int, Ledger], mine: int,
                  settings: SessionSettings, players: dict[int, PinnedPlayer], club_names: dict[str, str],
-                 participants: dict[str, Participant], cfg: PressureConfig = DEFAULT) -> Pressure:
-    room = room_ratio(ledgers, players)
+                 participants: dict[str, Participant], cfg: PressureConfig = DEFAULT,
+                 room: float | None = None) -> Pressure:
+    # `room` is the room's overpay: invariant across players, so pressure_board
+    # passes the one it computed rather than have every lot rescan every
+    # ledger's picks. Computed here when the caller prices a single lot.
+    if room is None:
+        room = room_ratio(ledgers, players)
     club = club_names.get(player.team_short, player.team_short)
     bidders: list[Bidder] = []
     for team_id, ledger in sorted(ledgers.items()):
@@ -114,7 +124,7 @@ def pressure_for(player: PinnedPlayer, expected: int, *, ledgers: dict[int, Ledg
         gk_room, mov_room = ledger.room(settings)
         if (gk_room if player.is_goalkeeper else mov_room) <= 0:
             continue
-        depth = ledger.credits - max(0, ledger.open_slots(settings) - 1) * cfg.min_bid
+        depth = ledger.credits - max(0, ledger.required_slots(settings) - 1) * cfg.min_bid
         if depth < cfg.min_bid:
             continue
         keen: list[str] = []
@@ -152,8 +162,9 @@ def pressure_for(player: PinnedPlayer, expected: int, *, ledgers: dict[int, Ledg
 
 def pressure_board(board: Board, participants: dict[str, Participant], cfg: PressureConfig = DEFAULT) -> Board:
     """The board with a pressure estimate beside every unsold player's band."""
+    room = room_ratio(board.ledgers, board.players)          # one scan of the picks for the whole board, not one per priced player
     pressure = {pid: pressure_for(board.players[pid], price.expected_price, ledgers=board.ledgers, mine=board.mine,
                                   settings=board.settings, players=board.players, club_names=board.club_names,
-                                  participants=participants, cfg=cfg)
+                                  participants=participants, cfg=cfg, room=room)
                 for pid, price in board.pricing.prices.items()}
     return replace(board, pressure=pressure)

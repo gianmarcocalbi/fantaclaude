@@ -96,13 +96,13 @@ def test_the_records_copy_is_written_once(tmp_path):
     path = tmp_path / "data" / "asta-state.json"
     write_state(path, {"version": STATE_VERSION, "me": 0})
     records = tmp_path / "records"
-    copy = copy_to_records(path, records, session_code="FA-nri-okm", closed_at=WHEN)
+    copy = copy_to_records(path, records, session_code="FA-nri-okm", written_at=WHEN)
     assert copy == records / "asta" / "FA-nri-okm-20260905T223000Z.json" and copy.read_bytes() == path.read_bytes()
-    assert copy_to_records(path, records, session_code="FA-nri-okm", closed_at=WHEN) == copy       # the same bytes again: fine
+    assert copy_to_records(path, records, session_code="FA-nri-okm", written_at=WHEN) == copy       # the same bytes again: fine
     write_state(path, {"version": STATE_VERSION, "me": 1})
     with pytest.raises(StateFileError, match="never rewritten"):
-        copy_to_records(path, records, session_code="FA-nri-okm", closed_at=WHEN)
-    assert copy_to_records(path, records, session_code=None, closed_at=WHEN).name == "session-20260905T223000Z.json"
+        copy_to_records(path, records, session_code="FA-nri-okm", written_at=WHEN)
+    assert copy_to_records(path, records, session_code=None, written_at=WHEN).name == "session-20260905T223000Z.json"
 
 
 def test_the_records_stamp_is_the_utc_instant_not_the_caller_s_clock(tmp_path):
@@ -112,11 +112,11 @@ def test_the_records_stamp_is_the_utc_instant_not_the_caller_s_clock(tmp_path):
     write_state(path, {"version": STATE_VERSION, "me": 0})
     records = tmp_path / "records"
     local_noon = datetime(2026, 9, 6, 0, 30, tzinfo=timezone(timedelta(hours=2)))     # 2026-09-05T22:30:00Z, same instant as WHEN
-    copy = copy_to_records(path, records, session_code="FA-nri-okm", closed_at=local_noon)
+    copy = copy_to_records(path, records, session_code="FA-nri-okm", written_at=local_noon)
     assert copy.name == "FA-nri-okm-20260905T223000Z.json"
 
 
 def test_the_records_copy_refuses_a_missing_source_loudly(tmp_path):
     with pytest.raises(StateFileError, match="asta-state.json"):
-        copy_to_records(tmp_path / "data" / "asta-state.json", tmp_path / "records", session_code="FA-nri-okm", closed_at=WHEN)
+        copy_to_records(tmp_path / "data" / "asta-state.json", tmp_path / "records", session_code="FA-nri-okm", written_at=WHEN)
 

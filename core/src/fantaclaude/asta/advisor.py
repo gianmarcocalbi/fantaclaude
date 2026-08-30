@@ -101,7 +101,28 @@ class Ledger:
         return max(0, settings.goalkeepers[1] - self.goalkeepers), max(0, settings.outfield[1] - self.outfield)
 
     def open_slots(self, settings: SessionSettings) -> int:
+        """Slots the session still *lets* the team buy: the roster ceiling."""
         return max(0, settings.size[1] - len(self.picks))
+
+    def required_slots(self, settings: SessionSettings) -> int:
+        """Slots the team is still *obliged* to fill: the roster floor.
+
+        The counterpart to open_slots, and not a correction of it -- the
+        ceiling is the right answer to "how many more may he buy", which is
+        what `to_dict` publishes it as. But a credit reservation is against
+        what he still *must* buy, the way `missing` reads the buckets at
+        [0]. Under a live session the two coincide (the bounds are exact,
+        (25, 25)) so the difference never showed; offline, on `run.league`,
+        the league's bounds are ranges (23-40 here), and reserving against
+        the ceiling had a rival with 20 picks and 30 credits reserving 19
+        of them for slots he is not obliged to fill at all. His floor of 23
+        leaves him 28 to spend, not 11.
+
+        The bucket floors are deliberately not folded in: `missing` cannot
+        see which bucket a pick the run cannot name filled, so a team with
+        one unknown pick would read as owing more slots than it has left,
+        and that would move live numbers -- which have no fault to fix."""
+        return max(0, settings.size[0] - len(self.picks))
 
     def to_dict(self, settings: SessionSettings) -> dict[str, Any]:
         gk, mov = self.missing(settings)

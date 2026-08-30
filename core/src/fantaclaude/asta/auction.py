@@ -16,7 +16,7 @@ hot-reloaded").
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from fantaclaude.asta.adjustments import EMPTY_LAYER, AdjustmentLayer
 from fantaclaude.asta.advisor import Board, TeamMapping, derive
@@ -69,12 +69,27 @@ class Auction:
     def mutate(self, change: Change) -> MutationResult:
         """Apply one change, re-derive the board, notify. A snapshot whose
         settings this code cannot read raises before anything is touched, so
-        the auction stays where it was."""
+        the auction stays where it was.
+
+        A snapshot carrying no settings node keeps the ones in force, and
+        carries them *into* the state rather than around it: `apply_snapshot`
+        replaces `AuctionState.settings` with the snapshot's unconditionally,
+        so a settings-less snapshot used to announce every key as removed
+        (one spurious SettingsChanged) and leave `board.settings` and
+        `board.state.settings` disagreeing. `render_state` writes the
+        *state's* node under `feed`, so a state file written at that moment
+        no longer reproduced its own board: reloaded, `_settings` saw no
+        settings and fell back to the run's league ranges, swapping the
+        night's rules for the league's -- the one property the snapshot
+        module exists for. `apply_snapshot` stays a pure function of the
+        snapshot it is handed; what changes is the snapshot handed to it."""
         events: tuple[Event, ...] = ()
         if isinstance(change, Snapshot):
             settings = self.settings
             if change.settings:
                 settings = session_from_feed(change.settings, team_count=len(change.teams) or self.settings.team_count)
+            else:
+                change = replace(change, settings=dict(self.settings.raw))
             self.state, events = apply_snapshot(self.state, change)
             self.settings = settings
         elif isinstance(change, Refresh):

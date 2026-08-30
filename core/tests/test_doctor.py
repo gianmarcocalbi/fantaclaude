@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_settings",
          "listone", "league_yml", "preferences", "kb", "modules",
          "web_session", "player_match", "advanced", "fixtures", "aliases",
-         "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "scoring", "pricing", "valuations",
+         "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "kb_favourite_clubs", "scoring", "pricing", "valuations",
          "pinned_run", "adjustments", "asta_state"]
 
 
@@ -349,6 +349,50 @@ def test_takers_are_resolved_against_the_listone(tmp_path, fixture_json, mcp_fix
     assert "Roma corners" in by["kb_takers"].detail and "'Dimarco'" in by["kb_takers"].detail
 
 
+def test_favourite_clubs_are_resolved_against_the_listone(tmp_path, fixture_json, mcp_fixture_json):
+    """`pressure_for` tests `club in dossier.favourite_clubs` exactly and case
+    sensitively, and `kb/participants.py` cannot validate the field because it
+    has no listone -- so a club spelt any other way was a silent no-op: the
+    keen factor never fired, the estimate sat one 1.25x too low for exactly
+    the clubs the dossier was written to flag, and nothing said so."""
+    from test_kb_participants import _write as write_dossier
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    kb = tmp_path / "kb"
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["kb_favourite_clubs"].ok and "0/0" in by["kb_favourite_clubs"].detail    # no dossiers, nothing to resolve
+
+    # the listone's eight clubs; the shipped dossier template names Juventus, who is not one of them
+    write_dossier(kb, "Marco")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_favourite_clubs"].ok
+    detail = by["kb_favourite_clubs"].detail
+    assert "0/1" in detail and "8 clubs" in detail and "Marco: 'Juventus' names no club of the listone" in detail
+
+    # the spelling the finding names: the club is there, the dossier writes it another way
+    path = write_dossier(kb, "Marco")
+    path.write_text(path.read_text(encoding="utf-8").replace("[Juventus]", "[internazionale]"), encoding="utf-8")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_favourite_clubs"].ok and "names no club" in by["kb_favourite_clubs"].detail
+    path.write_text(path.read_text(encoding="utf-8").replace("[internazionale]", "[inter]"), encoding="utf-8")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_favourite_clubs"].ok                      # case-sensitive, exactly as pressure_for compares
+    assert "Marco: 'inter' is spelt 'Inter' in the listone" in by["kb_favourite_clubs"].detail
+
+    # and the listone's own spelling resolves
+    path.write_text(path.read_text(encoding="utf-8").replace("[inter]", "[Inter, Roma]"), encoding="utf-8")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["kb_favourite_clubs"].ok and "2/2" in by["kb_favourite_clubs"].detail
+
+
+def test_favourite_clubs_check_is_skipped_not_raised_without_a_database(tmp_path):
+    from test_kb_participants import _write as write_dossier
+
+    write_dossier(tmp_path / "kb", "Marco")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["kb_favourite_clubs"].ok and "no database" in by["kb_favourite_clubs"].detail
+
+
 def test_takers_check_is_skipped_not_raised_without_a_database(tmp_path):
     from test_kb_profiles import _write as write_profile
 
@@ -498,3 +542,28 @@ def test_the_asta_checks_read_the_run_the_adjustments_and_the_state_file(tmp_pat
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert not by["adjustments"].ok and "1 inert" in by["adjustments"].detail and "'Nobody'" in by["adjustments"].detail
     assert not by["asta_state"].ok and "asta-state.json" in by["asta_state"].detail
+
+
+def test_the_pinned_run_is_loaded_once_for_the_asta_checks(tmp_path, fixture_json, mcp_fixture_json, monkeypatch):
+    """`pinned_run` and `adjustments` resolve against the same run, and each
+    loaded it: load_pinned_run reads the whole `valuations` table, so doctor
+    read it twice for one answer."""
+    from fantaclaude.analysis.valuation import record_run
+    from fantaclaude.commands import doctor as doctor_module
+    from test_valuation import run, seeded
+
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    result, con = run(tmp_path)
+    record_run(con, result)
+    con.close()
+    (tmp_path / "data" / "adjustments.yml").write_text("- {player: 'Martinez L.', type: exclude, reason: r}\n")
+    real, calls = doctor_module.load_pinned_run, []
+
+    def counted(con, run_id=None):
+        calls.append(1)
+        return real(con, run_id)
+
+    monkeypatch.setattr(doctor_module, "load_pinned_run", counted)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["pinned_run"].ok and by["adjustments"].ok and "resolved against run" in by["adjustments"].detail
+    assert len(calls) == 1, calls
