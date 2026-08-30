@@ -9,11 +9,13 @@ from fantaclaude.model.demand import (
     player_classes,
     rank_weights,
     role_class,
+    satisfiable_demand,
 )
 from fantaclaude.model.modules import load_modules
 from fantaclaude.model.roles import Role
 
 R = frozenset
+FOLD = {"max_rank": 6, "bench_weight": 0.1}
 
 
 def test_role_classes_fold_b_into_dc():
@@ -68,6 +70,73 @@ def test_a_target_raises_the_weights_it_names_and_nothing_else():
 
 def test_hard_minimums_are_the_slots_every_module_needs_from_one_class():
     assert hard_minimums(load_modules()) == {"Por": 1, "Dc": 2}
+
+
+def listone_shaped_supply():
+    """A supply with the real listone's shape: nobody carries Dd or Ds alone,
+    so every flank player pins to E or to Dc and the flank classes take none
+    of the pool."""
+    supply = []
+    for role, n in ((Role.Por, 70), (Role.Dc, 90), (Role.E, 40), (Role.M, 68), (Role.C, 60), (Role.W, 25),
+                    (Role.T, 11), (Role.A, 55), (Role.Pc, 61)):
+        supply += [R({role})] * n
+    for roles, n in ((R({Role.Ds, Role.E}), 31), (R({Role.Dd, Role.E}), 29), (R({Role.Dc, Role.Ds}), 19),
+                     (R({Role.Dc, Role.Dd}), 15), (R({Role.Dd, Role.Ds, Role.E}), 8)):
+        supply += [roles] * n
+    return tuple(supply)
+
+
+def test_demand_no_player_can_pin_to_is_folded_onto_the_classes_that_field_it():
+    """Dd and Ds each draw half a slot of every module, and no player in the
+    listone ever pins to them -- a Dd is always an E or a Dc first, by demand.
+    That demand has to reach the classes whose players actually fill the
+    flanks, or it is never priced and E and Dc are priced as though they only
+    had to cover their own slots."""
+    supply = listone_shaped_supply()
+    raw = module_demand(load_modules())
+    weights = rank_weights(raw, **FOLD)
+    assert {pin_class(roles, weights) for roles in supply}.isdisjoint({"Dd", "Ds"})
+    folded = satisfiable_demand(raw, supply, **FOLD)
+    assert all("Dd" not in by_class and "Ds" not in by_class for by_class in folded.values())
+    # 4-3-3 draws one Dd and one Ds; of the 52 Dd players 37 pin to E and 15 to
+    # Dc, of the 58 Ds players 39 pin to E and 19 to Dc
+    assert folded["433"]["E"] == pytest.approx(raw["433"].get("E", 0.0) + 37 / 52 + 39 / 58)
+    assert folded["433"]["Dc"] == pytest.approx(raw["433"]["Dc"] + 15 / 52 + 19 / 58)
+    # and the classes that field the flanks are worth more per rank for it
+    after = rank_weights(folded, **FOLD)
+    assert after["E"][0] > weights["E"][0] and after["Dc"][2] > weights["Dc"][2]
+    assert after["M"] == weights["M"] and after["Pc"] == weights["Pc"]
+
+
+def test_folding_conserves_demand_and_leaves_none_of_it_unsatisfiable():
+    supply = listone_shaped_supply()
+    raw = module_demand(load_modules())
+    folded = satisfiable_demand(raw, supply, **FOLD)
+    for code, by_class in folded.items():
+        assert sum(by_class.values()) == pytest.approx(sum(raw[code].values())), code
+        assert min(by_class.values()) > 0.0, code
+    pinned = {pin_class(roles, rank_weights(folded, **FOLD)) for roles in supply}
+    wanted = {cls for by_class in folded.values() for cls, d in by_class.items() if d > 0}
+    assert wanted <= pinned
+
+
+def test_a_listone_that_can_pin_to_every_class_is_left_alone():
+    """The fold is driven by the supply, never by a typed list of classes: give
+    it players who do pin to the flanks and it changes nothing."""
+    raw = module_demand(load_modules())
+    supply = (*listone_shaped_supply(), *([R({Role.Dd})] * 12), *([R({Role.Ds})] * 12))
+    assert satisfiable_demand(raw, supply, **FOLD) == {code: dict(by_class) for code, by_class in raw.items()}
+
+
+def test_a_class_no_player_carries_at_all_still_conserves_the_eleven():
+    """Nobody in the listone can play there, so the slot's worth goes to
+    whatever else the module fields rather than evaporating."""
+    raw = module_demand(load_modules())
+    supply = tuple(roles for roles in listone_shaped_supply() if "W" not in player_classes(roles))
+    folded = satisfiable_demand(raw, supply, **FOLD)
+    for code, by_class in folded.items():
+        assert sum(by_class.values()) == pytest.approx(sum(raw[code].values())), code
+    assert all("W" not in by_class for by_class in folded.values())
 
 
 def test_pin_class_takes_the_class_with_the_most_demand():

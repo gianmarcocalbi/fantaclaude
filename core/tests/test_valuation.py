@@ -151,6 +151,26 @@ def test_run_valuation_projects_prices_and_stamps(tmp_path, fixture_json, mcp_fi
         con.close()
 
 
+def test_the_run_prices_only_demand_its_own_listone_can_supply(tmp_path, fixture_json, mcp_fixture_json):
+    """Dd and Ds each draw half of every module's eleven slots, and no listone
+    player ever pins to them: pin_class values every flank player as an E or a
+    Dc first, because those outweigh a flank. Priced as modules.yml states it,
+    that demand is never satisfied and never bid for, and E and Dc are weighted
+    as though they had only their own slots to cover while their players are
+    the ones fielding the flanks. So the run prices the demand its own supply
+    can carry -- conserved, not dropped."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    result, con = run(tmp_path)
+    try:
+        demand, pinned = result.config["demand"], {p.role_class for p in result.projections}
+        assert {cls for cls, d in demand.items() if d > 0} <= pinned
+        assert demand["Dd"] == demand["Ds"] == 0.0
+        assert sum(demand.values()) == pytest.approx(11.0)
+        assert demand["E"] > 1.0 and demand["Dc"] > 2.45
+    finally:
+        con.close()
+
+
 def test_the_run_is_deterministic_and_the_hashes_track_their_inputs(tmp_path, fixture_json, mcp_fixture_json):
     seeded(tmp_path, fixture_json, mcp_fixture_json)
     first, con = run(tmp_path)

@@ -68,6 +68,7 @@ from fantaclaude.model.demand import (
     module_demand,
     pin_class,
     rank_weights,
+    satisfiable_demand,
 )
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import (
@@ -321,6 +322,15 @@ def _resolve_taker(profile: TeamProfile, candidates: list[Candidate]) -> Match:
     return match_listone(profile.takers.get("penalties") or "", candidates)
 
 
+def listone_role_sets(con: duckdb.DuckDBPyConnection) -> tuple[frozenset[Role], ...]:
+    """Every listed player's Mantra role set: the supply side the module
+    demand has to be satisfiable against. Read off the listone at run time,
+    never typed -- which classes the flanks are actually fielded from is a
+    fact about this season's listone, not a constant."""
+    rows = con.execute("SELECT mantra_roles FROM v_players_current").fetchall()
+    return tuple(frozenset(Role(r) for r in row[0]) for row in rows)
+
+
 def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: list[TeamProfile],
                  notes: dict[int, PlayerNote], weights: dict[str, tuple[float, ...]]) -> tuple[list[PlayerInputs], list[str]]:
     rows = con.execute("SELECT player_id, name, team_name, team_short, classic_role, mantra_roles, quot_current_mantra, age "
@@ -494,8 +504,15 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
         profiles, notes = load_profiles(kb_dir), load_player_notes(kb_dir)
     except (ProfileError, NoteError) as exc:
         raise ValuationError(str(exc)) from exc
-    demand = module_demand()
     max_rank = max(pricing_cfg.max_per_class, pricing_cfg.max_goalkeepers)
+    # The demand modules.yml states, made satisfiable against this listone's
+    # own supply: a class every one of its players outgrows when pin_class
+    # values him draws slots nobody is ever priced for, and leaves the classes
+    # that do field them weighted as though they had only their own to cover
+    # (see satisfiable_demand).
+    demand = satisfiable_demand(module_demand(), listone_role_sets(con), max_rank=max_rank,
+                                bench_weight=pricing_cfg.bench_weight, bench_decay=pricing_cfg.bench_decay,
+                                bench_slots=pricing_cfg.bench_slots_per_class)
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                 bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class)
     inputs, warnings = build_inputs(con, history, profiles, notes, base_weights)
@@ -523,6 +540,11 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     # let preferences.scenarios imply three. It is deliberately not in model_hash --
     # the model is the same, so a filtered run stays comparable to a full one.
     config = {"projection": projection_cfg.to_dict(), "pricing": pricing_cfg.to_dict(), "preferences": preferences,
+              # The demand the run actually priced against, per module: modules.yml's,
+              # after the classes this listone can put nobody in were folded onto the
+              # classes that field them. Recorded because it is derived from two inputs
+              # at once, so neither modules.yml nor the listone recovers it alone.
+              "demand": {cls: sum(m.get(cls, 0.0) for m in demand.values()) / len(demand) for cls in ROLE_CLASSES},
               "scenarios": [s.name for s in scenarios], "d_factor": d_factor.to_dict(),
               "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
               "modifiers": status.to_dict()}
