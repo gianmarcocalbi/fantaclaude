@@ -260,6 +260,55 @@ def test_an_unknown_modifier_or_an_empty_d_factor_table_refuses(tmp_path, fixtur
         run(tmp_path)
 
 
+def _set_calculate(tmp_path, mutate):
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    payload = json.loads(con.execute("SELECT payload FROM v_league_settings_current").fetchone()[0])
+    mutate(payload["calculate"])
+    con.execute("UPDATE league_settings SET payload = ?::JSON WHERE snapshot_id = 1", [json.dumps(payload)])
+    con.close()
+
+
+def test_scoring_note_and_profile_errors_all_become_valuationerror(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 4. The contract lists "voto source unknown" under exit 3; a
+    disagreeing bnMls pair, disagreeing assist keys, a malformed player note
+    and a malformed club profile are the same shape of "this run cannot be
+    made honestly" and must surface the same way -- as ValuationError, which
+    commands.rank turns into exit 3 -- not escape as a bare traceback (exit
+    1). Only these specific loaders are wrapped: a bare ValueError from
+    elsewhere (price_board's, for an ordinary modelling error) must still
+    reach the caller unwrapped."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+
+    _set_calculate(tmp_path, lambda c: c.__setitem__("sourcev", 9))
+    with pytest.raises(ValuationError, match="voto source"):
+        run(tmp_path)
+
+    _set_calculate(tmp_path, lambda c: (c.__setitem__("sourcev", 1), c["bnMls"].__setitem__("bmgs", [3, 4])))
+    with pytest.raises(ValuationError, match="bnMls"):
+        run(tmp_path)
+
+    _set_calculate(tmp_path, lambda c: (c["bnMls"].__setitem__("bmgs", [3, 3]), c["bnMls"].__setitem__("bmasf", [2, 2])))
+    with pytest.raises(ValuationError, match="assist"):
+        run(tmp_path)
+
+    _set_calculate(tmp_path, lambda c: c["bnMls"].__setitem__("bmasf", [1, 1]))          # restore for what follows
+
+    note_dir = tmp_path / "kb" / "serie-a" / "teams" / "inter" / "players"
+    note_dir.mkdir(parents=True)
+    bad_note = note_dir / "bad.md"
+    bad_note.write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                        "player_id: 2764\nname: Martinez L.\nteam_short: INT\ndepth: titolare\n---\n# n\n")
+    with pytest.raises(ValuationError, match="depth"):
+        run(tmp_path)
+    bad_note.unlink()
+
+    profile = tmp_path / "kb" / "serie-a" / "teams" / "inter" / "profile.md"
+    profile.write_text(profile.read_text(encoding="utf-8").replace("rotation_factor: 1.0", "rotation_factor: 5.0"),
+                       encoding="utf-8")
+    with pytest.raises(ValuationError, match="rotation_factor"):
+        run(tmp_path)
+
+
 def test_record_run_writes_immutable_rows_and_the_views_follow(tmp_path, fixture_json, mcp_fixture_json):
     seeded(tmp_path, fixture_json, mcp_fixture_json)
     result, con = run(tmp_path)

@@ -111,6 +111,33 @@ def test_rank_refuses_when_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fi
     assert result.exit_code == ExitCode.NOT_READY and "smodf" in result.stderr
 
 
+def test_rank_exits_not_ready_for_an_unknown_voto_source_or_a_malformed_note(monkeypatch, tmp_path, fixture_json,
+                                                                              mcp_fixture_json):
+    """Finding 4. These used to escape run_valuation unwrapped and land as a
+    bare traceback at exit 1 -- ScoringError and NoteError are not
+    ValuationError -- even though the contract lists "voto source unknown"
+    under exit 3."""
+    _workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    payload = json.loads(con.execute("SELECT payload FROM v_league_settings_current").fetchone()[0])
+    payload["calculate"]["sourcev"] = 9
+    con.execute("UPDATE league_settings SET payload = ?::JSON WHERE snapshot_id = 1", [json.dumps(payload)])
+    con.close()
+    result = runner.invoke(app, ["rank", "--offline"])
+    assert result.exit_code == ExitCode.NOT_READY and "voto source" in result.stderr
+
+    payload["calculate"]["sourcev"] = 1
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    con.execute("UPDATE league_settings SET payload = ?::JSON WHERE snapshot_id = 1", [json.dumps(payload)])
+    con.close()
+    note_dir = tmp_path / "kb" / "serie-a" / "teams" / "inter" / "players"
+    note_dir.mkdir(parents=True)
+    (note_dir / "bad.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                     "player_id: 2764\nname: Martinez L.\nteam_short: INT\ndepth: titolare\n---\n# n\n")
+    result = runner.invoke(app, ["rank", "--offline"])
+    assert result.exit_code == ExitCode.NOT_READY and "depth" in result.stderr
+
+
 def test_provisional_note_reads_the_auction_date(tmp_path):
     # The plan's requirement (line 30) is seven days, not the two an earlier
     # draft of rank.py mis-copied into FINAL_WINDOW_DAYS.

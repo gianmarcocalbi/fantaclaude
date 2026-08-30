@@ -47,12 +47,13 @@ from fantaclaude.asta.pricing import (
 )
 from fantaclaude.ingest.names import AMBIGUOUS, Candidate, Match, match_listone
 from fantaclaude.kb.notes import (
+    NoteError,
     PlayerNote,
     load_player_notes,
     misdeclared_team_notes,
     orphan_notes,
 )
-from fantaclaude.kb.profiles import TeamProfile, load_profiles
+from fantaclaude.kb.profiles import ProfileError, TeamProfile, load_profiles
 from fantaclaude.league.settings import canonical_json
 from fantaclaude.model.d_factor import DFactorTable
 from fantaclaude.model.demand import (
@@ -63,7 +64,12 @@ from fantaclaude.model.demand import (
     rank_weights,
 )
 from fantaclaude.model.roles import Role
-from fantaclaude.model.scoring import BonusMalus, modifier_status, voto_sheet
+from fantaclaude.model.scoring import (
+    BonusMalus,
+    ScoringError,
+    modifier_status,
+    voto_sheet,
+)
 from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
 
@@ -368,8 +374,15 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     if status.d_factor and d_factor.is_empty:
         raise ValuationError("the D-Factor is active (calculate.smodd) but core/src/fantaclaude/model/d_factor.yml has no "
                              "bands -- transcribe the league's table first (Phase 1 plan, Task 10)")
-    bm = BonusMalus.from_calculate(ctx.calculate)
-    sheet = voto_sheet(ctx.calculate)
+    # ScoringError, NoteError and ProfileError are all ValueError subclasses (the
+    # loaders' own convention), but a bare ValueError elsewhere in this function --
+    # price_board's for an ordinary modelling error -- must not become exit 3. Only
+    # these four calls are wrapped, by name, never a blanket `except ValueError`.
+    try:
+        bm = BonusMalus.from_calculate(ctx.calculate)
+        sheet = voto_sheet(ctx.calculate)
+    except ScoringError as exc:
+        raise ValuationError(str(exc)) from exc
     # excluded_clubs is hashed into model_hash with the rest of preferences, so a
     # non-empty list would mint a new model_hash, a new run_id and an immutable run
     # incomparable to every earlier one -- while still pricing every player of those
@@ -391,7 +404,10 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     if not history.lines:
         raise ValuationError("no voti history at all -- run `fantaclaude ingest stats-web` first")
     giornate_remaining = max(0, SERIE_A_GIORNATE - history.giornate_played)
-    profiles, notes = load_profiles(kb_dir), load_player_notes(kb_dir)
+    try:
+        profiles, notes = load_profiles(kb_dir), load_player_notes(kb_dir)
+    except (ProfileError, NoteError) as exc:
+        raise ValuationError(str(exc)) from exc
     demand = module_demand()
     max_rank = max(pricing_cfg.max_per_class, pricing_cfg.max_goalkeepers)
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
