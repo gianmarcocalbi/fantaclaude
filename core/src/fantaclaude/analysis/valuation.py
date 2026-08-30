@@ -45,7 +45,7 @@ from fantaclaude.asta.pricing import (
     PricingConfig,
     price_board,
 )
-from fantaclaude.ingest.names import Candidate, Matcher
+from fantaclaude.ingest.names import AMBIGUOUS, Candidate, Match, match_listone
 from fantaclaude.kb.notes import PlayerNote, load_player_notes
 from fantaclaude.kb.profiles import TeamProfile, load_profiles
 from fantaclaude.league.settings import canonical_json
@@ -206,12 +206,29 @@ def load_context(con: duckdb.DuckDBPyConnection) -> RunContext:
                       int(minrl[0]), int(maxrl[0]), payload.get("calculate") or {}, int(listone))
 
 
-def _resolve_taker(profile: TeamProfile, candidates: list[Candidate]) -> int | None:
-    name = profile.takers.get("penalties")
-    if not name:
-        return None
-    match = Matcher(candidates).match(name)
-    return match.player_id
+def _taker_warning(profile: TeamProfile, name: str, match: Match, candidates: list[Candidate]) -> str:
+    """A taker who does not resolve needs an instruction, and the two failures
+    need different ones: none of that name in the club's squad is a spelling
+    to fix, several of it is an initial to add. Never "not found in the
+    listone" for a name the listone has -- that sent the operator to re-spell
+    a name that was already right, which is how this stayed hidden."""
+    named = {c.player_id: c.name for c in candidates}
+    close = ", ".join(repr(named[i]) for i in match.candidates)
+    if match.status == AMBIGUOUS:
+        detail = f"is {len(match.candidates)} {profile.team} players ({close}); add the initial the listone uses"
+    elif match.candidates:
+        detail = f"is not how the listone spells {close}; use the listone's spelling"
+    else:
+        detail = (f"is not in the listone's {profile.team} squad; write him the listone's way -- surname first, "
+                  f'then the initial ("Martinez L.")')
+    return f"{profile.team}: penalty taker {name!r} {detail}; history stands"
+
+
+def _resolve_taker(profile: TeamProfile, candidates: list[Candidate]) -> Match:
+    """The profile writes the taker the listone's way, so he is matched that
+    way: Matcher is for the sources that write the given name first, and it
+    reads the trailing initial of "Adams A." as the surname."""
+    return match_listone(profile.takers.get("penalties") or "", candidates)
 
 
 def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: list[TeamProfile],
@@ -230,11 +247,11 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             warnings.append(f"no profile for {candidates[0].team_name} ({short}): rotation_factor 1.0 assumed")
             takers[short] = None
             continue
-        taker = _resolve_taker(profile, candidates)
-        if profile.takers.get("penalties") and taker is None:
-            warnings.append(f"{profile.team}: penalty taker {profile.takers['penalties']!r} not found in the listone; "
-                            f"history stands")
-        takers[short] = taker
+        name = profile.takers.get("penalties")
+        match = _resolve_taker(profile, candidates)
+        if name and match.player_id is None:
+            warnings.append(_taker_warning(profile, name, match, candidates))
+        takers[short] = match.player_id
     inputs: list[PlayerInputs] = []
     for player_id, name, team_name, team_short, classic_role, mantra_roles, quot, age in rows:
         roles = frozenset(Role(r) for r in mantra_roles)

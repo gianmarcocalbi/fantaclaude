@@ -35,8 +35,10 @@ Three rules, defended hard:
    `--offline` when re-running after an edit of your own, since the rules
    did not change). Read the status line: the composition per scenario,
    the inflation, the reserve, any `departed from the target`, every
-   `warning:` (a club without a profile, a penalty taker the listone does
-   not know — fix the profile's spelling to the listone's, then re-run).
+   `warning:` (a club without a profile, a penalty taker the warning
+   could not resolve — it says which way: not how the listone spells him
+   (fix the profile's spelling to the listone's) or several players of
+   that surname (add the initial the listone uses) — then re-run).
 3. Read `data/exports/rankings.md` by class and `asta-plan.md` by scenario.
    For any surprise, read the trace rather than guessing:
    `fantaclaude query --sql "SELECT name, explain FROM v_valuations_current WHERE player_id = <id>" --json`

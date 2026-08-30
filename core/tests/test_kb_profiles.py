@@ -23,7 +23,7 @@ module: 3-5-2
 europe: {europe}
 rotation_factor: {rotation}
 takers:
-  penalties: Calhanoglu
+  penalties: {penalties}
   corners: Dimarco
 ---
 
@@ -34,11 +34,12 @@ Prose.
 """
 
 
-def _write(kb, team, short, *, europe="UCL", rotation="0.9", slug=None):
+def _write(kb, team, short, *, europe="UCL", rotation="0.9", slug=None, penalties="Calhanoglu"):
     folder = kb / "serie-a" / "teams" / (slug or team_slug(team))
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "profile.md"
-    path.write_text(PROFILE.format(team=team, short=short, europe=europe, rotation=rotation), encoding="utf-8")
+    path.write_text(PROFILE.format(team=team, short=short, europe=europe, rotation=rotation, penalties=penalties),
+                    encoding="utf-8")
     return path
 
 

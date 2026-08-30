@@ -121,6 +121,36 @@ class Matcher:
         return Match(None, AMBIGUOUS, ids)
 
 
+def match_listone(name: str, candidates: list[Candidate]) -> Match:
+    """Match a name already written the listone's way -- surname first, then
+    the initial that tells two of them apart -- against the listone.
+
+    `Matcher.match` cannot do this: it is built for the sources that put the
+    given name first, so it walks *suffixes* of the tokens and reads the
+    trailing initial of "Adams A." as the surname. A name the listone spells
+    character for character comes back unmatched. The knowledge base writes
+    its takers the listone's way, so it needs this door instead. Several
+    players of the surname and none of them are told apart, because they ask
+    the reader for different things."""
+    surname, initial = split_listone_name(name)
+    found = [c for c in candidates if split_listone_name(c.name)[0] == surname] if surname else []
+    if not found:
+        return Match(None, UNMATCHED)
+    ids = tuple(c.player_id for c in found)
+    # When the name omits the initial, only a candidate the listone itself does not
+    # distinguish (no initial of its own) is a safe match: a lone "Martinez" must not
+    # silently become "Martinez L." when the listone bothered to write the "L.".
+    if initial is None:
+        narrowed = [c for c in found if c.initial is None]
+    else:
+        narrowed = [c for c in found if c.initial is None or c.initial == initial]
+    if len(narrowed) == 1:
+        return Match(narrowed[0].player_id, MATCHED, ids)
+    if narrowed or initial is None:
+        return Match(None, AMBIGUOUS, ids)
+    return Match(None, UNMATCHED, ids)
+
+
 def resolve_team(source_name: str, teams: dict[str, str], aliases: dict[str, str]) -> str | None:
     """`teams`: lower-cased listone team name -> short code; `aliases`: the
     source's spelling -> the listone's name. None when the club is not in

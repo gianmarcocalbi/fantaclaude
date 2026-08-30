@@ -7,10 +7,12 @@ from fantaclaude.ingest.names import (
     UNMATCHED,
     AliasError,
     Candidate,
+    Match,
     Matcher,
     load_aliases,
     load_candidates,
     load_teams,
+    match_listone,
     normalise,
     resolve_team,
     split_listone_name,
@@ -101,6 +103,26 @@ def test_matcher_reports_candidates_and_honours_aliases():
     assert matcher.match("Kouadio Kone").player_id == 7000
     with pytest.raises(AliasError, match="999999"):
         Matcher(CANDIDATES, aliases={"Nobody": 999999})           # an alias must point at a listone id
+
+
+def test_a_listone_spelling_is_matched_in_listone_order():
+    """Regression. The knowledge base writes a taker the way the listone does
+    -- surname first, then the initial -- and Matcher is built for the other
+    way round: it walks suffixes of the tokens, so "Adams A." is looked up as
+    the surname "adams a" and then "a", and a player the listone spells
+    character for character comes back unmatched."""
+    squad = [Candidate(1, "Adams A.", "VEN", "Venezia"), Candidate(2, "Busio", "VEN", "Venezia"),
+             Candidate(3, "Adams C.", "VEN", "Venezia"), Candidate(4, "Carlos Augusto", "VEN", "Venezia")]
+    assert Matcher(squad).match("Adams A.").status == UNMATCHED           # the door that could not open
+    assert match_listone("Adams A.", squad) == Match(1, MATCHED, (1, 3))
+    assert match_listone("Busio", squad) == Match(2, MATCHED, (2,))
+    assert match_listone("Carlos Augusto", squad) == Match(4, MATCHED, (4,))
+    assert match_listone("Adams", squad) == Match(None, AMBIGUOUS, (1, 3))    # which one? the profile must say
+    assert match_listone("Adams Z.", squad) == Match(None, UNMATCHED, (1, 3))
+    assert match_listone("Thuram", squad) == Match(None, UNMATCHED)
+    assert match_listone("", squad) == Match(None, UNMATCHED)
+    # the transfer flag is not a name, and an initial the listone omits is not contradicted
+    assert match_listone("Rossi F. *", [Candidate(9, "Rossi", "GEN", "Genoa")]) == Match(9, MATCHED, (9,))
 
 
 def test_resolve_team_is_case_insensitive_and_alias_aware():

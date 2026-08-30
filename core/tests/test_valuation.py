@@ -34,19 +34,19 @@ PREFS = {"risk_appetite": "balanced", "max_budget_share_per_role": {}, "excluded
          "target_composition": {"Por": 2}}
 
 
-def seeded(tmp_path, fixture_json, mcp_fixture_json, *, profiles=True):
+def seeded(tmp_path, fixture_json, mcp_fixture_json, *, profiles=True, rows20=None, penalties="Calhanoglu"):
     """The doctor's ready workspace plus profiles for its 8 clubs and a back season for a few players."""
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     kb = tmp_path / "kb"
     if profiles:
         for name, short in (("Cagliari", "CAG"), ("Roma", "ROM"), ("Inter", "INT"), ("Milan", "MIL"), ("Fiorentina", "FIO"),
                             ("Napoli", "NAP"), ("Genoa", "GEN")):
-            write_profile(kb, name, short, europe="none", rotation="1.0")
-        write_profile(kb, "Atalanta", "ATA", europe="UECL", rotation="0.85")
+            write_profile(kb, name, short, europe="none", rotation="1.0", penalties=penalties)
+        write_profile(kb, "Atalanta", "ATA", europe="UECL", rotation="0.85", penalties=penalties)
     con = connect(tmp_path / "data" / "fanta.duckdb")
-    rows20 = [(2764, "Martinez L.", "Inter", "A", 6.5, {"goals": 1}), (6052, "Hojlund", "Napoli", "A", 6.0, {}),
-              (2120, "Bastoni", "Inter", "D", 6.5, {}), (5841, "Svilar", "Roma", "P", 6.0, {"goals_conceded": 1}),
-              (152, "Barella", "Inter", "C", 6.5, {"assists": 1}), (2423, "Pulisic", "Milan", "A", 7.0, {"goals": 1})]
+    rows20 = rows20 or [(2764, "Martinez L.", "Inter", "A", 6.5, {"goals": 1}), (6052, "Hojlund", "Napoli", "A", 6.0, {}),
+                        (2120, "Bastoni", "Inter", "D", 6.5, {}), (5841, "Svilar", "Roma", "P", 6.0, {"goals_conceded": 1}),
+                        (152, "Barella", "Inter", "C", 6.5, {"assists": 1}), (2423, "Pulisic", "Milan", "A", 7.0, {"goals": 1})]
     for giornata in range(1, 31):
         seed_voti(con, 20, giornata, rows20)
     con.close()
@@ -173,6 +173,47 @@ def test_missing_profiles_and_unresolved_takers_are_warnings_not_refusals(tmp_pa
     by_id = {p.player_id: p for p in result.projections}
     assert by_id[5841].explain["rotation_factor"] == 1.0
     assert by_id[2194].explain["penalties_per_presenza"] == 0.0                 # Inter's taker is unresolved: history stands
+
+
+PENALTY_ROWS = [(2764, "Martinez L.", "Inter", "A", 6.5, {"goals": 1, "pen_scored": 1}),
+                (2120, "Bastoni", "Inter", "D", 6.5, {"pen_scored": 1}),
+                (2194, "Calhanoglu", "Inter", "C", 6.5, {}),
+                (6052, "Hojlund", "Napoli", "A", 6.0, {}),
+                (5841, "Svilar", "Roma", "P", 6.0, {"goals_conceded": 1})]
+
+
+def test_a_taker_the_listone_spells_with_an_initial_resolves_and_moves_the_penalties(tmp_path, fixture_json,
+                                                                                     mcp_fixture_json):
+    """Regression, two of them. The taker was resolved with the matcher built
+    for the given-name-first sources, so "Martinez L." -- the listone's own
+    spelling, character for character -- never resolved: his club kept
+    everyone's historical penalties while the clubs whose taker happened to
+    match lost theirs, and the warning told the operator to re-spell a name
+    that was already right. And no test drove the non-zero club_penalty_rate
+    path at all, which is what takes a non-taker's penalties away."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json, rows20=PENALTY_ROWS, penalties="Martinez L.")
+    result, con = run(tmp_path)
+    con.close()
+    assert not any("Inter" in w for w in result.warnings), result.warnings
+    by_id = {p.player_id: p for p in result.projections}
+    # Inter took 60 penalties over the back season's 30 giornate: the club's rate, not the taker's own history
+    assert by_id[2764].explain["penalties_per_presenza"] > 0.0
+    assert by_id[2120].explain["penalties_per_presenza"] == 0.0          # a non-taker's history is given to the taker
+    assert by_id[2120].explain["penalties_missed_per_presenza"] == 0.0
+    assert by_id[5841].explain["penalties_per_presenza"] == 0.0          # Roma's taker resolves too (Calhanoglu is not Roma's)
+
+
+def test_an_unresolved_taker_says_which_way_it_failed(tmp_path, fixture_json, mcp_fixture_json):
+    """"Not found in the listone" for a name the listone has is worse than no
+    message: it names the wrong fix. A spelling nothing matches and a spelling
+    several players match need different corrections."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json, profiles=False)
+    write_profile(tmp_path / "kb", "Inter", "INT", europe="none", rotation="1.0", penalties="Martinez")
+    result, con = run(tmp_path)
+    con.close()
+    inter = [w for w in result.warnings if w.startswith("Inter:")]
+    assert len(inter) == 1 and "'Martinez'" in inter[0] and "add the initial" in inter[0], inter
+    assert "'Martinez L.'" in inter[0]                                    # the candidate it could be, by name
 
 
 def test_an_unknown_modifier_or_an_empty_d_factor_table_refuses(tmp_path, fixture_json, mcp_fixture_json):
