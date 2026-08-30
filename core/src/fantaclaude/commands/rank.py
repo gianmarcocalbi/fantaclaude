@@ -32,6 +32,7 @@ from fantaclaude.asta.pricing_config import (
     load_pricing_config,
 )
 from fantaclaude.commands.ingest import NotReady
+from fantaclaude.commands.sync_league import SyncReport
 from fantaclaude.league.league_yml import Provenanced
 from fantaclaude.model.d_factor import DFactorTable, DFactorTableError, load_d_factor
 
@@ -88,6 +89,10 @@ class RankReport:
     provisional: str
     freeze: FreezeStatus | None = None
     top: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # the re-sync that preceded the run, when there was one: a rules change
+    # detected here is reported with its diff and the runs it superseded, as
+    # sync-league reports it, instead of being absorbed silently
+    sync: SyncReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"run_id": self.run_id, "created_at": self.created_at.isoformat(), "rules_hash": self.rules_hash,
@@ -95,7 +100,8 @@ class RankReport:
                 "giornata": self.giornata, "scenarios": self.scenarios, "players": self.players,
                 "exports": self.exports, "records": self.records, "warnings": self.warnings,
                 "summary": self.summary, "provisional": self.provisional,
-                "freeze": self.freeze.to_dict() if self.freeze is not None else None, "top": self.top}
+                "freeze": self.freeze.to_dict() if self.freeze is not None else None, "top": self.top,
+                "sync": self.sync.to_dict() if self.sync is not None else None}
 
 
 def _expected_teams(entries: dict[str, Provenanced] | None) -> int | None:
@@ -202,7 +208,7 @@ def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, A
 
 def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, preferences_path: Path, pricing_path: Path,
          exports_dir: Path, records_dir: Path, league_yml: dict[str, Provenanced] | None = None,
-         scenarios: list[str] | None = None) -> RankReport:
+         scenarios: list[str] | None = None, sync: SyncReport | None = None) -> RankReport:
     preferences, pricing_cfg, d_factor = check_ready(preferences_path, pricing_path)
     try:
         run = run_valuation(con, now=now, kb_dir=kb_dir, preferences=preferences, projection_cfg=ProjectionConfig(),
@@ -237,4 +243,4 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
                       giornata=run.giornata, scenarios=[s.name for s in run.scenarios], players=len(run.projections),
                       exports=[str(md), str(csv), str(plan)], records=[str(p) for p in records],
                       warnings=list(run.warnings), summary=run.summary,
-                      provisional=freeze.note, freeze=freeze, top=top)
+                      provisional=freeze.note, freeze=freeze, top=top, sync=sync)

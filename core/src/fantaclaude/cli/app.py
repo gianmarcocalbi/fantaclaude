@@ -78,36 +78,66 @@ def _render_sync(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def _league_yml_or_exit():
+    """league.yml's provenanced entries, or None when there is no file. A
+    malformed file is not-ready (exit 3) whichever command reads it -- it
+    used to be a traceback from sync-league and exit 3 from rank."""
+    import yaml
+
+    from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
+    from fantaclaude.paths import league_yml_path
+
+    path = league_yml_path()
+    if not path.is_file():
+        return None
+    try:
+        return load_league_yml(path)
+    except LeagueYmlError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+        typer.echo(f"{path}: {exc}", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+
+
+def _fetch_league(entries, *, json_: bool, league: str | None):
+    """The network half of a re-sync, before any database is opened. DuckDB
+    is single-writer, so the write lock must not span six round-trips, and
+    connect() creates the file, so a failed fetch must not leave an
+    empty-but-valid database behind. A league.yml conflict is rendered here
+    and exits 4: nothing is recorded and no database is created. One copy of
+    this flow for every command that re-syncs -- sync-league and rank today;
+    rank used to carry its own, which had already drifted (it dropped the
+    SyncReport, so a rules change detected mid-rank superseded every earlier
+    run without showing the diff or the count)."""
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.sync_league import apply_sync, prepare_sync
+
+    snap, conflicts = run_with_api(lambda api: prepare_sync(api, entries, league=league))
+    if conflicts:
+        emit(apply_sync(None, snap, conflicts).to_dict(), json_=json_, render=_render_sync)
+        raise typer.Exit(code=ExitCode.CONFLICT)
+    return snap
+
+
 @app.command("sync-league")
 def sync_league_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
 ) -> None:
     """Refresh league_settings from the league API: profile, status, the three settings payloads and the team list."""
-    from fantaclaude.api_client import run_with_api
-    from fantaclaude.commands.sync_league import apply_sync, prepare_sync
+    from fantaclaude.commands.sync_league import apply_sync
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
-    from fantaclaude.league.league_yml import load_league_yml
-    from fantaclaude.paths import league_yml_path
 
-    entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
-    # Fetch before opening the database. connect() creates the file, and DuckDB
-    # is single-writer: opening first would hold the lock across six round-trips
-    # and leave an empty-but-valid database behind if any of them failed.
-    snap, conflicts = run_with_api(lambda api: prepare_sync(api, entries, league=league))
-    if conflicts:
-        report = apply_sync(None, snap, conflicts)
-    else:
-        con = connect()
-        try:
-            apply_schema(con)
-            report = apply_sync(con, snap, conflicts)
-        finally:
-            con.close()
+    snap = _fetch_league(_league_yml_or_exit(), json_=json_, league=league)
+    con = connect()
+    try:
+        apply_schema(con)
+        report = apply_sync(con, snap, [])
+    finally:
+        con.close()
     emit(report.to_dict(), json_=json_, render=_render_sync)
-    if report.conflicts:
-        raise typer.Exit(code=ExitCode.CONFLICT)
 
 
 ingest_app = typer.Typer(name="ingest", help="Fetch a source into data/raw/ and snapshot it into DuckDB.",
@@ -681,8 +711,11 @@ SCENARIO_OPTION = typer.Option(
 
 def _render_rank(payload: dict) -> str:
     s = payload["summary"]
-    lines = [(f"run {payload['run_id']} · rules {payload['rules_hash']} · model {payload['model_hash']} · "
-              f"inputs {payload['inputs_hash']}"),
+    lines = []
+    if payload.get("sync") and payload["sync"]["changed"]:       # the rules moved under this run: say so, as sync-league would
+        lines.append(_render_sync(payload["sync"]))
+    lines += [(f"run {payload['run_id']} · rules {payload['rules_hash']} · model {payload['model_hash']} · "
+               f"inputs {payload['inputs_hash']}"),
              (f"{payload['players']} players · {s['team_count']} teams × {s['budget']} credits · giornata "
               f"{s['giornate_played']} played · voti sheet {s['sheet']}"
               + (" · D-Factor active" if s.get("d_factor_active") else "")),
@@ -713,24 +746,19 @@ def rank_cmd(
     from fantaclaude.analysis.valuation import UnknownScenarioError
     from fantaclaude.commands.ingest import NotReady
     from fantaclaude.commands.rank import check_ready, rank
+    from fantaclaude.commands.sync_league import apply_sync
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
-    from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
     from fantaclaude.paths import (
         exports_dir,
         kb_dir,
-        league_yml_path,
         preferences_yml_path,
         pricing_yml_path,
         records_dir,
     )
     from fantaclaude.timeutil import utc_now
 
-    try:
-        entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
-    except LeagueYmlError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    entries = _league_yml_or_exit()
     try:
         # Finding 2: preferences.yml, pricing.yml and d_factor.yml need no
         # database at all -- checked here, before connect() below creates and
@@ -740,25 +768,15 @@ def rank_cmd(
     except NotReady as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=ExitCode.NOT_READY) from None
-    snap = conflicts = None
-    if not offline:
-        from fantaclaude.api_client import run_with_api
-        from fantaclaude.commands.sync_league import apply_sync, prepare_sync
-
-        # Fetch before opening the database, as sync-league does: the write lock must not span the network.
-        snap, conflicts = run_with_api(lambda api: prepare_sync(api, entries, league=league))
-        if conflicts:
-            emit(apply_sync(None, snap, conflicts).to_dict(), json_=json_, render=_render_sync)
-            raise typer.Exit(code=ExitCode.CONFLICT)
+    snap = None if offline else _fetch_league(entries, json_=json_, league=league)
     con = connect()
     try:
         apply_schema(con)
-        if snap is not None:
-            apply_sync(con, snap, [])
+        sync = apply_sync(con, snap, []) if snap is not None else None
         try:
             report = rank(con, now=utc_now(), kb_dir=kb_dir(), preferences_path=preferences_yml_path(),
                           pricing_path=pricing_yml_path(), exports_dir=exports_dir(), records_dir=records_dir(),
-                          league_yml=entries, scenarios=list(scenario) if scenario else None)
+                          league_yml=entries, scenarios=list(scenario) if scenario else None, sync=sync)
         except NotReady as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.NOT_READY) from None

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -82,18 +83,48 @@ def test_rank_re_syncs_first_unless_offline(monkeypatch, tmp_path, fixture_json,
     monkeypatch.setattr("fantaclaude.api_client.run_with_api", fake_run_with_api)
     result = runner.invoke(app, ["rank", "--json"])
     assert result.exit_code == ExitCode.OK, result.output
-    assert calls == ["sync"] and json.loads(result.stdout)["players"] == 17
+    payload = json.loads(result.stdout)
+    assert calls == ["sync"] and payload["players"] == 17
+    assert payload["sync"]["changed"] is False and payload["sync"]["superseded_runs"] == 0     # the seeded rules, unchanged
 
     calls.clear()
-    assert runner.invoke(app, ["rank", "--offline", "--json"]).exit_code == ExitCode.OK and calls == []
+    offline = json.loads(runner.invoke(app, ["rank", "--offline", "--json"]).stdout)
+    assert calls == [] and offline["sync"] is None
+
+    # A rules change detected by the re-sync is reported the way sync-league
+    # reports it -- the diff and the runs it supersedes -- not absorbed. The
+    # card maluses are not league.yml keys, so a change is a change, not a conflict.
+    calculate = dict(mcp_fixture_json("calculation_settings"))
+    calculate["bnMls"] = {**calculate["bnMls"], "bmyc": [-1, -1]}
+    changed_api = fake_api({"calculation_settings": calculate})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(changed_api)))
+    plain = runner.invoke(app, ["rank"])
+    assert plain.exit_code == ExitCode.OK, plain.output
+    assert "changed: snapshot 2" in plain.stdout and "calculate.bnMls.bmyc: [-0.5, -0.5] -> [-1, -1]" in plain.stdout
+    assert "2 valuation run(s) computed under the old rules are now superseded" in plain.stdout
+    calculate["bnMls"] = {**calculate["bnMls"], "bmrc": [-2, -2]}
+    changed_again = fake_api({"calculation_settings": calculate})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(changed_again)))
+    moved = runner.invoke(app, ["rank", "--json"])
+    assert moved.exit_code == ExitCode.OK, moved.output
+    sync = json.loads(moved.stdout)["sync"]
+    assert sync["changed"] is True and sync["snapshot_id"] == 3 and sync["superseded_runs"] == 1     # only the run under snapshot 2
+    assert sync["diff"] == [{"path": "calculate.bnMls.bmrc", "before": [-1, -1], "after": [-2, -2]}]
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", fake_run_with_api)
 
     # a league.yml that disagrees with the API refuses the whole command, before any run is written
     (tmp_path / "league.yml").write_text("budget: {value: 999, source: admin, verified_on: 2026-08-24}\n")
     conflict = runner.invoke(app, ["rank"])
     assert conflict.exit_code == ExitCode.CONFLICT and "CONFLICT budget" in conflict.stdout
     con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
-    assert con.execute("SELECT count(*) FROM valuation_runs").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM valuation_runs").fetchone()[0] == 4
     con.close()
+
+    # a malformed league.yml is not-ready, and refuses before the network is touched
+    (tmp_path / "league.yml").write_text("budget: 500\n")
+    calls.clear()
+    malformed = runner.invoke(app, ["rank"])
+    assert malformed.exit_code == ExitCode.NOT_READY and "league.yml" in malformed.stderr and calls == []
 
 
 def test_rank_refuses_when_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
