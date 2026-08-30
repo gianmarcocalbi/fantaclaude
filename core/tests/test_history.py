@@ -70,6 +70,12 @@ def test_role_priors_and_club_penalties_come_from_the_back_seasons(db, bm):
     assert history.priors["D"].fantavoto_mean == pytest.approx(((6 - 0.5) + (5.5 - 2)) / 2)
     assert "ALL" not in history.priors and "C" not in history.priors           # no rows, no prior
     assert history.club_penalty_rate == {"Inter": pytest.approx(1 / 3), "Atalanta": pytest.approx(1 / 3)}
+    # penalty_rate() tells "played and took none" from "never named at all":
+    # the projection redistributes on the first and must not act on the second
+    # (finding A -- Frosinone, Monza and Venezia have no back season here).
+    assert history.penalty_rate("Inter") == pytest.approx(1 / 3)
+    assert history.penalty_rate("Roma") == 0.0                                # in the season, took no penalty
+    assert history.penalty_rate("Venezia") is None                            # never played it
 
 
 def test_an_empty_history_is_empty_not_broken(db, bm):

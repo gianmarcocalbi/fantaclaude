@@ -315,18 +315,20 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             # The club penalty rate is keyed by the voti workbook's own club
             # string and looked up by the listone's team_name: two free-text
             # sources, no id, no alias table on the voti side. A promoted club,
-            # a rename or "Hellas Verona" against "Verona" all miss and yield
-            # 0.0 -- and because club_has_taker is true the moment a taker
-            # resolves, the projection then gives the taker zero penalties and
-            # takes away every other player's own, which is strictly worse
-            # than naming no taker at all. Only warned when a taker actually
-            # resolved: that is the only case where the rate is read (finding
-            # 12). A club the workbook does name but that took no penalty is a
-            # real 0.0, so it is in penalty_rate_clubs and stays quiet.
+            # a rename or "Hellas Verona" against "Verona" all miss. The
+            # projection no longer redistributes on a rate it never observed
+            # (finding A), so the taker is not punished for the miss -- but the
+            # profile's statement about who takes the penalties still has no
+            # effect, and a rename or a spelling difference is a fixable join,
+            # not a fact about the club, so it is still named. Only warned when
+            # a taker actually resolved: that is the only case where the rate
+            # is read (finding 12). A club the workbook does name but that took
+            # no penalty is a real 0.0, so it is in penalty_rate_clubs and
+            # stays quiet.
             warnings.append(f"{profile.team}: the voti history never names {team_name!r} (promoted, renamed, or "
-                            f"spelled differently there), so its penalty rate is 0; penalty taker {name!r} therefore "
-                            f"projects no penalties and every other {team_name} player loses the ones his own history "
-                            f"records -- worse than naming no taker. Fix the spelling or drop takers.penalties")
+                            f"spelled differently there), so it has no observed penalty rate; penalty taker "
+                            f"{name!r} therefore changes nothing and every {team_name} player keeps the penalties "
+                            f"his own history records. Fix the spelling if the club is only spelled differently")
     inputs: list[PlayerInputs] = []
     for player_id, name, team_name, team_short, classic_role, mantra_roles, quot, age in rows:
         roles = frozenset(Role(r) for r in mantra_roles)
@@ -338,7 +340,7 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             quotazione=int(quot or 0), age=None if age is None else int(age), lines=history.lines_for(int(player_id)),
             rotation_factor=profile.rotation_factor if profile else 1.0, note=notes.get(int(player_id)),
             penalty_taker=taker == int(player_id), club_has_taker=taker is not None,
-            club_penalty_rate=history.club_penalty_rate.get(str(team_name), 0.0)))
+            club_penalty_rate=history.penalty_rate(str(team_name))))
     names_of = {int(pid): str(team_name) for pid, _, team_name, *_ in rows}
     shorts_of = {int(pid): str(team_short) for pid, _, _, team_short, *_ in rows}
     for note in orphan_notes(notes, names_of):

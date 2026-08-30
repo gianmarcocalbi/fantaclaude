@@ -92,7 +92,12 @@ class PlayerInputs:
     note: PlayerNote | None
     penalty_taker: bool
     club_has_taker: bool
-    club_penalty_rate: float               # penalties (scored + missed) per giornata the club earns
+    # Penalties (scored + missed) per giornata the club earns, or None when the
+    # season the rate is read off never named the club at all -- a promotion, a
+    # rename, a different spelling. Absent is not zero: 0.0 is a club that
+    # played and won no penalty, and the redistribution below is right to apply
+    # it; None is no observation, and there the redistribution does not run.
+    club_penalty_rate: float | None
 
 
 @dataclass(frozen=True)
@@ -127,9 +132,17 @@ def _per_presenza(line: SeasonLine, cfg: ProjectionConfig, inp: PlayerInputs) ->
     if line.xa is not None and line.understat_games:
         assists = (1 - cfg.xg_weight) * ev.assists + cfg.xg_weight * line.xa
     pen_scored, pen_missed = ev.pen_scored / n, ev.pen_missed / n
-    if inp.club_has_taker:
-        pen_scored = inp.club_penalty_rate * cfg.pen_conversion if inp.penalty_taker else 0.0
-        pen_missed = inp.club_penalty_rate * (1 - cfg.pen_conversion) if inp.penalty_taker else 0.0
+    # The redistribution needs a rate to redistribute. Gated on club_has_taker
+    # alone it also fired where there is no observation -- the club promoted
+    # into this season, whose rate is read off a season it did not play -- and
+    # then gave the taker `0.0 * conversion` penalties while erasing every
+    # club-mate's own, so naming a taker was strictly worse than naming none
+    # (finding A). No data means do not act, which is exactly the treatment a
+    # club with no named taker already gets.
+    if inp.club_has_taker and inp.club_penalty_rate is not None:
+        rate = inp.club_penalty_rate
+        pen_scored = rate * cfg.pen_conversion if inp.penalty_taker else 0.0
+        pen_missed = rate * (1 - cfg.pen_conversion) if inp.penalty_taker else 0.0
     events = Events(goals=goals / n, pen_scored=pen_scored, assists=assists / n, goals_conceded=ev.goals_conceded / n,
                     pen_saved=ev.pen_saved / n, pen_missed=pen_missed, yellow=ev.yellow / n, red=ev.red / n,
                     own_goals=ev.own_goals / n)

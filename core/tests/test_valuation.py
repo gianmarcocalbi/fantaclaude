@@ -247,14 +247,17 @@ def test_a_taker_the_listone_spells_with_an_initial_resolves_and_moves_the_penal
 
 
 def test_a_taker_at_a_club_the_voti_history_never_names_warns(tmp_path, fixture_json, mcp_fixture_json):
-    """Finding 12. club_penalty_rate is keyed by the voti workbook's own club
-    string and looked up by the listone's team_name -- two free-text sources,
-    no id, and no alias table on the voti side. A promoted club, a rename, or
-    "Hellas Verona" against "Verona" all yield 0.0, and because club_has_taker
-    is true the moment a profile names a taker, the taker then projects zero
-    penalties *and* every other player of the club loses the penalties his own
-    history records: strictly worse than naming no taker at all. Silent
-    before; named now, so the operator can fix the spelling or drop the taker.
+    """Finding 12, and finding A on top of it. club_penalty_rate is keyed by
+    the voti workbook's own club string and looked up by the listone's
+    team_name -- two free-text sources, no id, and no alias table on the voti
+    side. A promoted club, a rename, or "Hellas Verona" against "Verona" all
+    miss. The warning is still owed: the profile's statement about who takes
+    the penalties has no effect, and a spelling difference is a fixable join.
+
+    But the projection no longer acts on a rate it never observed (finding A):
+    the taker keeps his own penalties and so does every club-mate, rather than
+    the whole squad being zeroed for a club nobody has data on -- which made
+    naming a taker strictly worse than naming none.
 
     A club the workbook does name but that simply took no penalties is a real
     0.0 and must stay quiet -- the warning is about the join, not the number."""
@@ -267,8 +270,9 @@ def test_a_taker_at_a_club_the_voti_history_never_names_warns(tmp_path, fixture_
     assert len(inter) == 1 and "penalty rate" in inter[0] and "'Inter'" in inter[0], result.warnings
     assert "Martinez L." in inter[0]
     by_id = {p.player_id: p for p in result.projections}
-    assert by_id[2764].explain["penalties_per_presenza"] == 0.0        # the taker himself projects none
-    assert by_id[2120].explain["penalties_per_presenza"] == 0.0        # and a non-taker's own history is gone too
+    # PENALTY_ROWS gives Martinez and Bastoni one penalty each per giornata, over 30 giornate
+    assert by_id[2764].explain["penalties_per_presenza"] == pytest.approx(1.0)     # the taker keeps his own
+    assert by_id[2120].explain["penalties_per_presenza"] == pytest.approx(1.0)     # and so does every club-mate
     # Roma is in the workbook and took no penalty: 0.0 is the honest answer, not a broken join
     assert not any(w.startswith("Roma:") and "penalty rate" in w for w in result.warnings), result.warnings
 

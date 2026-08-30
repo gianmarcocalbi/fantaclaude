@@ -176,6 +176,31 @@ def test_penalties_follow_the_named_taker(bm):
     assert no_taker_named.explain["penalties_per_presenza"] == pytest.approx(5 / 30)
 
 
+def test_a_taker_at_a_club_with_no_observed_rate_leaves_every_history_alone(bm):
+    """Finding A. club_penalty_rate is read off the back season, so a club
+    promoted into this one has no rate at all -- Frosinone, Monza and Venezia
+    for 2026-27. Keyed on club_has_taker alone, the redistribution then gave
+    the named taker `0.0 * conversion` penalties *and* took every club-mate's
+    own observed penalties away, so naming a taker left the squad strictly
+    worse off than naming none. No data means do not act: with no rate, every
+    player of the club keeps the penalties his own history records.
+
+    A club that played and took no penalty is a different thing -- a real
+    zero, not an absent rate -- and its redistribution still stands."""
+    history = (line(20, 30, events=Events(goals=10, pen_scored=5)),)
+    no_taker_named = project(inputs(lines=history), bm=bm)
+    taker = project(inputs(lines=history, penalty_taker=True, club_has_taker=True, club_penalty_rate=None), bm=bm)
+    club_mate = project(inputs(lines=history, penalty_taker=False, club_has_taker=True, club_penalty_rate=None), bm=bm)
+    assert club_mate.explain["penalties_per_presenza"] == pytest.approx(5 / 30)
+    assert taker.explain["penalties_per_presenza"] == pytest.approx(5 / 30)
+    assert club_mate.exp_fantamedia == pytest.approx(no_taker_named.exp_fantamedia)
+    assert taker.exp_fantamedia == pytest.approx(no_taker_named.exp_fantamedia)
+    # a club the back season does name, which simply took none, is a real 0.0
+    observed_zero = project(inputs(lines=history, penalty_taker=False, club_has_taker=True, club_penalty_rate=0.0), bm=bm)
+    assert observed_zero.explain["penalties_per_presenza"] == 0.0
+    assert observed_zero.exp_fantamedia < no_taker_named.exp_fantamedia
+
+
 def test_the_d_factor_uplift_applies_only_when_active_and_only_to_defensive_classes(bm):
     assert D_FACTOR_CLASSES == frozenset({"Dc", "Dd", "Ds", "E", "M"})
     dc = inputs(player_id=2120, classic_role="D", roles=frozenset({Role.Dc}), role_class="Dc",

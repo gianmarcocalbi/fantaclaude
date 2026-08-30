@@ -82,6 +82,16 @@ class History:
     def lines_for(self, player_id: int) -> tuple[SeasonLine, ...]:
         return self.lines.get(player_id, ())
 
+    def penalty_rate(self, team: str) -> float | None:
+        """The club's penalties per giornata, or None when the season the rate
+        is read off never named the club -- absent, not zero. The two are
+        different facts and the projection treats them differently (finding
+        A): a club that played and took none is a real 0.0, a club promoted
+        into this season has no observation at all."""
+        if team not in self.penalty_rate_clubs:
+            return None
+        return self.club_penalty_rate.get(team, 0.0)
+
     @property
     def giornate_played(self) -> int:
         return self.giornate.get(self.current_season, 0)
