@@ -39,16 +39,25 @@ Three rules, defended hard:
    could not resolve — it says which way: not how the listone spells him
    (fix the profile's spelling to the listone's) or several players of
    that surname (add the initial the listone uses) — then re-run).
-3. Read `data/exports/rankings.md` by class and `asta-plan.md` by scenario.
+3. Read the freeze status from `freeze`, never by parsing the prose.
+   `--json` carries `provisional` (always true — the freeze is what makes a
+   run final and the CLI cannot see the freeze), `note` (the same sentence
+   the plain output prints, for a human), `auction_date`,
+   `days_to_auction` (negative once the date is past),
+   `auction_passed`, `inside_pre_freeze_window`, `pre_freeze_window_days`,
+   `teams_present` and `teams_expected` (null when league.yml has no
+   `team_count` leaf). Compare the numbers; do not regex "in 2 days" or
+   "8 of 10 expected teams" out of `note`.
+4. Read `data/exports/rankings.md` by class and `asta-plan.md` by scenario.
    For any surprise, read the trace rather than guessing:
    `fantaclaude query --sql "SELECT name, explain FROM v_valuations_current WHERE player_id = <id>" --json`
    and
    `fantaclaude query --sql "SELECT scenario, explain FROM v_valuation_prices_current WHERE player_id = <id>" --json`.
-4. Argue. "It likes him, but the profile says he is cover" → write the
+5. Argue. "It likes him, but the profile says he is cover" → write the
    note (`kb/serie-a/teams/<slug>/players/<name>.md`, front-matter
    `player_id`, `name`, `team_short`, `depth`, `availability`; prose says
    why; `ttl: 7d`), re-run with `--offline`, compare the two run_ids.
-5. Commit `records/` with the run you intend to keep.
+6. Commit `records/` with the run you intend to keep.
 
 ### `plan`
 

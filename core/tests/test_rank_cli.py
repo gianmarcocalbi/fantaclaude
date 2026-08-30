@@ -2,7 +2,11 @@ import json
 from datetime import UTC, datetime
 
 from fantaclaude.cli.app import ExitCode, app
-from fantaclaude.commands.rank import provisional_note
+from fantaclaude.commands.rank import (
+    PRE_FREEZE_WINDOW_DAYS,
+    freeze_status,
+    provisional_note,
+)
 from fantaclaude.db.connection import connect
 from fantaclaude.league.league_yml import load_league_yml
 from test_valuation import seeded
@@ -198,6 +202,59 @@ def test_exit_codes_split_on_the_defect_not_on_the_exception_class(monkeypatch, 
     prefs.write_text(good)
     bad_scenario = runner.invoke(app, ["rank", "--offline", "--scenario", "nope"])
     assert bad_scenario.exit_code == ExitCode.USAGE and "nope" in bad_scenario.stderr
+
+
+def test_json_carries_the_freeze_facts_beside_the_prose(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 19. `--json` emitted the freeze status as English prose alone,
+    so the facts a consumer needs -- the auction date, the days remaining, the
+    teams present against the teams expected, whether the run is inside the
+    window -- were gone before they reached the contract the skills read. A
+    consumer had to regex "in 2 days" out of a sentence."""
+    _workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    (tmp_path / "league.yml").write_text(
+        "budget: {value: 500, source: admin, verified_on: 2026-08-24}\n"
+        "team_count: {value: 10, source: admin, verified_on: 2026-08-24}\n"
+        "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n")
+    result = runner.invoke(app, ["rank", "--offline", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    freeze = payload["freeze"]
+    # the human line is still there, unchanged in kind
+    assert payload["provisional"] == freeze["note"] and freeze["note"].startswith("provisional")
+    assert freeze["provisional"] is True
+    assert freeze["auction_date"] == "2026-09-05"
+    assert isinstance(freeze["days_to_auction"], int)
+    assert freeze["pre_freeze_window_days"] == PRE_FREEZE_WINDOW_DAYS
+    assert freeze["teams_expected"] == 10 and freeze["teams_present"] == payload["summary"]["team_count"]
+    assert freeze["auction_passed"] is (freeze["days_to_auction"] < 0)
+    assert freeze["inside_pre_freeze_window"] is (0 <= freeze["days_to_auction"] <= PRE_FREEZE_WINDOW_DAYS)
+
+
+def test_freeze_status_states_the_facts_the_prose_only_implies(tmp_path):
+    (tmp_path / "league.yml").write_text(
+        "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n"
+        "team_count: {value: 10, source: admin, verified_on: 2026-08-22}\n")
+    entries = load_league_yml(tmp_path / "league.yml")
+
+    far = freeze_status(entries, datetime(2026, 8, 20, tzinfo=UTC), 8).to_dict()
+    assert far == {"provisional": True, "note": far["note"], "auction_date": "2026-09-05",
+                   "days_to_auction": 16, "auction_passed": False, "inside_pre_freeze_window": False,
+                   "pre_freeze_window_days": PRE_FREEZE_WINDOW_DAYS, "teams_present": 8, "teams_expected": 10}
+
+    near = freeze_status(entries, datetime(2026, 9, 4, 12, tzinfo=UTC), 10).to_dict()
+    assert near["days_to_auction"] == 1 and near["inside_pre_freeze_window"] is True
+    assert near["auction_passed"] is False and near["provisional"] is True
+
+    past = freeze_status(entries, datetime(2026, 9, 8, tzinfo=UTC), 10).to_dict()
+    assert past["days_to_auction"] == -3 and past["auction_passed"] is True
+    assert past["inside_pre_freeze_window"] is False and past["provisional"] is True
+
+    # no auction date, and no team_count leaf: absent facts are null, never guessed
+    unknown = freeze_status(None, datetime(2026, 8, 30, tzinfo=UTC), 8).to_dict()
+    assert unknown["auction_date"] is None and unknown["days_to_auction"] is None
+    assert unknown["auction_passed"] is False and unknown["inside_pre_freeze_window"] is False
+    assert unknown["teams_expected"] is None and unknown["teams_present"] == 8
+    assert unknown["provisional"] is True
 
 
 def test_provisional_note_reads_the_auction_date(tmp_path):

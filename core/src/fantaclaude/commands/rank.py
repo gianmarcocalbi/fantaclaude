@@ -8,7 +8,7 @@ report says so, from league.yml's auction date.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -45,6 +45,31 @@ PRE_FREEZE_WINDOW_DAYS = 7
 
 
 @dataclass(frozen=True)
+class FreezeStatus:
+    """The facts the provisional note is written from, kept as facts.
+
+    Collapsing them into one English sentence put them out of reach of the
+    contract the skills consume (finding 19): a `--json` reader had to regex
+    "in 2 days" and "8 of 10 expected teams" back out of prose. The sentence
+    is still emitted -- it is the line a human reads -- and these sit beside
+    it. `provisional` is a field rather than a derivation because it is a
+    statement, not a calendar reading: the freeze is what makes a run final,
+    this code cannot observe the freeze, so it is always True."""
+    provisional: bool
+    note: str
+    auction_date: str | None
+    days_to_auction: int | None
+    auction_passed: bool
+    inside_pre_freeze_window: bool
+    pre_freeze_window_days: int
+    teams_present: int
+    teams_expected: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RankReport:
     run_id: str
     created_at: datetime
@@ -60,6 +85,7 @@ class RankReport:
     warnings: list[str]
     summary: dict[str, Any]
     provisional: str
+    freeze: FreezeStatus | None = None
     top: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,48 +93,68 @@ class RankReport:
                 "model_hash": self.model_hash, "inputs_hash": self.inputs_hash, "season_id": self.season_id,
                 "giornata": self.giornata, "scenarios": self.scenarios, "players": self.players,
                 "exports": self.exports, "records": self.records, "warnings": self.warnings,
-                "summary": self.summary, "provisional": self.provisional, "top": self.top}
+                "summary": self.summary, "provisional": self.provisional,
+                "freeze": self.freeze.to_dict() if self.freeze is not None else None, "top": self.top}
 
 
-def _team_note(entries: dict[str, Provenanced] | None, team_count: int) -> str:
+def _expected_teams(entries: dict[str, Provenanced] | None) -> int | None:
     """league.yml carries no `team_count` leaf today (a real gap, not this
-    code's to silently paper over), so an absent expectation is named as
-    unknown rather than treated as "the league is full"."""
+    code's to silently paper over), so an absent expectation stays None
+    rather than being treated as "the league is full"."""
     expected = entries.get("team_count") if entries else None
     value = expected.value if expected is not None else None
     # Not is_number: a team count is a whole number of teams, so 9.5 is a
     # league.yml to fix, not a value to compare against. int also excludes NaN.
     if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    return value
+
+
+def _team_note(expected: int | None, team_count: int) -> str:
+    if expected is None:
         return f"{team_count} teams (league.yml does not say how many are expected)"
-    if team_count < value:
-        return f"{team_count} of {value} expected teams"
-    return f"{team_count} teams (of {value} expected)"
+    if team_count < expected:
+        return f"{team_count} of {expected} expected teams"
+    return f"{team_count} teams (of {expected} expected)"
 
 
-def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> str:
+def freeze_status(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> FreezeStatus:
     auction = entries.get("auction.date") if entries else None
     when = auction.value if auction is not None and isinstance(auction.value, date) else None
-    teams = _team_note(entries, team_count)
-    if when is None:
-        return f"provisional: {teams}, auction date unknown -- the final run is the one after the freeze"
-    days = (when - now.date()).days
-    if days < 0:
-        # The window needs a floor as well as a ceiling (finding 10): without
-        # one, a date already gone read as "in -3 days -- inside the pre-freeze
-        # window", counting backwards towards an auction that has happened. It
-        # stays *provisional* all the same -- the label is about the freeze,
-        # which this code cannot see, and a pre-auction valuation of a past
-        # auction is not a final anything.
-        return (f"provisional: {teams}, auction {when.isoformat()} was {-days} days ago -- this is a pre-auction "
+    expected = _expected_teams(entries)
+    teams = _team_note(expected, team_count)
+    days = None if when is None else (when - now.date()).days
+    # The window needs a floor as well as a ceiling (finding 10): without one,
+    # a date already gone read as "in -3 days -- inside the pre-freeze window",
+    # counting backwards towards an auction that has happened.
+    passed = days is not None and days < 0
+    inside = days is not None and 0 <= days <= PRE_FREEZE_WINDOW_DAYS
+    if when is None or days is None:
+        note = f"provisional: {teams}, auction date unknown -- the final run is the one after the freeze"
+    elif passed:
+        # Still provisional: a pre-auction valuation of an auction that has
+        # already happened is not a final anything.
+        note = (f"provisional: {teams}, auction {when.isoformat()} was {-days} days ago -- this is a pre-auction "
                 f"valuation of an auction that has already happened; check league.yml's auction date")
-    if days <= PRE_FREEZE_WINDOW_DAYS:
+    elif inside:
         # Still provisional: the freeze, not the calendar, is what makes a run
         # final, and this code cannot observe the freeze -- so the label never
         # changes here, only the note about how close the auction is.
-        return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- inside the pre-freeze window, "
+        note = (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- inside the pre-freeze window, "
                 f"but still provisional until the freeze actually happens; re-run `fantaclaude rank` after it")
-    return (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- "
-            f"re-run after the freeze, when the rules and the teams have settled")
+    else:
+        note = (f"provisional: {teams}, auction {when.isoformat()} in {days} days -- "
+                f"re-run after the freeze, when the rules and the teams have settled")
+    return FreezeStatus(provisional=True, note=note,
+                        auction_date=None if when is None else when.isoformat(), days_to_auction=days,
+                        auction_passed=passed, inside_pre_freeze_window=inside,
+                        pre_freeze_window_days=PRE_FREEZE_WINDOW_DAYS,
+                        teams_present=team_count, teams_expected=expected)
+
+
+def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team_count: int) -> str:
+    """The human-readable half of `freeze_status`."""
+    return freeze_status(entries, now, team_count).note
 
 
 def _load_preferences(path: Path) -> dict[str, Any]:
@@ -175,6 +221,7 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
     plan = write_asta_plan(run, exports_dir)
     records = export_records(con, run.run_id, run.rules_hash, records_dir)
     board = run.boards[run.scenarios[0].name]
+    freeze = freeze_status(league_yml, now, run.summary["team_count"])
     top: dict[str, list[dict[str, Any]]] = {}
     for p in sorted(run.projections, key=lambda p: -p.value_p50):
         entry = top.setdefault(p.role_class, [])
@@ -186,4 +233,4 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
                       giornata=run.giornata, scenarios=[s.name for s in run.scenarios], players=len(run.projections),
                       exports=[str(md), str(csv), str(plan)], records=[str(p) for p in records],
                       warnings=list(run.warnings), summary=run.summary,
-                      provisional=provisional_note(league_yml, now, run.summary["team_count"]), top=top)
+                      provisional=freeze.note, freeze=freeze, top=top)
