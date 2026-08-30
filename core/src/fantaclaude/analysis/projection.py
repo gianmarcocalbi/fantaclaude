@@ -18,8 +18,10 @@ themselves uncertain, so their loss is added to the variance rather than
 only subtracted from the mean, which is what prices the uncertainty at the
 quantiles.
 
-A defensive-class player's value also gets a D-Factor uplift when a table
-is supplied and active: the table's own gradient (slope) at a reference
+A player with a D-Factor-eligible Mantra role -- his role set against
+d_factor.D_FACTOR_ROLES, never the single class pin_class picked for
+pricing -- also gets a D-Factor uplift when a table is supplied and
+active: the table's own gradient (slope) at a reference
 average of 6.1, applied over a fifth of the excess voto above that
 reference, per expected presenza -- and never negative, however the table
 is shaped (see `project_player`'s uplift block). Role flexibility has
@@ -40,11 +42,9 @@ from typing import Any
 
 from fantaclaude.analysis.history import RolePrior, SeasonLine
 from fantaclaude.kb.notes import PlayerNote
-from fantaclaude.model.d_factor import COUNTED, DFactorTable
+from fantaclaude.model.d_factor import COUNTED, D_FACTOR_ROLES, DFactorTable
 from fantaclaude.model.roles import Role, sort_roles
 from fantaclaude.model.scoring import BonusMalus, Events, event_points
-
-D_FACTOR_CLASSES: frozenset[str] = frozenset({"Dc", "Dd", "Ds", "E", "M"})
 
 
 @dataclass(frozen=True)
@@ -220,8 +220,16 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     # d_factor.yml (Task 10) can carry a lower-points band above a
     # higher-points one, which would otherwise give a negative slope and, with
     # it, a below-zero value_p25.
+    #
+    # Eligibility is the player's role *set*, which is what the regolamento
+    # states, read off d_factor.D_FACTOR_ROLES, which is where that rule is
+    # written down. It used to be role_class against a third hand-typed copy
+    # of the eligible set kept here (finding 13): role_class is the single
+    # class pin_class picks by demand, for pricing, so an `E;C` player pinned
+    # to C got no uplift while his `E;T` team-mate pinned to E did -- and an
+    # edit to D_FACTOR_ROLES never reached this module at all.
     uplift = 0.0
-    if d_factor is not None and not d_factor.is_empty and inp.role_class in D_FACTOR_CLASSES:
+    if d_factor is not None and not d_factor.is_empty and inp.roles & D_FACTOR_ROLES:
         excess = max(0.0, exp_voto - cfg.d_factor_reference)
         uplift = max(0.0, exp_presenze * d_factor.slope(cfg.d_factor_reference) * excess / COUNTED)
     # Role flexibility has option value: roles are a set, and a player who can

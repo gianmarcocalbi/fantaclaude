@@ -4,7 +4,6 @@ from datetime import date
 import pytest
 from fantaclaude.analysis.history import RolePrior, SeasonLine
 from fantaclaude.analysis.projection import (
-    D_FACTOR_CLASSES,
     PlayerInputs,
     Projection,
     ProjectionConfig,
@@ -13,7 +12,7 @@ from fantaclaude.analysis.projection import (
 )
 from fantaclaude.kb.audit import FrontMatter
 from fantaclaude.kb.notes import PlayerNote
-from fantaclaude.model.d_factor import Band, DFactorTable
+from fantaclaude.model.d_factor import D_FACTOR_ROLES, Band, DFactorTable
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import BonusMalus, Events
 
@@ -201,8 +200,7 @@ def test_a_taker_at_a_club_with_no_observed_rate_leaves_every_history_alone(bm):
     assert observed_zero.exp_fantamedia < no_taker_named.exp_fantamedia
 
 
-def test_the_d_factor_uplift_applies_only_when_active_and_only_to_defensive_classes(bm):
-    assert D_FACTOR_CLASSES == frozenset({"Dc", "Dd", "Ds", "E", "M"})
+def test_the_d_factor_uplift_applies_only_when_active_and_only_to_eligible_roles(bm):
     dc = inputs(player_id=2120, classic_role="D", roles=frozenset({Role.Dc}), role_class="Dc",
                 lines=(line(20, 34, voto=6.6, role="D", events=Events()),))
     off = project(dc, bm=bm, prior=PRIOR_D)
@@ -219,6 +217,31 @@ def test_the_d_factor_uplift_applies_only_when_active_and_only_to_defensive_clas
     assert striker_on.explain["d_factor_uplift"] == 0.0
     empty = DFactorTable((), False, None, None)
     assert project(dc, bm=bm, prior=PRIOR_D, d_factor=empty).explain["d_factor_uplift"] == 0.0
+
+
+def test_d_factor_eligibility_is_the_players_roles_not_the_pricing_pin(bm):
+    """Finding 13. Eligibility was tested on role_class -- the single class
+    pin_class picks by *demand*, for pricing -- against a third hand-typed
+    copy of the regolamento's eligible set. So an `E;C` player pinned to C got
+    no uplift while his `E;T` team-mate pinned to E did, though the
+    regolamento makes both eligible; and an edit to d_factor.D_FACTOR_ROLES
+    never reached this module. The rule the regolamento states is a test on
+    the role set, so that is what runs, against the one encoding of it."""
+    lines = (line(20, 34, voto=6.6, role="D", events=Events()),)
+    pinned_away = inputs(player_id=2121, classic_role="D", roles=frozenset({Role.E, Role.C}), role_class="C", lines=lines)
+    pinned_on = inputs(player_id=2122, classic_role="D", roles=frozenset({Role.E, Role.T}), role_class="E", lines=lines)
+    away = project(pinned_away, bm=bm, prior=PRIOR_D, d_factor=TABLE)
+    on = project(pinned_on, bm=bm, prior=PRIOR_D, d_factor=TABLE)
+    assert away.explain["d_factor_uplift"] > 0
+    assert away.explain["d_factor_uplift"] == pytest.approx(on.explain["d_factor_uplift"])
+    # and the pin cannot make an ineligible player eligible either
+    ineligible = inputs(player_id=2123, classic_role="A", roles=frozenset({Role.Pc}), role_class="M", lines=lines)
+    assert project(ineligible, bm=bm, prior=PRIOR_D, d_factor=TABLE).explain["d_factor_uplift"] == 0.0
+    # every role the regolamento names is eligible, and no other one is
+    for role in Role:
+        one = inputs(player_id=2124, classic_role="D", roles=frozenset({role}), role_class="C", lines=lines)
+        uplift = project(one, bm=bm, prior=PRIOR_D, d_factor=TABLE).explain["d_factor_uplift"]
+        assert (uplift > 0) is (role in D_FACTOR_ROLES), role
 
 
 def test_the_d_factor_uplift_is_never_negative_even_from_a_non_monotonic_table(bm):
