@@ -173,8 +173,18 @@ def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], 
                            "(SELECT max(snapshot_id) FROM advanced_snapshots GROUP BY season_id) ORDER BY 1").fetchall()
     fixtures = con.execute("SELECT competition, season_id, max(snapshot_id) FROM fixture_snapshots GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
     settings = con.execute("SELECT snapshot_id FROM v_league_settings_current").fetchone()
-    kb = {"profiles": [{"team": p.team, "coach": p.coach, "module": p.module, "europe": p.europe,
-                        "rotation_factor": p.rotation_factor, "takers": p.takers} for p in profiles],
+    # team_short is the *only* key build_inputs joins a profile to its players
+    # on, so it belongs here above all the rest: a typo there (INT -> INR)
+    # unjoins a whole club -- its rotation factor and its penalty taker both
+    # stop applying -- and without it in the payload the two runs are stamped
+    # byte-identically while disagreeing about real prices (finding 5).
+    # coach/module/europe are hashed although no numeric path reads them (only
+    # doctor's fixtures cross-check reads europe). Kept deliberately: they are
+    # the human judgement rotation_factor and takers are *derived from*, and
+    # over-stamping only makes a run look new when nothing moved, while
+    # under-stamping makes two different runs look like one.
+    kb = {"profiles": [{"team": p.team, "team_short": p.team_short, "coach": p.coach, "module": p.module,
+                        "europe": p.europe, "rotation_factor": p.rotation_factor, "takers": p.takers} for p in profiles],
           "notes": [notes[k].to_dict() for k in sorted(notes)]}
     return _digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
                     "advanced": [list(r) for r in advanced], "fixtures": [list(r) for r in fixtures],

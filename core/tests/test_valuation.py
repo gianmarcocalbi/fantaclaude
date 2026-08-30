@@ -386,6 +386,24 @@ def test_inputs_hash_reads_the_snapshots(tmp_path, fixture_json, mcp_fixture_jso
         con.close()
 
 
+def test_inputs_hash_covers_the_team_short_the_profiles_are_joined_on(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 5. build_inputs joins profiles to players on team_short and on
+    nothing else, so a typo there (INT -> INR) unjoins a whole club: its
+    rotation factor and its penalty taker both stop applying. If team_short is
+    not in the payload, two runs that name the same rules_hash, model_hash and
+    inputs_hash disagree about real prices -- which is the one thing the stamp
+    exists to rule out."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json, rows20=PENALTY_ROWS, penalties="Martinez L.")
+    kb = tmp_path / "kb"
+    first, con = run(tmp_path)
+    con.close()
+    write_profile(kb, "Inter", "INR", europe="none", rotation="1.0", penalties="Martinez L.")
+    second, con = run(tmp_path)
+    con.close()
+    assert [p.to_dict() for p in second.projections] != [p.to_dict() for p in first.projections]
+    assert second.inputs_hash != first.inputs_hash
+
+
 def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_fixture_json):
     from fantaclaude.analysis.exports import (
         export_records,
