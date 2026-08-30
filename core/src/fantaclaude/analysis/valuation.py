@@ -205,7 +205,10 @@ def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], 
     fixtures = con.execute("SELECT competition, season_id, sha256 FROM fixture_snapshots WHERE snapshot_id IN "
                            "(SELECT max(snapshot_id) FROM fixture_snapshots GROUP BY competition, season_id) "
                            "ORDER BY 1, 2").fetchall()
-    settings = con.execute("SELECT rules_hash FROM v_league_settings_current").fetchone()
+    # rules_hash covers the three payloads and the team count, and budget and
+    # the roster bounds are derived from them -- but not season_id, which is a
+    # settings column of its own and is a real season number, not a sequence.
+    settings = con.execute("SELECT season_id, rules_hash FROM v_league_settings_current").fetchone()
     # team_short is the *only* key build_inputs joins a profile to its players
     # on, so it belongs here above all the rest: a typo there (INT -> INR)
     # unjoins a whole club -- its rotation factor and its penalty taker both
