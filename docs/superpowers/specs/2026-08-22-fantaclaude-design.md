@@ -1399,10 +1399,19 @@ source of truth for the contract.
   rehearsal or a scripted test session, and the diff-engine fixture waits for it.
 - **Adjustments are hot-reloaded, and `exclude` has a directional invariant.**
   Rewriting `adjustments.yml` and refreshing must change the board without a restart;
-  and excluding a player from a role must **raise** the max price of every remaining
-  player at that role, never lower it. That is the same monotonicity the scarcity test
-  asserts, reached from the other direction, and it is what proves the exclusion
-  reaches `V` rather than just annotating a row.
+  and excluding a player from a role must **raise** the max price of the *best*
+  remaining player at that role, never lower it. That is the same monotonicity the
+  scarcity test asserts, reached from the other direction, for the class's own top
+  candidate, and it is what proves the exclusion reaches `V` rather than just
+  annotating a row. It does not hold for every remaining player at the role: the
+  pricing DP has no such invariant in general -- exclusion lowers both the buy and
+  walk branches for the players left behind, and the reserve/budget loop and the
+  optimal composition shift together whenever the best allocation moves, so a
+  lower-ranked remaining candidate can come out cheaper even as the top one gets
+  dearer. Confirmed empirically (Phase 2a, Task 10 review): pricing 220-player
+  synthetic pools against the real, unfolded `modules.yml` weight curve, excluding a
+  class's best player made *some* other remaining member of the class cheaper in 73
+  of 132 class x seed trials, mostly with no composition change at all.
 - **Crash recovery is a test, not a hope.** Kill the server mid-run, restart, accept
   the pre-filled mapping, and the state rebuilt from the Firebase snapshot must equal
   the state before the kill.
