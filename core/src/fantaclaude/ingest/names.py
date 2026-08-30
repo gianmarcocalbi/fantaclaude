@@ -140,10 +140,16 @@ def match_listone(name: str, candidates: list[Candidate]) -> Match:
     # When the name omits the initial, only a candidate the listone itself does not
     # distinguish (no initial of its own) is a safe match: a lone "Martinez" must not
     # silently become "Martinez L." when the listone bothered to write the "L.".
+    # When the name gives an initial, an exact match wins; short of that, a bare
+    # surname is a safe fallback only when it is the *sole* candidate at all -- not
+    # whenever some other, differently-initialled player happens to share the surname
+    # and lack an initial of their own. Otherwise a typo'd initial ("Terracciano X.")
+    # would silently match the wrong player instead of failing to match anyone.
     if initial is None:
         narrowed = [c for c in found if c.initial is None]
     else:
-        narrowed = [c for c in found if c.initial is None or c.initial == initial]
+        exact = [c for c in found if c.initial == initial]
+        narrowed = exact if exact else (found if len(found) == 1 else [])
     if len(narrowed) == 1:
         return Match(narrowed[0].player_id, MATCHED, ids)
     if narrowed or initial is None:

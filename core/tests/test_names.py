@@ -125,6 +125,31 @@ def test_a_listone_spelling_is_matched_in_listone_order():
     assert match_listone("Rossi F. *", [Candidate(9, "Rossi", "GEN", "Genoa")]) == Match(9, MATCHED, (9,))
 
 
+def test_match_listone_prefers_an_exact_initial_to_a_bare_surname_candidate():
+    """Regression. The `else` branch of the initial-narrowing admitted any
+    candidate whose own initial was None, regardless of whether the given
+    initial exactly matched a *different* candidate -- so a correct listone
+    spelling like "Terracciano F." came back ambiguous, while a typo'd
+    initial like "Terracciano X." silently matched the bare-surname player
+    instead. The second is the dangerous one: a MATCHED on the wrong player
+    passes every downstream check that only warns on UNMATCHED."""
+    squad = [Candidate(2815, "Terracciano", "MIL", "Milan"),
+             Candidate(5812, "Terracciano F.", "MIL", "Milan")]
+    # an exact initial resolves to the player carrying it, not the bare one
+    assert match_listone("Terracciano F.", squad) == Match(5812, MATCHED, (2815, 5812))
+    # a wrong/typo'd initial matches nobody -- no false positive
+    assert match_listone("Terracciano X.", squad) == Match(None, UNMATCHED, (2815, 5812))
+    # the bare surname still safely resolves to the candidate the listone
+    # itself does not distinguish (unchanged by this fix) -- never, in any
+    # case, to the initialled one
+    assert match_listone("Terracciano", squad) == Match(2815, MATCHED, (2815, 5812))
+
+    # a surname with exactly one candidate still matches when the profile
+    # supplies an initial the listone omits -- extra precision is harmless
+    lone = [Candidate(9, "Adams", "GEN", "Genoa")]
+    assert match_listone("Adams A.", lone) == Match(9, MATCHED, (9,))
+
+
 def test_resolve_team_is_case_insensitive_and_alias_aware():
     teams = {"milan": "MIL", "parma": "PAR", "inter": "INT"}
     aliases = {"AC Milan": "Milan", "Parma Calcio 1913": "Parma"}
