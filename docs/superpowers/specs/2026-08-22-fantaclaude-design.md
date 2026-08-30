@@ -972,6 +972,17 @@ keeps exact matching only for the player actually on the block — where it matt
 and where one player is cheap to evaluate. The latency test, not the prose, owns the
 budget.
 
+**Decided 2026-08-30 (Phase 2a): one mode.** Measured on the auction laptop with
+the 553-player test pool: the focused-only board 28 ms, the exact board 241 ms,
+the exact board with the knapsack vectorised over ranks 189 ms — boards
+identical band for band. A state change arrives once per sale, every thirty
+seconds at the fastest, so a quarter of a second is invisible to a human-paced
+auction, while a board that jumps for every non-focused player the moment the
+auction opens was the defect. `price_board` prices every player with himself
+out of the pool; `focus` and `exact` are gone; the latency test's budget is
+500 ms. The "well under 100 ms" above described the nine-DP focused design
+and stands as the history of the estimate, not as the requirement.
+
 **And `S` is not a constant.** League settings bound only two role groups
 (goalkeepers and outfield, see the observation table), so **roster composition is a
 decision variable, not a given**: within those bounds the manager chooses how many
@@ -1361,8 +1372,12 @@ source of truth for the contract.
 - **One pricing function** — Phase 1 and Phase 2 must agree: called with the full
   pool and pre-auction prices, the live pricer reproduces the pre-auction board
   exactly. Any drift here is invisible until auction night.
-- **Auction state machine** — property tests over sale sequences: credits never go
-  negative, roster bounds hold, and applying a snapshot that drops a previously-seen
+- **Auction state machine** — property tests over sale sequences: no negative
+  credits reach the pricing (`Ledger.credits` is deliberately unclamped, because
+  the mirror stays faithful to what the admin recorded — an overspend reads
+  `-100`; `build_pool_state` clamps and `price_board` refuses a negative, which
+  is where the invariant lives), roster bounds hold, and applying a snapshot that
+  drops a previously-seen
   pick (the admin undoing a lot) restores exactly the state before it. The board is a
   pure function of the feed, so any sequence of snapshots must converge on the same
   state as replaying only the last one.
@@ -1470,6 +1485,8 @@ state machine, which is the floor.
   choose: re-run `exact=True` per state change against the latency budget (the exact
   board measures ~270 ms against a 100 ms budget), or ship a board that jumps and say
   by how much. Decide it before the advisor is written, not during the auction.
+  **Decided 2026-08-30: re-run exactly per state change; see "Why it fits in the
+  latency budget".**
 
 **Two refactors to do first, as groundwork:**
 
