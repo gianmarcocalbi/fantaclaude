@@ -167,6 +167,42 @@ def test_the_run_prices_only_demand_its_own_listone_can_supply(tmp_path, fixture
         assert demand["Dd"] == demand["Ds"] == 0.0
         assert sum(demand.values()) == pytest.approx(11.0)
         assert demand["E"] > 1.0 and demand["Dc"] > 2.45
+        # and it is not bookkeeping: the flank demand now buys a starting slot.
+        # Priced off the raw module demand this completion fields one E and two
+        # Pc; the E that fills the flanks earns the second place instead.
+        board = result.boards["balanced"]
+        assert board.composition["E"] == 2 and board.composition["Pc"] == 1
+        assert board.credits_by_class["E"] > board.credits_by_class["Dc"]
+        # a listone that supplies every class in proportion says nothing
+        assert not any("rests on that handful" in w for w in result.warnings)
+    finally:
+        con.close()
+
+
+def test_one_listed_player_of_a_class_is_the_edge_the_fold_stands_on(tmp_path, fixture_json, mcp_fixture_json):
+    """`satisfiable_demand` asks only whether a class has *any* player, so a
+    single listed pure `Dd` hands the class back half a slot of every module
+    and moves every price -- off nothing louder than a routine re-sync. Phase
+    2a may make the fold continuous in the shortfall; until then the edge is
+    real and this is what it does."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    before, con = run(tmp_path)
+    con.close()
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    con.execute("INSERT INTO players (snapshot_id, player_id, name, team_name, team_short, classic_role, mantra_roles, "
+                "mantra_role_codes, quot_current_mantra, age, transfer_flag, raw) "
+                "VALUES (1, 99001, 'Terzino D.', 'Inter', 'INT', 'D', ['Dd'], [7], 10, 24, false, '{}'::JSON)")
+    con.close()
+    after, con = run(tmp_path)
+    try:
+        assert before.config["demand"]["Dd"] == 0.0
+        assert after.config["demand"]["Dd"] == pytest.approx(6 / 11)      # a Dd slot in the six back-four modules
+        assert after.config["demand"]["E"] < before.config["demand"]["E"]
+        assert sum(after.config["demand"].values()) == pytest.approx(11.0)
+        moved = [p.player_id for p in before.pool
+                 if after.boards["balanced"].prices[p.player_id].band.p50
+                 != before.boards["balanced"].prices[p.player_id].band.p50]
+        assert moved, "one listed Dd is meant to move the board, which is why the run says so"
     finally:
         con.close()
 

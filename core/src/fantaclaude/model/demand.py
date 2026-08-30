@@ -22,7 +22,10 @@ listone supplies them -- conserved module by module, and read off the
 listone at run time rather than typed, so a listone with real Dd players
 folds nothing. Without it the flank slots are neither satisfied nor priced,
 and E and Dc are weighted as though they only had to cover their own slots
-while their players are the ones fielding the flanks.
+while their players are the ones fielding the flanks. The fold turns on
+whether a class has *any* player, which is a knife edge -- one listed pure
+Dd hands the class its half-slot back and moves every price -- so
+`thin_classes` names the classes standing on that edge and the run warns.
 
 How many ranks a class has is demand too: the most slots any module draws
 from the class, rounded up, plus `bench_slots` -- a fifth Pc is not a
@@ -182,6 +185,40 @@ def satisfiable_demand(demand_by_module: Mapping[str, Mapping[str, float]], supp
         for cls in orphans:
             _fold_into(demand, cls, pins_of.get(cls, {}))
     return demand
+
+
+THIN_SUPPLY_RATIO = 1 / 3
+
+
+def thin_classes(demand_by_module: Mapping[str, Mapping[str, float]], pinned: Mapping[str, int], *, teams: int,
+                 ratio: float = THIN_SUPPLY_RATIO) -> list[tuple[str, int, float]]:
+    """Classes whose pricing rests on a handful of players -- (class, players
+    pinned to it, starting slots the league draws from it).
+
+    `satisfiable_demand` asks only whether a class has *any* player, which is a
+    knife edge: one listed pure `Dd` hands the class back half a slot of every
+    module and moves every price on the board, silently, off a routine
+    re-sync. Nothing here changes that -- making the fold continuous in the
+    shortfall would move every price again -- but the run can at least say when
+    it is standing on the edge.
+
+    Two conditions, because either alone is ordinary. The listone supplies the
+    class at less than `ratio` of the rate the modules demand it (a small
+    listone is small in every class, so a share catches what a count cannot),
+    *and* there are fewer players in it than the league has starting slots to
+    fill from it (a niche class with enough bodies for the league is fine)."""
+    modules = len(demand_by_module) or 1
+    pool = sum(pinned.values())
+    thin: list[tuple[str, int, float]] = []
+    for cls in ROLE_CLASSES:
+        per_module = sum(by_class.get(cls, 0.0) for by_class in demand_by_module.values()) / modules
+        slots = per_module * teams
+        n = pinned.get(cls, 0)
+        if per_module <= 0 or not pool:
+            continue
+        if n / pool < ratio * per_module / 11 and n < slots:
+            thin.append((cls, n, slots))
+    return thin
 
 
 def pin_class(roles: frozenset[Role], weights: Mapping[str, tuple[float, ...]]) -> str:

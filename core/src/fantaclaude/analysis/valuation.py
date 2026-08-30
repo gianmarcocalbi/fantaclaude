@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,7 @@ from fantaclaude.model.demand import (
     pin_class,
     rank_weights,
     satisfiable_demand,
+    thin_classes,
 )
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import (
@@ -516,6 +518,15 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                 bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class)
     inputs, warnings = build_inputs(con, history, profiles, notes, base_weights)
+    # satisfiable_demand asks only whether a class has any player, so a class
+    # that keeps its demand off one or two of them is standing on a knife edge:
+    # one more listed player of that class, or one fewer, moves every price on
+    # the board. The run cannot make that transition smooth without moving
+    # every price itself, but it can refuse to make it silently.
+    for cls, pinned, slots in thin_classes(demand, Counter(i.role_class for i in inputs), teams=ctx.team_count):
+        warnings.append(f"{cls}: only {pinned} player(s) in the listone price as one, against the {slots:.1f} starting "
+                        f"slots the league draws from the class -- its demand rests on that handful, and one more or "
+                        f"one fewer listed {cls} moves every price on the board")
     table = d_factor if status.d_factor else None
     projections = project_all(inputs, cfg=projection_cfg, priors=history.priors, bm=bm,
                               giornate_remaining=giornate_remaining, current_season=ctx.season_id, d_factor=table)

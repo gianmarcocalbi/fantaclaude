@@ -1,3 +1,4 @@
+from collections import Counter
 from itertools import pairwise
 
 import pytest
@@ -10,6 +11,7 @@ from fantaclaude.model.demand import (
     rank_weights,
     role_class,
     satisfiable_demand,
+    thin_classes,
 )
 from fantaclaude.model.modules import load_modules
 from fantaclaude.model.roles import Role
@@ -137,6 +139,34 @@ def test_a_class_no_player_carries_at_all_still_conserves_the_eleven():
     for code, by_class in folded.items():
         assert sum(by_class.values()) == pytest.approx(sum(raw[code].values())), code
     assert all("W" not in by_class for by_class in folded.values())
+
+
+def test_thin_classes_names_the_ones_whose_pricing_rests_on_a_handful():
+    """The fold turns on whether a class has any player at all, so one listed
+    pure Dd hands Dd its half-slot back and moves every price. The run cannot
+    stop that, but it can say it is standing on the edge."""
+    supply = listone_shaped_supply()
+    healthy = satisfiable_demand(module_demand(load_modules()), supply, **FOLD)
+    pinned = Counter(pin_class(roles, rank_weights(healthy, **FOLD)) for roles in supply)
+    assert thin_classes(healthy, pinned, teams=8) == []
+    # now one player, and one only, prices as a Dd: the class keeps its demand
+    edge = (*supply, R({Role.Dd}))
+    kept = satisfiable_demand(module_demand(load_modules()), edge, **FOLD)
+    edge_pinned = Counter(pin_class(roles, rank_weights(kept, **FOLD)) for roles in edge)
+    assert edge_pinned["Dd"] == 1 and sum(m.get("Dd", 0.0) for m in kept.values()) > 0
+    assert [cls for cls, _, _ in thin_classes(kept, edge_pinned, teams=8)] == ["Dd"]
+    _, n, slots = thin_classes(kept, edge_pinned, teams=8)[0]
+    assert n == 1 and slots == pytest.approx(6 / 11 * 8)
+
+
+def test_a_niche_class_with_enough_bodies_for_the_league_is_not_thin():
+    """Both halves have to hold: a small listone is small in every class, and a
+    class the modules barely ask for needs few players to cover the league."""
+    demand = {"m": {"T": 0.7, "Dc": 10.3}}
+    assert thin_classes(demand, {"T": 11, "Dc": 400}, teams=8) == []      # 11 players, 5.6 slots
+    assert [c for c, _, _ in thin_classes(demand, {"T": 2, "Dc": 400}, teams=8)] == ["T"]
+    # a proportionate listone is never thin, however small
+    assert thin_classes(demand, {"T": 1, "Dc": 15}, teams=8) == []
 
 
 def test_pin_class_takes_the_class_with_the_most_demand():
