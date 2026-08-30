@@ -46,7 +46,12 @@ from fantaclaude.asta.pricing import (
     price_board,
 )
 from fantaclaude.ingest.names import AMBIGUOUS, Candidate, Match, match_listone
-from fantaclaude.kb.notes import PlayerNote, load_player_notes
+from fantaclaude.kb.notes import (
+    PlayerNote,
+    load_player_notes,
+    misdeclared_team_notes,
+    orphan_notes,
+)
 from fantaclaude.kb.profiles import TeamProfile, load_profiles
 from fantaclaude.league.settings import canonical_json
 from fantaclaude.model.d_factor import DFactorTable
@@ -264,6 +269,16 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             rotation_factor=profile.rotation_factor if profile else 1.0, note=notes.get(int(player_id)),
             penalty_taker=taker == int(player_id), club_has_taker=taker is not None,
             club_penalty_rate=history.club_penalty_rate.get(str(team_name), 0.0)))
+    names_of = {int(pid): str(team_name) for pid, _, team_name, *_ in rows}
+    shorts_of = {int(pid): str(team_short) for pid, _, _, team_short, *_ in rows}
+    for note in orphan_notes(notes, names_of):
+        # notes.get(player_id) never finds this one, so it changes nothing --
+        # but it is in inputs_hash, so the run looks new when nothing applied.
+        warnings.append(f"note {note.name!r} ({note.path}): player_id {note.player_id} is not in the listone; "
+                        f"the note has no effect")
+    for note, short in misdeclared_team_notes(notes, shorts_of):
+        warnings.append(f"note {note.name!r} ({note.path}): team_short {note.team_short!r}, but the listone has "
+                        f"him at {short!r}")
     return inputs, warnings
 
 

@@ -8,7 +8,9 @@ from fantaclaude.kb.notes import (
     PlayerNote,
     load_note,
     load_player_notes,
+    misdeclared_team_notes,
     misplaced_notes,
+    orphan_notes,
 )
 
 NOTE = """---
@@ -98,6 +100,32 @@ def test_misplaced_notes_name_the_folder_the_note_should_be_in(tmp_path):
     moved = misplaced_notes(notes, {2764: "Inter", 6052: "Atalanta"})            # Hojlund moved club in the listone
     assert [(n.player_id, slug) for n, slug in moved] == [(6052, "atalanta")]
     assert misplaced_notes(notes, {2764: "Inter"}) == []                          # a player no longer in the listone is not misplaced
+
+
+def test_orphan_notes_name_a_player_id_the_listone_does_not_have(tmp_path):
+    """A note for an id the listone lacks is never looked up by build_inputs
+    -- it has no effect -- but it still enters inputs_hash, so a run with it
+    looks like a new run even though nothing in it applied."""
+    kb = tmp_path / "kb"
+    _write(kb, "inter")
+    _write(kb, "napoli", player_id=999999, name="Nobody", short="NAP")
+    notes = load_player_notes(kb)
+    assert [n.player_id for n in orphan_notes(notes, {2764: "Inter"})] == [999999]
+    assert orphan_notes(notes, {2764: "Inter", 999999: "Napoli"}) == []
+
+
+def test_misdeclared_team_notes_name_the_listones_own_code(tmp_path):
+    """team_short is validated as a well-formed code at load time but never
+    checked against the player it names; a transfer the profile missed
+    leaves a note that reads as the wrong club."""
+    kb = tmp_path / "kb"
+    _write(kb, "inter", short="INT")
+    _write(kb, "napoli", player_id=6052, name="Hojlund", short="NAP")
+    notes = load_player_notes(kb)
+    mismatched = misdeclared_team_notes(notes, {2764: "ATA", 6052: "NAP"})   # Martinez L. moved to Atalanta
+    assert [(n.player_id, short) for n, short in mismatched] == [(2764, "ATA")]
+    assert misdeclared_team_notes(notes, {2764: "INT", 6052: "NAP"}) == []
+    assert misdeclared_team_notes(notes, {6052: "NAP"}) == []               # a player the listone no longer has is not checked
 
 
 def test_the_audit_validates_notes(tmp_path):

@@ -108,3 +108,27 @@ def misplaced_notes(notes: dict[int, PlayerNote], team_name_of: dict[int, str]) 
         if note.path.parent.parent.name != expected:
             moved.append((note, expected))
     return moved
+
+
+def orphan_notes(notes: dict[int, PlayerNote], team_name_of: dict[int, str]) -> list[PlayerNote]:
+    """Notes for a player_id the listone does not have at all -- typo'd, or
+    written for a player since dropped. build_inputs never looks an orphan
+    up (there is no player to attach it to), but it still enters
+    inputs_hash: left unwarned, a run looks changed when the note that was
+    meant to change it never applied."""
+    return [note for player_id, note in sorted(notes.items()) if player_id not in team_name_of]
+
+
+def misdeclared_team_notes(notes: dict[int, PlayerNote], team_short_of: dict[int, str]) -> list[tuple[PlayerNote, str]]:
+    """Notes whose team_short disagrees with the listone's current one for
+    that player_id -- with the listone's code. load_note validates
+    team_short as a well-formed three-letter code but never checks it
+    against the player it is attached to; a transfer the profile missed
+    leaves a note that reads as one club while build_inputs applies it,
+    correctly, to the player wherever the listone now has him."""
+    out: list[tuple[PlayerNote, str]] = []
+    for player_id, note in sorted(notes.items()):
+        short = team_short_of.get(player_id)
+        if short is not None and note.team_short != short:
+            out.append((note, short))
+    return out

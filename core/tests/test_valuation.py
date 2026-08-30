@@ -175,6 +175,32 @@ def test_missing_profiles_and_unresolved_takers_are_warnings_not_refusals(tmp_pa
     assert by_id[2194].explain["penalties_per_presenza"] == 0.0                 # Inter's taker is unresolved: history stands
 
 
+def test_an_orphan_or_misdeclared_note_warns_instead_of_silently_changing_the_run(tmp_path, fixture_json,
+                                                                                  mcp_fixture_json):
+    """A note for a player_id the listone lacks is never looked up -- it has
+    no effect on a single projection -- but it does enter inputs_hash, so
+    without a warning the operator sees a new run_id and believes a note
+    that never applied did apply. A team_short that disagrees with the
+    listone is the same shape of silent mistake."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    kb = tmp_path / "kb"
+    note_dir = kb / "serie-a" / "teams" / "napoli" / "players"
+    note_dir.mkdir(parents=True)
+    (note_dir / "nobody.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                        "player_id: 999999\nname: Nobody\nteam_short: NAP\ndepth: out\n---\n# n\n")
+    (note_dir / "hojlund.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                         "player_id: 6052\nname: Hojlund\nteam_short: INT\ndepth: starter\n---\n# n\n")
+    result, con = run(tmp_path)
+    con.close()
+    orphan = [w for w in result.warnings if "999999" in w or "Nobody" in w]
+    assert len(orphan) == 1 and "not in the listone" in orphan[0] and "no effect" in orphan[0]
+    misdeclared = [w for w in result.warnings if "Hojlund" in w]
+    assert len(misdeclared) == 1 and "'INT'" in misdeclared[0] and "'NAP'" in misdeclared[0]
+    # the note is looked up by player_id regardless of the team_short it declares
+    by_id = {p.player_id: p for p in result.projections}
+    assert by_id[6052].explain["rate_source"] == "note"
+
+
 PENALTY_ROWS = [(2764, "Martinez L.", "Inter", "A", 6.5, {"goals": 1, "pen_scored": 1}),
                 (2120, "Bastoni", "Inter", "D", 6.5, {"pen_scored": 1}),
                 (2194, "Calhanoglu", "Inter", "C", 6.5, {}),

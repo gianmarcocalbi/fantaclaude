@@ -329,3 +329,24 @@ def test_the_phase_1_checks(tmp_path, fixture_json, mcp_fixture_json):
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert not by["scoring"].ok and "smodf" in by["scoring"].detail
     assert not by["valuations"].ok and "superseded" in by["valuations"].detail
+
+
+def test_kb_notes_flags_an_orphan_and_a_misdeclared_team_short(tmp_path, fixture_json, mcp_fixture_json):
+    """An orphan note (player_id the listone does not have) has no effect --
+    build_inputs never looks it up -- but it still enters inputs_hash, so an
+    unwarned one is the silent wrong number this tool exists to avoid. A
+    team_short that disagrees with the listone is validated as well-formed
+    at load time but never checked against the player it names."""
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    kb = tmp_path / "kb"
+    note_dir = kb / "serie-a" / "teams" / "napoli" / "players"
+    note_dir.mkdir(parents=True)
+    (note_dir / "nobody.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                        "player_id: 999999\nname: Nobody\nteam_short: NAP\ndepth: starter\n---\n# n\n")
+    (note_dir / "hojlund.md").write_text("---\nupdated: 2026-08-30\nttl: 7d\nconfidence: medium\nsource: x\n"
+                                         "player_id: 6052\nname: Hojlund\nteam_short: INT\ndepth: starter\n---\n# n\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    detail = by["kb_notes"].detail
+    assert not by["kb_notes"].ok
+    assert "orphan" in detail and "Nobody" in detail
+    assert "team_short disagrees" in detail and "Hojlund" in detail and "NAP" in detail

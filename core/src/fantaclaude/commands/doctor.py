@@ -22,7 +22,13 @@ from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_con
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
 from fantaclaude.ingest.names import AliasError, load_aliases
-from fantaclaude.kb.notes import NoteError, load_player_notes, misplaced_notes
+from fantaclaude.kb.notes import (
+    NoteError,
+    load_player_notes,
+    misdeclared_team_notes,
+    misplaced_notes,
+    orphan_notes,
+)
 from fantaclaude.kb.participants import ParticipantError, load_participants
 from fantaclaude.kb.profiles import ProfileError, load_profiles
 from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
@@ -282,19 +288,34 @@ def _notes_check(kb: Path, db: Path) -> Check:
     except NoteError as exc:
         return Check("kb_notes", False, str(exc))
     con = _read_only(db)
-    teams: dict[int, str] = {}
+    names: dict[int, str] = {}
+    shorts: dict[int, str] = {}
     if con is not None:
         try:
-            teams = {int(pid): str(name) for pid, name in con.execute(
-                "SELECT player_id, team_name FROM v_players_current").fetchall()}
+            rows = con.execute("SELECT player_id, team_name, team_short FROM v_players_current").fetchall()
+            names = {int(pid): str(name) for pid, name, _ in rows}
+            shorts = {int(pid): str(short) for pid, _, short in rows}
         except duckdb.Error:
-            teams = {}
+            names, shorts = {}, {}
         finally:
             con.close()
-    moved = misplaced_notes(notes, teams)
+    moved = misplaced_notes(notes, names)
+    orphans = orphan_notes(notes, names)
+    mismatched = misdeclared_team_notes(notes, shorts)
+    problems = []
     if moved:
-        detail = "; ".join(f"{n.name} sits under {n.path.parent.parent.name}, belongs under {slug}" for n, slug in moved)
-        return Check("kb_notes", False, f"{len(notes)} notes; misplaced: {detail}")
+        problems.append("misplaced: " + "; ".join(
+            f"{n.name} sits under {n.path.parent.parent.name}, belongs under {slug}" for n, slug in moved))
+    if orphans:
+        # inputs_hash sees every one of these, and build_inputs never looks any of them
+        # up: a run with one looks like a new run even though nothing in it applied.
+        problems.append("orphan (player_id not in the listone, has no effect): " + ", ".join(
+            f"{n.name} ({n.path})" for n in orphans))
+    if mismatched:
+        problems.append("team_short disagrees with the listone: " + "; ".join(
+            f"{n.name} says {n.team_short}, listone says {short}" for n, short in mismatched))
+    if problems:
+        return Check("kb_notes", False, f"{len(notes)} notes; " + "; ".join(problems))
     return Check("kb_notes", True, f"{len(notes)} notes")
 
 
