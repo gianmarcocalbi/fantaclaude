@@ -180,6 +180,26 @@ def test_provisional_note_reads_the_auction_date(tmp_path):
     assert provisional_note(None, datetime(2026, 8, 30, tzinfo=UTC), 8).startswith("provisional")
 
 
+def test_provisional_note_does_not_count_backwards_past_the_auction(tmp_path):
+    """Finding 10. `days <= PRE_FREEZE_WINDOW_DAYS` has no lower bound, so a
+    date already gone read as "in -3 days -- inside the pre-freeze window".
+    A run after the auction is a different thing entirely and says so -- while
+    staying provisional, because the freeze, not the calendar, is what makes a
+    run final and this code cannot observe the freeze."""
+    (tmp_path / "league.yml").write_text(
+        "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n")
+    entries = load_league_yml(tmp_path / "league.yml")
+    past = provisional_note(entries, datetime(2026, 9, 8, tzinfo=UTC), 10)
+    assert past.startswith("provisional") and "final" not in past
+    assert "-3 days" not in past and "in -" not in past
+    assert "3 days ago" in past and "already happened" in past
+    assert "pre-freeze window" not in past
+
+    # the boundaries either side of it still read the old way
+    today = provisional_note(entries, datetime(2026, 9, 5, 23, tzinfo=UTC), 10)
+    assert "in 0 days" in today and "pre-freeze window" in today
+
+
 def test_provisional_note_flags_a_league_still_forming(tmp_path):
     (tmp_path / "league.yml").write_text(
         "auction: {date: {value: 2026-09-05, source: admin, verified_on: 2026-08-22}}\n"

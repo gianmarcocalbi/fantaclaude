@@ -86,6 +86,15 @@ def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team
     if when is None:
         return f"provisional: {teams}, auction date unknown -- the final run is the one after the freeze"
     days = (when - now.date()).days
+    if days < 0:
+        # The window needs a floor as well as a ceiling (finding 10): without
+        # one, a date already gone read as "in -3 days -- inside the pre-freeze
+        # window", counting backwards towards an auction that has happened. It
+        # stays *provisional* all the same -- the label is about the freeze,
+        # which this code cannot see, and a pre-auction valuation of a past
+        # auction is not a final anything.
+        return (f"provisional: {teams}, auction {when.isoformat()} was {-days} days ago -- this is a pre-auction "
+                f"valuation of an auction that has already happened; check league.yml's auction date")
     if days <= PRE_FREEZE_WINDOW_DAYS:
         # Still provisional: the freeze, not the calendar, is what makes a run
         # final, and this code cannot observe the freeze -- so the label never
