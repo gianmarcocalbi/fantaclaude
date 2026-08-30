@@ -1439,6 +1439,66 @@ the network.
 The knowledge base is not a phase — it is the spine plus `kb/`, which every phase
 reads and writes back into.
 
+### Carried into 2a from Phase 1's review
+
+Five items were found reviewing Phase 1 and deliberately not fixed there, because each
+is either a decision 2a has to make anyway or a refactor that gets harder once the live
+auction is built on top of it. They are recorded here rather than in a backlog so 2a
+starts from them.
+
+**One design question 2a must answer, not a defect:**
+
+- **`exact` is a second pricing mode behind one function name.** The pre-auction board
+  prices everyone with `exact=True`; the latency-bounded live board prices only `focus`
+  exactly, so the committed `records/` board and the live board disagree for every
+  non-focused player the moment the auction opens. "The live pricer reproduces the
+  pre-auction board exactly" is tested only for the focused player, and the discrepancy
+  is explained in a prose `note` in `explain()` rather than designed away. 2a has to
+  choose: re-run `exact=True` per state change against the latency budget (the exact
+  board measures ~270 ms against a 100 ms budget), or ship a board that jumps and say
+  by how much. Decide it before the advisor is written, not during the auction.
+
+**Two refactors to do first, as groundwork:**
+
+- **`rank_cmd` re-implements `sync_league_cmd`'s fetch/conflict/apply flow** and drops
+  the `SyncReport`, so a rules change detected during `rank` supersedes every earlier
+  run without showing the diff or count that `sync-league` renders. The two copies have
+  already diverged. Do the shared helper **before** 2a's `asta` command becomes the
+  third copy.
+- **Goalkeeper bounds are two scalar `PoolState` fields plus `cls == "Por"` branches**,
+  while every other class already has the per-class `hard_minimums` dict. A "3 portieri,
+  8 difensori" house rule, or the roster-bound contingency this document already
+  anticipates, needs new fields and more branches. `class_min` / `class_max:
+  dict[str, int]` is the general shape, and `PoolState` is how 2a expresses live state —
+  widen it before building on it.
+
+**One modelling improvement, deferred because it moves every price:**
+
+- **The unsatisfiable-demand fold is all-or-nothing.** Phase 1 folds a role class's
+  module demand onto the classes its players actually pin to, but only when that class
+  has *literally zero* pinned supply, so one listone row can move ~0.5 slots of demand
+  per module and every price with it, from a routine re-sync. A class with one supplier
+  against six league-wide slots is as unsatisfiable as one with none. Phase 1 ships a
+  `thin_classes` warning so the cliff is visible; the continuous version — fold in
+  proportion to the shortfall — should **replace** that warning rather than sit beside
+  it. Held back because the retained-fraction shape is a design question rather than a
+  derivation, and because it would move every price a third time in one branch.
+
+**Cleanup carried forward,** none of it load-bearing: `analysis/valuation._digest`
+duplicates `league/settings.rules_hash`'s formula; `doctor._read_only` re-implements
+`connect(read_only=True)` and the database is opened up to six times per `doctor` run,
+so a file held by a writer reports "cannot open database" and "skipped: no database"
+two lines apart; `rank._load_preferences` is another copy of the `safe_load … or {}`
+loader and catches only `yaml.YAMLError`; the front-matter prologue is copied across
+`kb/notes.py`, `kb/participants.py` and `kb/profiles.py`, and `kb/audit._validator_for`
+re-encodes the loaders' globs as parent-name checks so audit and `rank` can accept
+different files; `analysis/history.EVENT_COLUMNS` re-lists `Events`' fields, making a
+mismatch a `TypeError` at rank time rather than an import error; `valuation._finite` and
+`pricing._json` are two scrubbers for one JSON-safety rule while `pricing.explain()`
+applies neither; and `exports._rows` is rebuilt five times per rank, with
+`exports._header` and `cli/app._render_rank` hand-kept near-copies that already print
+different fields.
+
 **Cut-line, decided now rather than in a panic.** If Phase 2 runs late, capability
 drops in this order: the opponent pressure model, then the dynamic max price,
 landing on static prices with live credit and slot tracking. That floor is roughly a
