@@ -20,6 +20,13 @@ Three rules, defended hard:
   knowledge base doubts, write the doubt where the model reads it — a
   player note (`depth`, `availability`), a team profile (`rotation_factor`,
   `takers`), `preferences.yml` — and re-run. Never edit a ranking by hand.
+  Know what each one does: `availability` is a plain multiplier on one
+  player's presenze, while `rotation_factor` is **not** a club-wide cut. It
+  moves matches *down* the depth chart — an untouchable first choice barely
+  notices, the tier below him loses most, and the backups behind them gain,
+  which is where the model finds the three-credit fifth slot. Lowering a
+  club's `rotation_factor` therefore makes its fringe players dearer, not
+  cheaper; to say "this whole squad will play less", say it per player.
 - **The quotazione is a price.** The divergence list in `asta-plan.md` is
   where we disagree with the market: each line is either the edge or a bug,
   and it is read by hand before the auction.

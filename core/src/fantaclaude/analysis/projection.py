@@ -12,11 +12,21 @@ toward non-penalty xG and xA where Understat covers the season.
 Expected presenze = giornate remaining x rate. The rate is the weighted
 historical presenze rate, or the note's depth when there is one -- an
 absolute statement about now, which last season's minutes cannot make --
-times the club's rotation_factor times the note's availability. Rotation
-widens the band as much as it lowers the mean: the presenze it removes are
-themselves uncertain, so their loss is added to the variance rather than
-only subtracted from the mean, which is what prices the uncertainty at the
-quantiles.
+shifted by the club's rotation and then scaled by the note's availability.
+
+Rotation is *not* a club-level multiplier (spec, "European competition and
+rotation"): it is a depth-chart effect, applied per player through his
+place in the pecking order. The untouchable first choice plays essentially
+everything whether the club plays on Thursday or not; rotation lands on the
+tier below him, and the matches he does lose are not deleted -- they go to
+the men behind him, which is how the model surfaces the backup who starts
+sixteen matches at a big club instead of only penalising his team-mates.
+`_rotation_transfer` is that shape, and it is nil at rotation_factor 1.0, so
+a club that does not rotate projects exactly what it projected before it
+existed. Rotation still widens the band as much as it moves the mean: the
+matches it moves around are themselves uncertain, so their churn is added to
+the variance whichever way the mean went, which is what prices the
+uncertainty at the quantiles.
 
 A player with a D-Factor-eligible Mantra role -- his role set against
 d_factor.D_FACTOR_ROLES, never the single class pin_class picked for
@@ -38,6 +48,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
+from functools import cache
 from typing import Any
 
 from fantaclaude.analysis.history import RolePrior, SeasonLine
@@ -55,7 +66,16 @@ class ProjectionConfig:
     depth_rates: tuple[tuple[str, float], ...] = (("starter", 0.9), ("contested", 0.65), ("cover", 0.35), ("out", 0.0))
     newcomer_rate: float = 0.5             # presenze rate with no history and no note
     newcomer_dispersion: float = 1.5       # the presenze band of a newcomer, relative to a known player's
-    rotation_uncertainty: float = 1.0      # the rotation loss's own sigma, as a share of the loss
+    rotation_uncertainty: float = 1.0      # the rotation churn's own sigma, as a share of the churn
+    # how far a fully rotating club (rotation_factor 0) moves the most exposed
+    # rung of its own depth chart, in presenze rate. Rotation redistributes
+    # rather than removes: the rungs above the chart's balance point cede
+    # matches and the rungs below inherit them, in proportion to how contested
+    # each place is, so the sum over the chart is nil (see _rotation_transfer).
+    # 1.0 leaves a second-tier player roughly the bite the old club-level
+    # multiplier gave him, while an untouchable first choice keeps two thirds
+    # of it back and a cover turns it into a gain.
+    rotation_swing: float = 1.0
     quantile_z: float = 0.6745             # p25 / p75 of a normal
     # roles are a set, not a single slot; a player who can fill more Mantra
     # roles gives the manager more lineup choices, so each role beyond the
@@ -120,6 +140,46 @@ class Projection:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _contested_share(rate: float) -> float:
+    """How much of a place is up for grabs, in [0, 1].
+
+    `4r(1-r)` is nil for an untouchable first choice (r = 1) and nil for a man
+    out of the plans (r = 0), and one for a true 50/50. It is squared because
+    rotating a place needs both ends of the contest at once -- the incumbent
+    has to be droppable *and* his deputy has to be credible -- which is what
+    keeps the effect off the top of the pecking order, where the spec says it
+    does not land."""
+    r = min(1.0, max(0.0, rate))
+    return (4 * r * (1 - r)) ** 2
+
+
+@cache
+def _rotation_shape(depth_rates: tuple[tuple[str, float], ...]) -> tuple[float, float]:
+    """(pivot, scale) of the rotation transfer, read off the depth chart itself.
+
+    The pivot is where the chart balances: the contested-share-weighted mean of
+    its rates, the one share at which what the rungs above cede is exactly what
+    the rungs below inherit. That is what makes the transfer a transfer -- it
+    is a definition, not a tuning constant, so editing depth_rates moves it
+    with them. The scale is the largest move the shape makes anywhere on the
+    chart, so `rotation_swing` reads in presenze rate."""
+    rates = [rate for _, rate in depth_rates]
+    shares = [_contested_share(rate) for rate in rates]
+    total = sum(shares)
+    if total <= 0:
+        return 0.5, 1.0
+    pivot = sum(share * rate for share, rate in zip(shares, rates)) / total
+    scale = max(abs(share * (pivot - rate)) for share, rate in zip(shares, rates))
+    return pivot, scale or 1.0
+
+
+def _rotation_transfer(rate0: float, rotation_factor: float, cfg: ProjectionConfig) -> float:
+    """The presenze rate rotation moves onto (positive) or off (negative) this
+    player's place. Zero at rotation_factor 1.0, whatever his depth."""
+    pivot, scale = _rotation_shape(cfg.depth_rates)
+    return cfg.rotation_swing * (1 - rotation_factor) * _contested_share(rate0) * (pivot - rate0) / scale
 
 
 def _per_presenza(line: SeasonLine, cfg: ProjectionConfig, inp: PlayerInputs) -> tuple[Events, dict[str, float]]:
@@ -200,12 +260,18 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     else:
         rate0, source = cfg.newcomer_rate, "newcomer"
     availability = note.availability if note is not None else 1.0
-    rate = min(1.0, max(0.0, rate0 * availability * inp.rotation_factor))
+    # Rotation shifts his place on the depth chart before availability scales
+    # it: the pecking order is the club's business, an injury history is his.
+    shift = _rotation_transfer(rate0, inp.rotation_factor, cfg)
+    rate = min(1.0, max(0.0, (rate0 + shift) * availability))
     g = giornate_remaining
     exp_presenze = g * rate
-    loss = g * rate0 * availability * (1 - inp.rotation_factor)
+    # The matches rotation moves are uncertain whichever way they went, so the
+    # churn widens the band for the man who inherits them as much as for the
+    # man who cedes them.
+    churn = g * rate0 * availability * (1 - inp.rotation_factor)
     dispersion = cfg.newcomer_dispersion if source == "newcomer" else 1.0
-    sigma_pres = math.sqrt(g * rate * (1 - rate) * dispersion ** 2 + (loss * cfg.rotation_uncertainty) ** 2)
+    sigma_pres = math.sqrt(g * rate * (1 - rate) * dispersion ** 2 + (churn * cfg.rotation_uncertainty) ** 2)
 
     # The distribution of the remaining season's fantapunti.
     v50 = exp_presenze * exp_fm
@@ -243,7 +309,8 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     explain = {"n_eff": n_eff, "shrink_weight": shrink, "shrink_target": target, "fantamedia_raw": fm_raw,
                "voto_raw": voto_raw, "sigma_fantamedia": sigma_fm, "sd_match": sd_match,
                "base_rate": base_rate, "rate_source": source, "rate": rate, "depth": note.depth if note else None,
-               "availability": availability, "rotation_factor": inp.rotation_factor, "sigma_presenze": sigma_pres,
+               "availability": availability, "rotation_factor": inp.rotation_factor, "rotation_shift": shift,
+               "sigma_presenze": sigma_pres,
                "d_factor_uplift": uplift, "flex_bonus": flex, "giornate_remaining": g, **per_presenza}
     return Projection(player_id=inp.player_id, name=inp.name, team_short=inp.team_short, team_name=inp.team_name,
                       classic_role=inp.classic_role, role_class=inp.role_class,

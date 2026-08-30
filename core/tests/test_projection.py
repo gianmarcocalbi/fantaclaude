@@ -89,16 +89,88 @@ def test_quotazione_is_not_in_the_value_path(bm):
     assert a.explain == b.explain == c.explain
 
 
-def test_rotation_lowers_the_mean_and_widens_the_band(bm):
-    still = project(inputs(rotation_factor=1.0), bm=bm)
-    rotated = project(inputs(rotation_factor=0.8), bm=bm)
-    assert rotated.exp_presenze == pytest.approx(still.exp_presenze * 0.8)
-    assert rotated.value_p50 < still.value_p50
-    assert rotated.value_p75 - rotated.value_p25 > still.value_p75 - still.value_p25
-    # and for a squad player too, where fewer presenze would otherwise narrow a binomial band
-    cover_still = project(inputs(lines=(line(20, 12),), rotation_factor=1.0), bm=bm)
-    cover_rotated = project(inputs(lines=(line(20, 12),), rotation_factor=0.8), bm=bm)
-    assert cover_rotated.value_p75 - cover_rotated.value_p25 > cover_still.value_p75 - cover_still.value_p25
+# (exp_presenze, sigma_presenze, p25, p50, p75) at rotation_factor 1.0, as the
+# club-level multiplier produced them before the depth-aware transfer replaced
+# it. No rotation must still mean no change, whatever the depth.
+ROTATION_NEUTRAL = {
+    "starter/1.0": (32.4, 1.7999999999999998, 245.2320181275353, 256.6421052631579, 268.05219239878045),
+    "starter/0.8": (25.92, 2.6939933184772373, 190.10517276833713, 205.31368421052633, 220.52219565271554),
+    "contested/1.0": (23.400000000000002, 2.8618176042508368, 169.4325138908813, 185.35263157894738, 201.27274926701347),
+    "contested/0.8": (18.72, 2.9975990392312313, 131.8784321926776, 148.2821052631579, 164.68577833363818),
+    "cover/1.0": (12.6, 2.8618176042508368, 84.32994186876232, 99.80526315789474, 115.28058444702717),
+    "cover/0.8": (10.079999999999998, 2.6939933184772373, 65.32465685110937, 79.84421052631578, 94.36376420152219),
+    "out/1.0": (0.0, 0.0, 0.0, 0.0, 0.0),
+    "out/0.8": (0.0, 0.0, 0.0, 0.0, 0.0),
+    "history": (28.42105263157895, 2.4460947449731054, 210.98931804519356, 225.1246537396122, 239.25998943403084),
+    "newcomer": (18.0, 4.5, 95.65159550301533, 117.0, 138.34840449698467),
+}
+
+
+def _presenze_shape(p):
+    return (p.exp_presenze, p.explain["sigma_presenze"], p.value_p25, p.value_p50, p.value_p75)
+
+
+def test_rotation_factor_one_changes_nothing_at_any_depth(bm):
+    """The anchor for the depth-aware transfer: a club that does not rotate
+    must project exactly what it projected before, to the last bit, so any
+    movement on the board is attributable to a club that does."""
+    for depth in ("starter", "contested", "cover", "out"):
+        for availability in (1.0, 0.8):
+            p = project(inputs(note=note(depth=depth, availability=availability), rotation_factor=1.0), bm=bm)
+            assert _presenze_shape(p) == ROTATION_NEUTRAL[f"{depth}/{availability}"], f"{depth}/{availability}"
+    assert _presenze_shape(project(inputs(rotation_factor=1.0), bm=bm)) == ROTATION_NEUTRAL["history"]
+    assert _presenze_shape(project(inputs(lines=(), rotation_factor=1.0), bm=bm)) == ROTATION_NEUTRAL["newcomer"]
+
+
+def test_rotation_moves_the_mean_down_the_depth_chart_and_widens_every_band(bm):
+    """Rotation is a depth-chart effect, not a club badge (spec, "European
+    competition and rotation"): the minutes it takes off the pecking order's
+    top go to the men behind, so a starter's mean falls and a cover's rises --
+    and it widens the band for both, because the matches it moves are
+    themselves uncertain."""
+    def at(depth, factor):
+        return project(inputs(note=note(depth=depth), rotation_factor=factor), bm=bm)
+
+    band = {}
+    for depth in ("starter", "contested", "cover"):
+        still, rotated = at(depth, 1.0), at(depth, 0.8)
+        band[depth] = (still, rotated)
+        assert rotated.value_p75 - rotated.value_p25 > still.value_p75 - still.value_p25, depth
+    (starter, starter_rot) = band["starter"]
+    (contested, contested_rot) = band["contested"]
+    (cover, cover_rot) = band["cover"]
+    assert starter_rot.exp_presenze < starter.exp_presenze and starter_rot.value_p50 < starter.value_p50
+    assert contested_rot.exp_presenze < contested.exp_presenze
+    # and rotation manufactures cheap value: the backup inherits the matches
+    assert cover_rot.exp_presenze > cover.exp_presenze and cover_rot.value_p50 > cover.value_p50
+    # it lands on the second tier, not on the untouchable starter
+    assert starter.exp_presenze - starter_rot.exp_presenze < contested.exp_presenze - contested_rot.exp_presenze
+    # a man out of the plans inherits nothing, and 1.0 is never a bonus
+    out_still, out_rot = at("out", 1.0), at("out", 0.8)
+    assert out_rot.exp_presenze == out_still.exp_presenze == 0.0
+
+
+def test_rotation_transfers_rather_than_destroys_the_depth_chart_minutes(bm):
+    """What one rung of the chart sheds the others inherit: summed over the
+    chart the transfer is nil, so rotation redistributes minutes instead of
+    deleting them."""
+    moved = 0.0
+    for depth, _ in CFG.depth_rates:
+        still = project(inputs(note=note(depth=depth), rotation_factor=1.0), bm=bm)
+        rotated = project(inputs(note=note(depth=depth), rotation_factor=0.8), bm=bm)
+        moved += rotated.exp_presenze - still.exp_presenze
+    assert moved == pytest.approx(0.0, abs=1e-9)
+
+
+@pytest.mark.parametrize("factor", (1.0, 0.9, 0.75, 0.5, 0.05))
+@pytest.mark.parametrize("availability", (1.0, 0.5))
+def test_expected_presenze_stays_inside_the_remaining_giornate(bm, factor, availability):
+    for depth, _ in CFG.depth_rates:
+        p = project(inputs(note=note(depth=depth, availability=availability), rotation_factor=factor), bm=bm)
+        assert 0.0 <= p.exp_presenze <= 36, (depth, factor, availability)
+    for lines in ((line(20, 38),), (line(20, 1),), ()):
+        p = project(inputs(lines=lines, rotation_factor=factor), bm=bm)
+        assert 0.0 <= p.exp_presenze <= 36, (lines, factor)
 
 
 def test_shrinkage_is_driven_by_presenze(bm):
