@@ -32,6 +32,7 @@ from typing import Any
 import duckdb
 
 from fantaclaude.analysis.history import History, load_history
+from fantaclaude.analysis.ordering import by_class, rank_key
 from fantaclaude.analysis.projection import (
     PlayerInputs,
     Projection,
@@ -395,8 +396,7 @@ def replacement_levels(pool: tuple[PoolPlayer, ...], expected_prices: dict[int, 
     """Per class, the value of the best player expected to cost the replacement price (one credit);
     the class's weakest player when nobody is that cheap."""
     levels: dict[str, float] = {}
-    for cls in {p.role_class for p in pool}:
-        players = [p for p in pool if p.role_class == cls]
+    for cls, players in by_class(pool).items():
         cheap = [p.value_p50 for p in players if expected_prices.get(p.player_id, 1) <= cfg.replacement_price]
         levels[cls] = max(cheap) if cheap else min(p.value_p50 for p in players)
     return levels
@@ -404,8 +404,7 @@ def replacement_levels(pool: tuple[PoolPlayer, ...], expected_prices: dict[int, 
 
 def assign_tiers(pool: tuple[PoolPlayer, ...], cfg: PricingConfig) -> dict[int, int]:
     tiers: dict[int, int] = {}
-    for cls in {p.role_class for p in pool}:
-        ranked = sorted((p for p in pool if p.role_class == cls), key=lambda p: (-p.value_p50, p.player_id))
+    for ranked in by_class(pool).values():
         top, rest = ranked[:cfg.tier_pool], ranked[cfg.tier_pool:]
         gaps = sorted(range(1, len(top)), key=lambda i: top[i - 1].value_p50 - top[i].value_p50, reverse=True)
         cuts = set(gaps[:max(0, cfg.tiers_per_class - 1)])
@@ -423,10 +422,10 @@ def divergence(pool: tuple[PoolPlayer, ...]) -> dict[int, tuple[float, float]]:
     """(the value implied by the quotazione, our value minus it): the player at
     quotazione rank i is implied to be worth what our i-th best is worth."""
     out: dict[int, tuple[float, float]] = {}
-    for cls in {p.role_class for p in pool}:
-        players = [p for p in pool if p.role_class == cls]
-        by_quot = sorted(players, key=lambda p: (-p.quotazione, -p.value_p50, p.player_id))
-        by_value = sorted(players, key=lambda p: (-p.value_p50, p.player_id))
+    for by_value in by_class(pool).values():
+        # The market's own order, tied on the same key our order is tied on, so
+        # the two lists pair position for position rather than by luck.
+        by_quot = sorted(by_value, key=lambda p: (-p.quotazione, *rank_key(p)))
         for market, ours in zip(by_quot, by_value):
             out[market.player_id] = (ours.value_p50, market.value_p50 - ours.value_p50)
     return out

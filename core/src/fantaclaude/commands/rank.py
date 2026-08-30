@@ -17,6 +17,7 @@ import duckdb
 import yaml
 
 from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
+from fantaclaude.analysis.ordering import by_class, rank_key
 from fantaclaude.analysis.projection import ProjectionConfig
 from fantaclaude.analysis.valuation import (
     PreferencesError,
@@ -222,12 +223,15 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
     records = export_records(con, run.run_id, run.rules_hash, records_dir)
     board = run.boards[run.scenarios[0].name]
     freeze = freeze_status(league_yml, now, run.summary["team_count"])
+    grouped = by_class(run.projections)
     top: dict[str, list[dict[str, Any]]] = {}
-    for p in sorted(run.projections, key=lambda p: -p.value_p50):
-        entry = top.setdefault(p.role_class, [])
-        if len(entry) < 3:
-            entry.append({"name": p.name, "team": p.team_short, "value_p50": round(p.value_p50, 1),
-                          "max_p50": board.prices[p.player_id].band.p50, "tier": run.tiers[p.player_id]})
+    # Classes in the order of their best player, as walking one globally sorted
+    # list used to give -- but each class's own three now in the run's single
+    # ranking order, so the report agrees with rankings.md on a tie (finding E).
+    for cls in sorted(grouped, key=lambda c: rank_key(grouped[c][0])):
+        top[cls] = [{"name": p.name, "team": p.team_short, "value_p50": round(p.value_p50, 1),
+                     "max_p50": board.prices[p.player_id].band.p50, "tier": run.tiers[p.player_id]}
+                    for p in grouped[cls][:3]]
     return RankReport(run_id=run.run_id, created_at=run.created_at, rules_hash=run.rules_hash,
                       model_hash=run.model_hash, inputs_hash=run.inputs_hash, season_id=run.season_id,
                       giornata=run.giornata, scenarios=[s.name for s in run.scenarios], players=len(run.projections),

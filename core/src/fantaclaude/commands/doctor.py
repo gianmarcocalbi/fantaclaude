@@ -294,6 +294,15 @@ def _profiles_check(kb: Path, db: Path) -> Check:
     return Check("kb_profiles", True, f"{head}; europe agrees with the fixtures")
 
 
+def _read_only(db: Path) -> duckdb.DuckDBPyConnection | None:
+    if not db.is_file():
+        return None
+    try:
+        return duckdb.connect(str(db), read_only=True)
+    except duckdb.Error:
+        return None
+
+
 def _takers_check(kb: Path, db: Path) -> Check:
     """Every set-piece taker a profile names, resolved against the listone the
     way `rank` resolves them (finding 20b).
@@ -339,15 +348,6 @@ def _takers_check(kb: Path, db: Path) -> Check:
     if problems:
         return Check("kb_takers", False, f"{head}; " + "; ".join(problems))
     return Check("kb_takers", True, head)
-
-
-def _read_only(db: Path) -> duckdb.DuckDBPyConnection | None:
-    if not db.is_file():
-        return None
-    try:
-        return duckdb.connect(str(db), read_only=True)
-    except duckdb.Error:
-        return None
 
 
 def _notes_check(kb: Path, db: Path) -> Check:

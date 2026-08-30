@@ -11,6 +11,7 @@ from pathlib import Path
 
 import duckdb
 
+from fantaclaude.analysis.ordering import by_class, rank_key
 from fantaclaude.analysis.valuation import ValuationRun
 from fantaclaude.model.demand import ROLE_CLASSES
 
@@ -52,8 +53,9 @@ def write_rankings(run: ValuationRun, exports_dir: Path) -> tuple[Path, Path]:
     board = run.boards[scenario]
     lines = ["# Rankings", "", *_header(run), f"inflation {board.inflation:.2f} · composition "
              + ", ".join(f"{cls} {n}" for cls, n in board.composition.items() if n) + f" · reserve {board.reserve}", ""]
+    grouped = by_class(rows)
     for cls in ROLE_CLASSES:
-        ranked = sorted((r for r in rows if r["role_class"] == cls), key=lambda r: -r["value_p50"])
+        ranked = grouped.get(cls, [])
         if not ranked:
             continue
         lines += [f"## {cls}  (replacement {run.replacement.get(cls, 0.0):.0f})", "",
@@ -71,7 +73,9 @@ def write_rankings(run: ValuationRun, exports_dir: Path) -> tuple[Path, Path]:
     with out.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
         writer.writeheader()
-        writer.writerows(sorted(rows, key=lambda r: (ROLE_CLASSES.index(r["role_class"]), -r["value_p50"])))
+        # ROLE_CLASSES.index raises on a class pin_class cannot produce; the
+        # rest of the key is the run's one ranking order, as the tables above.
+        writer.writerows(sorted(rows, key=lambda r: (ROLE_CLASSES.index(r["role_class"]), *rank_key(r))))
     return md, out
 
 
@@ -88,8 +92,9 @@ def write_asta_plan(run: ValuationRun, exports_dir: Path) -> Path:
                   "", "**Composition** (players · credits): "
                   + ", ".join(f"{cls} {n} · {board.credits_by_class.get(cls, 0)}" for cls, n in board.composition.items() if n),
                   "", "**Targets per class** (max price at the chosen quantile, tier):", ""]
+        grouped = by_class(rows)
         for cls in ROLE_CLASSES:
-            ranked = sorted((r for r in rows if r["role_class"] == cls), key=lambda r: -r["value_p50"])[:3]
+            ranked = grouped.get(cls, [])[:3]
             if ranked:
                 lines.append(f"- {cls}: " + ", ".join(f"{r['name']} {r['max_' + q]} (t{r['tier']})" for r in ranked))
         lines.append("")
@@ -103,8 +108,9 @@ def write_asta_plan(run: ValuationRun, exports_dir: Path) -> Path:
               *(f"- {r['name']} ({r['role_class']}): we say {r['value_p50']}, the quotazione implies {r['implied_value']} "
                 f"({r['divergence']:+})" for r in diverging), ""]
     lines += ["## If I lose him", ""]
+    grouped = by_class(rows)
     for cls in ROLE_CLASSES:
-        ranked = sorted((r for r in rows if r["role_class"] == cls), key=lambda r: -r["value_p50"])
+        ranked = grouped.get(cls, [])
         if ranked:
             top = ranked[0]
             mates = [r["name"] for r in ranked[1:] if r["tier"] == top["tier"]][:3]

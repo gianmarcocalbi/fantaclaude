@@ -510,6 +510,58 @@ def test_inputs_hash_is_reproducible_from_a_rebuilt_database(tmp_path, fixture_j
         con.close()
 
 
+def test_one_deterministic_tie_break_for_every_per_class_ranking():
+    """Finding E. The per-class regroup-and-sort appears six times and carried
+    two different tie-breaks: `-value_p50` alone in the exports and the rank
+    report, `(-value_p50, player_id)` here. One helper, one order, whichever
+    shape the row arrives in -- a Projection, a PoolPlayer, or the export's
+    dict row."""
+    from fantaclaude.analysis.ordering import by_class, rank_key
+
+    rows = [{"player_id": 3, "role_class": "A", "value_p50": 0.0},
+            {"player_id": 1, "role_class": "A", "value_p50": 0.0},
+            {"player_id": 2, "role_class": "A", "value_p50": 5.0},
+            {"player_id": 9, "role_class": "Pc", "value_p50": 0.0}]
+    grouped = by_class(rows)
+    assert [r["player_id"] for r in grouped["A"]] == [2, 1, 3]
+    assert [r["player_id"] for r in grouped["Pc"]] == [9]
+    pool = (PoolPlayer(3, "c", "A", 0.0, 0.0, 0.0, 1), PoolPlayer(1, "a", "A", 0.0, 0.0, 0.0, 1))
+    assert [p.player_id for p in by_class(pool)["A"]] == [1, 3]
+    assert rank_key(rows[0]) == rank_key(pool[0]) == (-0.0, 3)
+
+
+def test_a_class_tied_on_value_is_ranked_the_same_way_everywhere(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding E, the reason it is not merely duplication. Every player with
+    `exp_presenze == 0` sits at `value_p50 == 0.0`, so where the tie-breaks
+    disagreed a tier cut landed on a different player than the one
+    `rankings.md` printed beside it -- decided by nothing but the order the
+    rows happened to arrive in. Here the whole pool is tied and arrives in
+    reverse player_id order, which is exactly where the two orders part."""
+    import csv as csv_module
+    from dataclasses import replace
+
+    from fantaclaude.analysis.exports import write_rankings
+    from fantaclaude.analysis.valuation import build_pool
+
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    result, con = run(tmp_path)
+    con.close()
+    tied = [replace(p, value_p25=0.0, value_p50=0.0, value_p75=0.0) for p in result.projections][::-1]
+    pool = build_pool(tied)
+    tied_run = replace(result, projections=tied, pool=pool, tiers=assign_tiers(pool, PricingConfig()),
+                       implied=divergence(pool))
+    _, csv_path = write_rankings(tied_run, tmp_path / "data" / "exports")
+    printed = list(csv_module.DictReader(csv_path.read_text(encoding="utf-8").splitlines()))
+    assert printed
+    for cls in {r["role_class"] for r in printed}:
+        ranked = [r for r in printed if r["role_class"] == cls]
+        ids = [int(r["player_id"]) for r in ranked]
+        assert ids == sorted(ids), cls
+        # and the tier column reads down the table, never back up it
+        tiers = [int(r["tier"]) for r in ranked]
+        assert tiers == sorted(tiers), (cls, tiers)
+
+
 def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_fixture_json):
     from fantaclaude.analysis.exports import (
         export_records,
