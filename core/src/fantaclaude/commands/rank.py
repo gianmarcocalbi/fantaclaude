@@ -19,10 +19,14 @@ import yaml
 from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
 from fantaclaude.analysis.projection import ProjectionConfig
 from fantaclaude.analysis.valuation import ValuationError, record_run, run_valuation
-from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
+from fantaclaude.asta.pricing_config import (
+    PricingConfig,
+    PricingConfigError,
+    load_pricing_config,
+)
 from fantaclaude.commands.ingest import NotReady
 from fantaclaude.league.league_yml import Provenanced
-from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
+from fantaclaude.model.d_factor import DFactorTable, DFactorTableError, load_d_factor
 
 # The spec (open question 1) fixes no day count -- only that the run after the
 # freeze is the final one. Seven days is this plan's own stated requirement
@@ -102,9 +106,14 @@ def _load_preferences(path: Path) -> dict[str, Any]:
     return data
 
 
-def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, preferences_path: Path, pricing_path: Path,
-         exports_dir: Path, records_dir: Path, league_yml: dict[str, Provenanced] | None = None,
-         scenarios: list[str] | None = None) -> RankReport:
+def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, Any], PricingConfig, DFactorTable]:
+    """The three not-ready checks a run needs no database connection for:
+    preferences.yml, pricing.yml and d_factor.yml. Call this before opening
+    a read-write connection -- connect() creates and schemas the file on
+    first touch, so running these after it would leave a phantom database
+    behind for the sole crime of a missing preferences.yml on a
+    never-synced workspace (finding 2): `doctor` would then report "ok,
+    schema version 3" instead of "no database -- run sync-league"."""
     preferences = _load_preferences(preferences_path)
     try:
         pricing_cfg = load_pricing_config(pricing_path)
@@ -114,6 +123,13 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
         d_factor = load_d_factor()
     except DFactorTableError as exc:
         raise NotReady(str(exc)) from None
+    return preferences, pricing_cfg, d_factor
+
+
+def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, preferences_path: Path, pricing_path: Path,
+         exports_dir: Path, records_dir: Path, league_yml: dict[str, Provenanced] | None = None,
+         scenarios: list[str] | None = None) -> RankReport:
+    preferences, pricing_cfg, d_factor = check_ready(preferences_path, pricing_path)
     try:
         run = run_valuation(con, now=now, kb_dir=kb_dir, preferences=preferences, projection_cfg=ProjectionConfig(),
                             pricing_cfg=pricing_cfg, d_factor=d_factor, scenario_names=scenarios)

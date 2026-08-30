@@ -698,7 +698,7 @@ def rank_cmd(
     """Write a valuation run: project every listone player, price the board, render data/exports/ and records/. Re-syncs the league first unless --offline."""
     from fantaclaude.analysis.valuation import PreferencesError
     from fantaclaude.commands.ingest import NotReady
-    from fantaclaude.commands.rank import rank
+    from fantaclaude.commands.rank import check_ready, rank
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
     from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
@@ -715,6 +715,15 @@ def rank_cmd(
     try:
         entries = load_league_yml(league_yml_path()) if league_yml_path().is_file() else None
     except LeagueYmlError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    try:
+        # Finding 2: preferences.yml, pricing.yml and d_factor.yml need no
+        # database at all -- checked here, before connect() below creates and
+        # schemas the file, so a never-synced workspace refuses cleanly
+        # instead of leaving a phantom database that later reads as "ok".
+        check_ready(preferences_yml_path(), pricing_yml_path())
+    except NotReady as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=ExitCode.NOT_READY) from None
     snap = conflicts = None

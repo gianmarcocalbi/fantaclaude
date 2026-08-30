@@ -94,7 +94,12 @@ def test_rank_re_syncs_first_unless_offline(monkeypatch, tmp_path, fixture_json,
 
 def test_rank_refuses_when_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
-    assert runner.invoke(app, ["rank", "--offline"]).exit_code == ExitCode.NOT_READY
+    result = runner.invoke(app, ["rank", "--offline"])
+    assert result.exit_code == ExitCode.NOT_READY
+    # Finding 2: a missing preferences.yml must be caught before connect() ever
+    # creates and schemas the database -- otherwise doctor reports "ok, schema
+    # version 3" on a workspace where nothing was ever ingested.
+    assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
 
     _workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     (tmp_path / "pricing.yml").write_text("bench_weight: heavy\n")
