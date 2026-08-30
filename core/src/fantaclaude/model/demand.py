@@ -79,22 +79,34 @@ def module_demand(modules: Mapping[str, Module] | None = None) -> dict[str, dict
 
 def rank_weights(demand_by_module: Mapping[str, Mapping[str, float]], *, max_rank: int, bench_weight: float,
                  bench_decay: float = 0.5, bench_slots: int = 1, targets: Mapping[str, int] | None = None,
-                 target_weight: float = 0.8) -> dict[str, tuple[float, ...]]:
+                 target_weight: float = 0.8, min_ranks: Mapping[str, int] | None = None) -> dict[str, tuple[float, ...]]:
     """Class -> weight of the k-th player of that class, k = 1 .. the ranks
     the class has (the peak demand of any module, rounded up, plus
-    bench_slots; a target extends them; never more than max_rank)."""
+    bench_slots; a target extends them, and so does a class floor the
+    roster must fill -- at bench weight, since a forced third keeper starts
+    no more than a chosen one; never more than max_rank)."""
     unknown = sorted(set(targets or {}) - set(ROLE_CLASSES))
     if unknown:
         raise ValueError(f"target_composition names classes that do not exist: {unknown}; choose from {ROLE_CLASSES}")
     n = len(demand_by_module)
+    # In module-code order, always: `coverage` is a floating-point sum over the
+    # modules, so the same demand in a different dict order would price a
+    # different board in the last bit. Sorting here makes that a property of the
+    # function rather than a convention every caller has to remember -- the run
+    # (analysis/valuation.py) and the live board (asta/pinned.py) both pre-sort,
+    # and a third caller building a demand dict some other way must not be able
+    # to get a quietly different answer.
+    ordered = [demand_by_module[code] for code in sorted(demand_by_module)]
     weights: dict[str, tuple[float, ...]] = {}
     for cls in ROLE_CLASSES:
-        peak = max((by_class.get(cls, 0.0) for by_class in demand_by_module.values()), default=0.0)
+        peak = max((by_class.get(cls, 0.0) for by_class in ordered), default=0.0)
         ranks = math.ceil(peak - 1e-9) + bench_slots
         if targets:
             ranks = max(ranks, targets.get(cls, 0))
+        if min_ranks:
+            ranks = max(ranks, min_ranks.get(cls, 0))
         ranks = max(1, min(max_rank, ranks))
-        coverage = [sum(min(1.0, max(0.0, by_class.get(cls, 0.0) - (k - 1))) for by_class in demand_by_module.values()) / n
+        coverage = [sum(min(1.0, max(0.0, by_class.get(cls, 0.0) - (k - 1))) for by_class in ordered) / n
                     if n else 0.0 for k in range(1, ranks + 1)]
         first_bench = next((k for k, c in enumerate(coverage, 1) if c < bench_weight), None)
         out: list[float] = []

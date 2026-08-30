@@ -195,6 +195,44 @@ def test_one_pricing_function_is_deterministic():
     assert a == b
 
 
+def tied_pool():
+    """A class deeper than candidates_per_class whose cut lands on a tie.
+
+    29 of the 30 credible Pc are decided by value; the 30th is one of four
+    players tied at 0.0 -- the value every player with exp_presenze == 0
+    carries on the real listone, where 553 players make ties at the cut
+    ordinary rather than exotic. They hold different quotazioni, so *which*
+    of them is credible moves the board's inflation and every price with it.
+    """
+    pool = list(small_pool())
+    pool += [player(1000 + i, "Pc", float(29 - i), 2) for i in range(25)]     # 4 + 25 = 29 inside the cut
+    pool += [player(2000 + i, "Pc", 0.0, 40 if i == 0 else 1) for i in range(4)]
+    return tuple(pool)
+
+
+def test_the_credible_cut_is_a_total_order_not_the_order_the_pool_arrived_in():
+    """price_board is a function of the pool, not of the sequence it was built
+    in: a caller that assembles the same players in another order (the run
+    orders by projection, the live board by player_id, and Task 8's pressure
+    may rebuild the pool again) must get the same board. The credible set that
+    sets the inflation is the one place that could decide a tie by arrival
+    order, so it sorts by (-value, player_id) the way the class curves do."""
+    # market_credits kept off the inflation clamp on purpose: at the default
+    # 4000 this pool prices above the ceiling either way, and a clamped board
+    # would hide the very difference the test exists to catch.
+    pool = tied_pool()
+    forward = price_board(state(pool, market_credits=700), CFG)
+    backward = price_board(state(tuple(reversed(pool)), market_credits=700), CFG)
+    assert CFG.inflation_floor < forward.inflation < CFG.inflation_ceiling
+    assert forward.inflation == backward.inflation
+    assert forward.to_dict() == backward.to_dict()
+    # the tie is real and it straddles the cut: the four are indistinguishable by
+    # value, and they do not all cost the same, so picking a different one moves it
+    tied = [p for p in pool if p.role_class == "Pc" and p.value_p50 == 0.0]
+    assert len(tied) == 4 and len({p.quotazione for p in tied}) == 2
+    assert len(by_class(pool, "Pc")) > CFG.candidates_per_class
+
+
 def test_a_target_is_soft_and_a_departure_is_reported():
     plain = price_board(state(), CFG)
     nudged_weights = rank_weights(module_demand(load_modules()), max_rank=6, bench_weight=CFG.bench_weight,

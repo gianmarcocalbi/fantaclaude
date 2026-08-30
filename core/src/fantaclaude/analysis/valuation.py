@@ -515,6 +515,11 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     demand = satisfiable_demand(module_demand(), listone_role_sets(con), max_rank=max_rank,
                                 bench_weight=pricing_cfg.bench_weight, bench_decay=pricing_cfg.bench_decay,
                                 bench_slots=pricing_cfg.bench_slots_per_class)
+    # In module-code order, which is the order canonical_json stores it in: the
+    # rank weights are floating-point sums over the modules, so the live board
+    # (asta/pinned.py reads config["demand_by_module"] back) must add them in
+    # the same order to reproduce this run's board to the last bit.
+    demand = {code: demand[code] for code in sorted(demand)}
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                 bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class)
     inputs, warnings = build_inputs(con, history, profiles, notes, base_weights)
@@ -536,7 +541,8 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     for scenario in scenarios:
         weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class,
-                               targets=scenario.target_composition, target_weight=pricing_cfg.target_weight)
+                               targets=scenario.target_composition, target_weight=pricing_cfg.target_weight,
+                               min_ranks=ctx.class_min)
         state = PoolState(credits=ctx.budget, market_credits=ctx.team_count * ctx.budget, pool=pool, weights=weights,
                           hard_minimums=minimums, roster_min=ctx.roster_min, roster_max=ctx.roster_max,
                           class_min=ctx.class_min, class_max=ctx.class_max,
@@ -556,6 +562,15 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
               # classes that field them. Recorded because it is derived from two inputs
               # at once, so neither modules.yml nor the listone recovers it alone.
               "demand": {cls: sum(m.get(cls, 0.0) for m in demand.values()) / len(demand) for cls in ROLE_CLASSES},
+              # and the same demand per module, so the live board reads the run's own
+              # weights back instead of re-deriving them (asta/pinned.py)
+              "demand_by_module": demand,
+              # with the hard minimums beside them, for the same reason: both are read
+              # off modules.yml, which is in neither model_hash nor rules_hash, so an
+              # edit there supersedes no run and changes no model id. Without this the
+              # live board would price a pinned run's stored demand against today's
+              # file's minimums -- two halves of one input, silently out of step.
+              "hard_minimums": minimums,
               "scenarios": [s.name for s in scenarios], "d_factor": d_factor.to_dict(),
               "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
               "modifiers": status.to_dict()}

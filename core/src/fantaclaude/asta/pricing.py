@@ -252,7 +252,13 @@ def _expected_prices(state: PoolState, cfg: PricingConfig) -> tuple[float, dict[
         by_class.setdefault(p.role_class, []).append(p)
     credible: set[int] = set()
     for players in by_class.values():
-        credible.update(p.player_id for p in sorted(players, key=lambda q: -q.value_p50)[:cfg.candidates_per_class])
+        # (-value, player_id), the same total order _classes sorts by: without the
+        # id, which of several players tied at one value falls inside the cut is
+        # decided by the order the caller happened to build the pool in, and the
+        # whole board's inflation moves with it. Ties are not exotic -- every
+        # player with exp_presenze == 0 sits at value_p50 == 0.0.
+        credible.update(p.player_id for p in sorted(players, key=lambda q: (-q.value_p50, q.player_id))
+                        [:cfg.candidates_per_class])
     quot = sum(p.quotazione for p in state.pool if p.player_id in credible)
     raw = state.market_credits / quot if quot > 0 else 1.0
     inflation = min(cfg.inflation_ceiling, max(cfg.inflation_floor, raw))

@@ -1,0 +1,89 @@
+import pytest
+from fantaclaude.asta.adjustments import (
+    Adjustment,
+    AdjustmentsError,
+    load_adjustments,
+    resolve,
+)
+from fantaclaude.asta.advisor import TeamMapping, derive
+from fantaclaude.asta.auction import Auction, MutationResult, Refresh
+from fantaclaude.asta.session import SessionError
+from fantaclaude.asta.state import (
+    AuctionState,
+    LotSelected,
+    SaleAdded,
+    SettingsChanged,
+    StatusChanged,
+    apply_snapshot,
+    parse_snapshot,
+    read_snapshots,
+)
+from test_advisor import pinned_run
+
+
+def test_every_change_goes_through_mutate_and_reaches_every_listener(tmp_path, fixture_json, mcp_fixture_json, fixture_file):
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    auction = Auction(pinned, TeamMapping(mine=1, nicks={0: "Marco"}))
+    assert auction.settings is pinned.league and auction.board.me.credits == 500 and len(auction.board.ledgers) == 8
+    seen: list[MutationResult] = []
+    auction.subscribe(seen.append)
+    snapshots = read_snapshots(fixture_file("asta_session_sample.jsonl"))
+    results = [auction.mutate(snap) for snap in snapshots]
+    assert [r.events for r in results] == [r.events for r in seen] and len(seen) == 8
+    assert results[0].events == (StatusChanged("live", False),) and results[1].events == (SaleAdded(2764, 0, 120),)
+    assert results[5].events == (SaleAdded(2120, 0, 45), LotSelected(5841)) and results[6].events == ()
+    assert auction.settings.source == "session" and auction.settings.team_count == 3 and auction.settings.goalkeepers == (3, 3)
+    assert auction.board.ledgers[0].spent == 165 and auction.board.me.credits == 500
+    assert auction.board.league_conflicts == ("teams: 3 in the session, 8 in the league",)
+    # the board is a function of the last snapshot: derive() on that snapshot alone is the same board
+    state, _ = apply_snapshot(AuctionState.empty(), snapshots[-1])
+    direct = derive(state, run=pinned, settings=auction.settings, mapping=auction.mapping)
+    assert auction.board.to_dict() == direct.to_dict()
+    # a refresh re-derives without a feed event: an exclusion lands, and nothing else moves
+    layer = resolve([Adjustment("exclude", "not buying him", player="Hojlund")], pinned.candidates(), sha256="x")
+    refreshed = auction.mutate(Refresh(layer=layer))
+    assert refreshed.events == () and 6052 not in refreshed.board.pricing.prices and seen[-1] is refreshed
+    assert auction.layer is layer and auction.board.layer.sha256 == "x"
+    forced = auction.mutate(Refresh())
+    assert forced.board.to_dict() == refreshed.board.to_dict()
+
+
+def test_a_malformed_adjustments_file_leaves_the_previous_layer_standing(tmp_path, fixture_json, mcp_fixture_json):
+    """A hand edit that breaks adjustments.yml is reported, never fatal: the
+    refresh carries no layer, so the layer the board was priced under stands
+    (spec, "Adjustments are hot-reloaded")."""
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    auction = Auction(pinned, TeamMapping(mine=0))
+    path = tmp_path / "adjustments.yml"
+    path.write_text("- player: Hojlund\n  type: exclude\n  reason: knee\n", encoding="utf-8")
+    good = resolve(load_adjustments(path), pinned.candidates(), sha256="good")
+    auction.mutate(Refresh(layer=good))
+    assert 6052 not in auction.board.pricing.prices
+    priced = auction.board.to_dict()
+    path.write_text("- player: Hojlund\n  type: no-such-kind\n  reason: knee\n", encoding="utf-8")
+    with pytest.raises(AdjustmentsError, match="type must be one of"):
+        load_adjustments(path)
+    result = auction.mutate(Refresh())                     # what the caller does with the error it just reported
+    assert result.events == () and auction.layer is good and auction.board.layer.sha256 == "good"
+    assert auction.board.to_dict() == priced
+
+
+def test_a_settings_change_mid_auction_is_an_event_and_re_prices_the_board(tmp_path, fixture_json, mcp_fixture_json, fixture_file):
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    auction = Auction(pinned, TeamMapping(mine=1))
+    snapshots = read_snapshots(fixture_file("asta_session_sample.jsonl"))
+    for snap in snapshots[:3]:
+        auction.mutate(snap)
+    richer = parse_snapshot({**snapshots[2].to_node(), "settings": {**snapshots[2].settings, "budget": 1000}})
+    result = auction.mutate(richer)
+    assert result.events == (SettingsChanged((("budget", 500, 1000),)),)
+    assert auction.settings.budget == 1000 and auction.board.me.credits == 960 and auction.board.ledgers[0].credits == 880
+    assert auction.board.league_conflicts[0].startswith("budget: the session plays 1000")
+    # a settings node this code cannot read leaves the auction exactly where it was
+    before = auction.board.to_dict()
+    broken = parse_snapshot({**snapshots[2].to_node(), "settings": {"budget": "lots"}})
+    with pytest.raises(SessionError, match="budget"):
+        auction.mutate(broken)
+    assert auction.board.to_dict() == before and auction.settings.budget == 1000
+    with pytest.raises(TypeError):
+        auction.mutate("not a change")

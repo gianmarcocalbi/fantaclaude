@@ -66,8 +66,24 @@ def test_a_target_raises_the_weights_it_names_and_nothing_else():
     assert nudged["Dc"] == base["Dc"] and nudged["Pc"] == base["Pc"]
     extended = rank_weights(module_demand(load_modules()), max_rank=6, bench_weight=0.1, targets={"Pc": 4})
     assert extended["Pc"] == (0.8, 0.8, 0.8, 0.8)                            # a target extends the ranks to reach it
+    # a class floor the roster must fill extends the ranks too, at bench weight: a forced third keeper is a bench keeper
+    floored = rank_weights(module_demand(load_modules()), max_rank=6, bench_weight=0.1, min_ranks={"Por": 3})
+    assert floored["Por"] == (1.0, 0.1, 0.05) and floored["Pc"] == base["Pc"]
     with pytest.raises(ValueError, match="Xy"):
         rank_weights(module_demand(load_modules()), max_rank=4, bench_weight=0.1, targets={"Xy": 1})
+
+
+def test_the_weights_do_not_depend_on_the_order_the_demand_dict_is_built_in():
+    """A rank weight is a floating-point sum over the modules, so the same
+    demand in another dict order used to give another board in the last bit --
+    and modules.yml's own key order is not sorted order, so the difference is
+    reachable. Every caller pre-sorting is a convention a new call site can
+    forget (Task 7's what-ifs, Task 9's CLI, 2b); the function sorts."""
+    demand = module_demand(load_modules())
+    shuffled = {code: demand[code] for code in sorted(demand, reverse=True)}
+    assert list(shuffled) != list(demand)                      # the orders really are different
+    kw = {"max_rank": 6, "bench_weight": 0.12, "targets": {"Pc": 3}, "min_ranks": {"Por": 3}}
+    assert rank_weights(demand, **kw) == rank_weights(shuffled, **kw)
 
 
 def test_hard_minimums_are_the_slots_every_module_needs_from_one_class():
