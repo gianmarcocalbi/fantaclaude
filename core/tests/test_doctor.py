@@ -278,6 +278,35 @@ def test_history_checks_on_an_empty_database(monkeypatch, tmp_path, fixture_json
     assert not by["aliases"].ok
 
 
+def test_the_preferences_check_is_the_loader_rank_will_use(tmp_path, fixture_json, mcp_fixture_json):
+    """Finding 4. Doctor only parsed preferences.yml and asked for a
+    `target_composition` key, so it disagreed with `rank` in both directions:
+    excluded_clubs, a bad risk_appetite or a scenario naming an unknown role
+    class all passed doctor and then made `rank` exit 2 -- after the live
+    re-sync doctor is meant to gate had already been spent -- while a file
+    with no target_composition at all failed doctor and ranked fine. It calls
+    the same loader now, the way _pricing_check already calls
+    load_pricing_config."""
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    prefs = tmp_path / "preferences.yml"
+    ok = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}["preferences"]
+    assert ok.ok and "balanced" in ok.detail
+
+    for text, needle in (("target_composition: {Por: 2}\nexcluded_clubs: [Frosinone]\n", "excluded_clubs"),
+                         ("target_composition: {Por: 2}\nrisk_appetite: wild\n", "risk_appetite"),
+                         ("target_composition: {Por: 2}\nscenarios:\n  x: {target_composition: {Xy: 1}}\n", "Xy"),
+                         ("target_composition: {Por: 2}\nscenarios:\n  balanced: {risk_appetite: cautious}\n", "balanced")):
+        prefs.write_text(text)
+        check = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}["preferences"]
+        assert not check.ok and needle in check.detail, (text, check)
+
+    # and the other direction: no target_composition is a file rank accepts
+    prefs.write_text("risk_appetite: cautious\n")
+    check = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}["preferences"]
+    assert check.ok, check
+    prefs.write_text("target_composition: {Por: 2}\n")
+
+
 def test_the_phase_1_checks(tmp_path, fixture_json, mcp_fixture_json):
     from test_kb_participants import _write as write_dossier
     from test_kb_profiles import _write as write_profile

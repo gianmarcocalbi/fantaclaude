@@ -18,6 +18,7 @@ import yaml
 from fantacalcio_mcp.auth import AuthError, is_expired
 from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
+from fantaclaude.analysis.valuation import PreferencesError, load_preferences
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
 from fantaclaude.config import WEB_COOKIE_KEY
 from fantaclaude.db.schema import SCHEMA_VERSION
@@ -219,16 +220,29 @@ def _database_checks(path: Path, now: datetime) -> tuple[list[Check], list[Check
     return core, history
 
 
-def _yaml_check(name: str, path: Path, required_key: str) -> Check:
+def _preferences_check(path: Path) -> Check:
+    """The same loader `rank` runs, not a look-alike (finding 4).
+
+    Parsing the file and demanding a `target_composition` key made doctor
+    disagree with `rank` in both directions: `excluded_clubs`, a bad
+    `risk_appetite` or a scenario naming an unknown role class all passed
+    here and then exited 2 in `rank` -- after the live re-sync this command
+    exists to gate had already been spent -- while a file with no
+    `target_composition` failed here and ranked without complaint."""
     if not path.is_file():
-        return Check(name, False, f"{path} is missing")
+        return Check("preferences", False, f"{path} is missing")
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        return Check(name, False, f"does not parse: {exc}")
-    if not isinstance(data, dict) or required_key not in data:
-        return Check(name, False, f"no `{required_key}` key")
-    return Check(name, True, f"{len(data)} top-level keys")
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        return Check("preferences", False, f"does not parse: {exc}")
+    if data is not None and not isinstance(data, dict):
+        return Check("preferences", False, "the top level must be a mapping")
+    try:
+        scenarios = load_preferences(data or {})
+    except PreferencesError as exc:
+        return Check("preferences", False, str(exc))
+    return Check("preferences", True, f"{len(scenarios)} scenario(s): "
+                                      + ", ".join(f"{s.name} ({s.quantile})" for s in scenarios))
 
 
 def _profiles_check(kb: Path, db: Path) -> Check:
@@ -429,7 +443,7 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
                             f"{len(entries)} provenanced keys" if entries is not None else f"{paths.league_yml} is missing"))
     except (LeagueYmlError, yaml.YAMLError) as exc:
         checks.append(Check("league_yml", False, str(exc)))
-    checks.append(_yaml_check("preferences", paths.preferences, "target_composition"))
+    checks.append(_preferences_check(paths.preferences))
     kb_ok = (paths.kb / "README.md").is_file() and (paths.kb / "rules" / "aliases.yml").is_file()
     checks.append(Check("kb", kb_ok, f"{paths.kb}" + ("" if kb_ok else " lacks README.md or rules/aliases.yml")))
     try:

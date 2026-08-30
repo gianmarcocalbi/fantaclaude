@@ -155,6 +155,32 @@ def load_scenarios(preferences: dict[str, Any]) -> list[Scenario]:
     return scenarios
 
 
+def load_preferences(preferences: dict[str, Any]) -> list[Scenario]:
+    """Everything preferences.yml has to satisfy before `rank` will run: the
+    keys Phase 1 refuses outright, then the scenarios themselves.
+
+    One entry point so `doctor` predicts `rank` instead of approximating it
+    (finding 4). Doctor's own reading of the file -- parse it, require a
+    `target_composition` key -- disagreed in both directions: `excluded_clubs`,
+    a bad `risk_appetite` and a scenario naming an unknown role class all
+    passed doctor and then made `rank` exit 2, *after* the live re-sync doctor
+    exists to gate had been spent; and a file with no `target_composition`
+    failed doctor while ranking perfectly well, since an empty composition is
+    a legitimate "no targets"."""
+    # excluded_clubs is hashed into model_hash with the rest of preferences, so a
+    # non-empty list would mint a new model_hash, a new run_id and an immutable run
+    # incomparable to every earlier one -- while still pricing every player of those
+    # clubs, because dropping them from the pool is price_board's `excluded`, which
+    # would leave board.prices no longer covering every projection. Refusing is the
+    # honest answer until Phase 2 wires it through the exports too.
+    excluded = preferences.get("excluded_clubs") or []
+    if excluded:
+        raise PreferencesError(f"preferences.yml: excluded_clubs {list(excluded)} is not honoured in Phase 1 -- it would "
+                               f"change model_hash without changing a single price. Leave it empty; club exclusion lands "
+                               f"with the live pool in Phase 2")
+    return load_scenarios(preferences)
+
+
 def _digest(view: Any) -> str:
     return hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
 
@@ -449,18 +475,7 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
         sheet = voto_sheet(ctx.calculate)
     except ScoringError as exc:
         raise ValuationError(str(exc)) from exc
-    # excluded_clubs is hashed into model_hash with the rest of preferences, so a
-    # non-empty list would mint a new model_hash, a new run_id and an immutable run
-    # incomparable to every earlier one -- while still pricing every player of those
-    # clubs, because dropping them from the pool is price_board's `excluded`, which
-    # would leave board.prices no longer covering every projection. Refusing is the
-    # honest answer until Phase 2 wires it through the exports too.
-    excluded = preferences.get("excluded_clubs") or []
-    if excluded:
-        raise PreferencesError(f"preferences.yml: excluded_clubs {list(excluded)} is not honoured in Phase 1 -- it would "
-                               f"change model_hash without changing a single price. Leave it empty; club exclusion lands "
-                               f"with the live pool in Phase 2")
-    scenarios = load_scenarios(preferences)
+    scenarios = load_preferences(preferences)
     if scenario_names:
         unknown = sorted(set(scenario_names) - {s.name for s in scenarios})
         if unknown:
