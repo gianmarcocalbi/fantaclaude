@@ -134,7 +134,15 @@ def load_scenarios(preferences: dict[str, Any]) -> list[Scenario]:
         raise PreferencesError("preferences.yml: scenarios must be a mapping of name -> overrides")
     for name, over in raw.items():
         if name == base.name:
-            continue
+            # Skipping it was the one silent failure in a file that otherwise
+            # refuses everything malformed: the override never applied, but it
+            # still entered config and model_hash, and the asta plan still said
+            # "bid to p50" under a heading the operator had just told to be
+            # cautious (finding 9). Refusing keeps one place to say what
+            # balanced is, rather than two with an invisible precedence rule.
+            raise PreferencesError(f"preferences.yml: scenarios.{base.name} collides with the base scenario, which "
+                                   f"*is* the file's top-level target_composition / risk_appetite / "
+                                   f"max_budget_share_per_role -- set those, or give this scenario another name")
         if not isinstance(over, dict):
             raise PreferencesError(f"preferences.yml: scenario {name!r} must be a mapping of overrides")
         where = f"preferences.yml: scenarios.{name}"

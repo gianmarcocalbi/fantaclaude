@@ -83,6 +83,23 @@ def test_scenarios_come_from_preferences_with_balanced_first():
             load_scenarios(bad)
 
 
+def test_a_balanced_scenario_block_is_refused_not_silently_dropped():
+    """Finding 9. Every other malformed scenario raises, but a block named
+    after the base one was skipped: `scenarios.balanced.risk_appetite:
+    cautious` never applied, the ignored block still landed in config and in
+    model_hash, and the asta plan still said "bid to p50" under a heading the
+    operator had just told to be cautious. Refusing keeps one place to say
+    what balanced is -- the file's own top-level keys -- rather than two with
+    a precedence rule nobody can see."""
+    prefs = {**PREFS, "scenarios": {"balanced": {"risk_appetite": "cautious"}}}
+    with pytest.raises(PreferencesError, match="balanced"):
+        load_scenarios(prefs)
+    with pytest.raises(PreferencesError, match="balanced"):
+        load_scenarios({**PREFS, "scenarios": {"balanced": {}}})
+    # the top-level keys are how balanced is configured, and they still work
+    assert load_scenarios({**PREFS, "risk_appetite": "cautious"})[0].quantile == "p25"
+
+
 def test_replacement_tiers_and_divergence_on_a_synthetic_pool():
     pool = tuple(PoolPlayer(i, f"p{i}", "A", v * 0.8, v, v * 1.2, q)
                  for i, (v, q) in enumerate([(200, 30), (190, 25), (120, 12), (115, 14), (60, 3), (58, 2), (20, 1), (18, 1)]))

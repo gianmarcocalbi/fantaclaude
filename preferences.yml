@@ -7,7 +7,8 @@ max_budget_share_per_role: {}        # e.g. {Pc: 0.35}
 excluded_clubs: []
 target_composition:                  # a starting point the optimiser may depart from
   Por: 2
-scenarios:                           # the asta plan's three plans; each overrides the keys above
+scenarios:                           # the asta plan's further plans; each overrides the keys above.
+                                     # `balanced` is those keys, so naming it here is refused, not merged.
   aggressive-attack:
     target_composition: {A: 2, Pc: 2, T: 1}
     risk_appetite: aggressive
