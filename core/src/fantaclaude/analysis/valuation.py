@@ -38,6 +38,7 @@ from fantaclaude.analysis.projection import (
     project_all,
 )
 from fantaclaude.asta.pricing import (
+    NEG,
     BoardPricing,
     PoolPlayer,
     PoolState,
@@ -528,6 +529,20 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
                           class_min=ctx.class_min, class_max=ctx.class_max,
                           targets=scenario.target_composition, class_budget_share=scenario.max_budget_share_per_role)
         boards[scenario.name] = price_board(state, pricing_cfg)
+    # price_board answers NEG when no completion of the roster is legal, and that
+    # answer is honest and silent: every band is 0 and the composition is empty.
+    # The caller is where it has to be said, because this run is recorded and
+    # copied to records/ as parquet, which is never rewritten -- an all-zero board
+    # committed with no warning is a worthless permanent record. It is reachable
+    # from a rules change alone (a league moving to more goalkeepers than
+    # pricing.yml's max_goalkeepers allows), so it is a warning, not a refusal --
+    # the same severity, and the same wording, as the live board's problem line.
+    for name, board in boards.items():
+        if board.completion_value == NEG:
+            warnings.append(f"{name}: no completion of my roster is legal under these bounds: the board's prices are zero "
+                            f"-- the league fills {ctx.class_min['Por']}-{ctx.class_max['Por']} goalkeepers and "
+                            f"{ctx.roster_min}-{ctx.roster_max} players, the pricing caps goalkeepers at "
+                            f"{pricing_cfg.max_goalkeepers} (pricing.yml max_goalkeepers)")
     reference = boards[scenarios[0].name]
     replacement = replacement_levels(pool, reference.expected_prices, pricing_cfg)
     vor = {p.player_id: max(0.0, p.value_p50 - replacement[p.role_class]) for p in pool}

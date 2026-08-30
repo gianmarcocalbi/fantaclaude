@@ -251,6 +251,16 @@ def board_report(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: st
                        participants=participants)
     except UnknownScenarioError as exc:
         raise UsageError(str(exc)) from None
+    if stored is not None and board.scenario != stored.scenario:
+        # The state file records the scenario the mirrored auction was priced
+        # under, and the board resolves its own (the flag, else the run's
+        # first). A rehearsal written under value-hunting read back as balanced
+        # is a model swap mid-auction, which is exactly when it goes unnoticed.
+        # Noted rather than adopted, for the same reason the run_id above is:
+        # what the board priced is the board's to state, and the operator
+        # chooses the model -- a state file must not quietly select one.
+        notes.append(f"the state file was written under scenario {stored.scenario}; "
+                     f"this board prices scenario {board.scenario}")
     _check_mapping(board, mapping)
     return BoardReport(board, run, source, mapping, tuple(notes), top)
 

@@ -823,6 +823,8 @@ def _asta_paths():
 @contextmanager
 def _asta_errors():
     """The asta commands' half of the exit-code contract: a bad flag is 2, a missing or malformed input is 3."""
+    import duckdb
+
     from fantaclaude.analysis.valuation import UnknownScenarioError
     from fantaclaude.commands.asta import UsageError
     from fantaclaude.commands.ingest import NotReady
@@ -831,6 +833,16 @@ def _asta_errors():
         yield
     except NotReady as exc:
         typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    except duckdb.Error as exc:
+        # _open_read_only answers for a duckdb.Error *at connect*; this answers
+        # for one raised after it, at any query the command makes -- a database
+        # at an older schema (no v_valuation_runs), or one built by other code.
+        # That is "not ready", the same as no run at all: exit 1 tells a caller
+        # "this crashed", and a caller that cannot tell a stale workspace from a
+        # bug retries the wrong thing. doctor is where the state is diagnosed.
+        typer.echo(f"the database cannot answer this: {exc}\n"
+                   f"it may be at an older schema or built by other code -- run `fantaclaude doctor`", err=True)
         raise typer.Exit(code=ExitCode.NOT_READY) from None
     except (UsageError, UnknownScenarioError) as exc:
         typer.echo(str(exc), err=True)

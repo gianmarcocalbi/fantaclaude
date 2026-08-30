@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from fantaclaude.cli.app import ExitCode, app
+from fantaclaude.db.connection import connect
 from test_rank_cli import _workspace
 from typer.testing import CliRunner
 
@@ -249,3 +250,50 @@ def test_a_malformed_adjustments_file_or_state_file_is_not_ready(monkeypatch, tm
     assert closing.exit_code == ExitCode.NOT_READY and "asta-state.json" in closing.stderr
     fresh = runner.invoke(app, ["asta", "board", "--fresh", "--json"])       # --fresh never opens it
     assert fresh.exit_code == ExitCode.OK and json.loads(fresh.stdout)["picks"] == 0
+
+
+def test_a_database_that_cannot_answer_is_not_ready_not_a_crash(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """A duckdb.Error raised *after* connect used to escape every asta command as
+    a traceback and exit 1: _open_read_only answers for a failure at connect, and
+    open_run only for PinnedRunError, so a workspace at an older schema -- no
+    v_valuation_runs -- crashed instead of reporting itself. The contract calls a
+    stale or foreign database "not ready" (3); exit 1 tells a caller to retry a bug."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    con.execute("DROP VIEW v_valuation_runs CASCADE")
+    con.close()
+    for args in (["asta", "board"], ["asta", "explain", "Martinez L."],
+                 ["asta", "adjust", "--type", "exclude", "--player", "Martinez L.", "--reason", "r"],
+                 ["asta", "replay", str(FIXTURE), "--me", "Claude"]):
+        broken = runner.invoke(app, args)
+        assert broken.exit_code == ExitCode.NOT_READY, (args, broken.exit_code, broken.output, broken.exception)
+        # the code alone is not enough: an exit 3 for a missing run reads the same
+        assert "v_valuation_runs" in broken.stderr and "fantaclaude doctor" in broken.stderr, (args, broken.stderr)
+    assert not (tmp_path / "data" / "adjustments.yml").exists()      # and the refused adjust wrote nothing
+
+
+def test_the_board_says_so_when_it_prices_a_scenario_the_state_file_was_not_written_under(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """The state file has always recorded its scenario and nothing read it back,
+    so a rehearsal mirrored under value-hunting read back as the run's first
+    scenario with no message at all -- a model swap mid-auction, when it is least
+    likely to be noticed. Noted, not adopted: the operator picks the model."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    written = runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--scenario", "value-hunting",
+                                  "--write-state", "--json"])
+    assert written.exit_code == ExitCode.OK, written.output
+    state = json.loads((tmp_path / "data" / "asta-state.json").read_text(encoding="utf-8"))
+    assert state["scenario"] == "value-hunting"
+
+    default = runner.invoke(app, ["asta", "board", "--json"])
+    assert default.exit_code == ExitCode.OK, default.output
+    payload = json.loads(default.stdout)
+    assert payload["scenario"] == "balanced"
+    note = [n for n in payload["notes"] if "scenario" in n]
+    assert len(note) == 1 and "value-hunting" in note[0] and "balanced" in note[0], payload["notes"]
+    plain = runner.invoke(app, ["asta", "board"])                    # and it reaches the human-readable board too
+    assert plain.exit_code == ExitCode.OK and f"note: {note[0]}" in plain.stdout
+
+    matched = json.loads(runner.invoke(app, ["asta", "board", "--scenario", "value-hunting", "--json"]).stdout)
+    assert matched["scenario"] == "value-hunting"
+    assert not [n for n in matched["notes"] if "scenario" in n]      # agreeing is silent; only the swap is noted

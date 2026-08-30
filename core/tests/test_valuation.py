@@ -22,7 +22,7 @@ from fantaclaude.analysis.valuation import (
     replacement_levels,
     run_valuation,
 )
-from fantaclaude.asta.pricing import PoolPlayer, PricingConfig
+from fantaclaude.asta.pricing import NEG, PoolPlayer, PricingConfig
 from fantaclaude.db.connection import connect
 from fantaclaude.kb.notes import load_player_notes
 from fantaclaude.kb.profiles import load_profiles
@@ -668,5 +668,32 @@ def test_exports_render_the_run_and_records_keep_it(tmp_path, fixture_json, mcp_
         assert back == 17
         again = export_records(con, result.run_id, result.rules_hash, records)      # never rewritten
         assert again == []
+    finally:
+        con.close()
+
+
+def test_a_board_with_no_legal_completion_warns_instead_of_recording_zeros_in_silence(tmp_path, fixture_json,
+                                                                                      mcp_fixture_json):
+    """price_board answers NEG when no completion of the roster is legal, and its
+    silence is right -- NEG is the honest answer. The caller's was not: every band
+    came out 0, the composition empty, `rank` printed nothing, and the run was
+    recorded and copied to records/ as parquet, which is never rewritten. It is
+    reachable from a rules change alone: a league that raises its goalkeeper
+    minimum above pricing.yml's max_goalkeepers."""
+    seeded(tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    payload = json.loads(con.execute("SELECT payload FROM v_league_settings_current").fetchone()[0])
+    payload["rosters"] = {**payload.get("rosters", {}), "minrl": [4, 21], "maxrl": [4, 21]}
+    con.execute("UPDATE league_settings SET payload = ? WHERE snapshot_id = "
+                "(SELECT snapshot_id FROM v_league_settings_current)", [json.dumps(payload)])
+    con.close()
+    valuation, con = run(tmp_path)
+    try:
+        balanced = valuation.boards["balanced"]
+        assert balanced.completion_value == NEG and all(p.band.p50 == 0 for p in balanced.prices.values())
+        named = [w for w in valuation.warnings if "no completion of my roster is legal" in w]
+        assert len(named) == 1 and named[0].startswith("balanced:"), valuation.warnings
+        assert "4-4 goalkeepers" in named[0] and "caps goalkeepers at 3" in named[0], named[0]
+        assert valuation.summary["warnings"] == valuation.warnings          # what `rank` prints is the same list
     finally:
         con.close()
