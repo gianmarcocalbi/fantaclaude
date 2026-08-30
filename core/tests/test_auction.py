@@ -19,6 +19,7 @@ from fantaclaude.asta.state import (
     read_snapshots,
 )
 from test_advisor import pinned_run
+from test_pressure import dossier
 
 
 def test_every_change_goes_through_mutate_and_reaches_every_listener(tmp_path, fixture_json, mcp_fixture_json, fixture_file):
@@ -46,6 +47,16 @@ def test_every_change_goes_through_mutate_and_reaches_every_listener(tmp_path, f
     assert auction.layer is layer and auction.board.layer.sha256 == "x"
     forced = auction.mutate(Refresh())
     assert forced.board.to_dict() == refreshed.board.to_dict()
+
+
+def test_a_refresh_with_dossiers_populates_pressure_on_the_next_derive(tmp_path, fixture_json, mcp_fixture_json):
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    auction = Auction(pinned, TeamMapping(mine=1, nicks={0: "Marco"}))
+    assert auction.participants is None and auction.board.pressure == {}
+    participants = {"Marco": dossier("Marco", favourite_clubs=("Inter",), overpays=("Pc",))}
+    refreshed = auction.mutate(Refresh(participants=participants))
+    assert refreshed.events == () and auction.participants is participants
+    assert 2764 in auction.board.pressure and auction.board.pressure != {}
 
 
 def test_a_malformed_adjustments_file_leaves_the_previous_layer_standing(tmp_path, fixture_json, mcp_fixture_json):

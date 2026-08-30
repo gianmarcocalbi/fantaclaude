@@ -23,14 +23,16 @@ from fantaclaude.asta.advisor import Board, TeamMapping, derive
 from fantaclaude.asta.pinned import PinnedRun
 from fantaclaude.asta.session import SessionSettings, session_from_feed
 from fantaclaude.asta.state import AuctionState, Event, Snapshot, apply_snapshot
+from fantaclaude.kb.participants import Participant
 
 
 @dataclass(frozen=True)
 class Refresh:
     """Re-derive from the inputs as they are now: a re-read adjustments.yml,
-    or nothing new at all -- a forced deterministic recompute (spec,
-    live-event requirement 6)."""
+    re-read dossiers, or nothing new at all -- a forced deterministic
+    recompute (spec, live-event requirement 6)."""
     layer: AdjustmentLayer | None = None
+    participants: dict[str, Participant] | None = None
 
 
 @dataclass(frozen=True)
@@ -45,12 +47,14 @@ Listener = Callable[[MutationResult], None]
 
 class Auction:
     def __init__(self, run: PinnedRun, mapping: TeamMapping, *, settings: SessionSettings | None = None,
-                 layer: AdjustmentLayer = EMPTY_LAYER, scenario: str | None = None) -> None:
+                 layer: AdjustmentLayer = EMPTY_LAYER, scenario: str | None = None,
+                 participants: dict[str, Participant] | None = None) -> None:
         self.run = run
         self.mapping = mapping
         self.settings = settings or run.league
         self.layer = layer
         self.scenario = scenario
+        self.participants = participants
         self.state = AuctionState.empty()
         self.listeners: list[Listener] = []
         self.board = self._derive()
@@ -60,7 +64,7 @@ class Auction:
 
     def _derive(self) -> Board:
         return derive(self.state, run=self.run, settings=self.settings, layer=self.layer, mapping=self.mapping,
-                      scenario=self.scenario)
+                      scenario=self.scenario, participants=self.participants)
 
     def mutate(self, change: Change) -> MutationResult:
         """Apply one change, re-derive the board, notify. A snapshot whose
@@ -76,6 +80,8 @@ class Auction:
         elif isinstance(change, Refresh):
             if change.layer is not None:
                 self.layer = change.layer
+            if change.participants is not None:
+                self.participants = change.participants
         else:
             raise TypeError(f"not a change: {change!r}")
         self.board = self._derive()

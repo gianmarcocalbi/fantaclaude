@@ -44,6 +44,7 @@ from fantaclaude.asta.pricing import (
 )
 from fantaclaude.asta.session import SessionSettings, compare
 from fantaclaude.asta.state import AuctionState, Pick
+from fantaclaude.kb.participants import Participant
 from fantaclaude.model.demand import ROLE_CLASSES
 from fantaclaude.values import json_safe
 
@@ -270,7 +271,8 @@ def build_pool_state(state: AuctionState, settings: SessionSettings, run: Pinned
 
 
 def derive(state: AuctionState, *, run: PinnedRun, settings: SessionSettings, layer: AdjustmentLayer = EMPTY_LAYER,
-           mapping: TeamMapping, scenario: str | None = None) -> Board:
+           mapping: TeamMapping, scenario: str | None = None,
+           participants: dict[str, Participant] | None = None) -> Board:
     scenario_obj = run.scenario(scenario)
     ledgers, problems = build_ledgers(state, settings, run, mapping)
     pool_state = build_pool_state(state, settings, run, layer, ledgers, mapping.mine, scenario_obj.name)
@@ -295,5 +297,12 @@ def derive(state: AuctionState, *, run: PinnedRun, settings: SessionSettings, la
     conflicts = tuple(compare(settings, run.league)) if settings.source == "session" else ()
     if run.superseded:
         problems.append(f"run {run.run_id} is superseded by a rules change; it was pinned by id")
-    return Board(run.run_id, scenario_obj.name, state, settings, conflicts, ledgers, mapping.mine, pool_state, pricing,
-                 state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names)
+    board = Board(run.run_id, scenario_obj.name, state, settings, conflicts, ledgers, mapping.mine, pool_state, pricing,
+                  state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names)
+    if participants is not None:
+        # advisor -> pressure -> advisor (pressure.py imports Board and Ledger from
+        # here), so the import has to live inside the function, not at module scope.
+        from fantaclaude.asta.pressure import pressure_board
+
+        board = pressure_board(board, participants)
+    return board
