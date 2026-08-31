@@ -681,7 +681,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, the auction state file."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, the auction state file, the dashboard bundle."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
@@ -693,12 +693,14 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
         league_yml_path,
         preferences_yml_path,
         pricing_yml_path,
+        web_dist_dir,
     )
     from fantaclaude.timeutil import utc_now
 
     paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
                         league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir(),
-                        pricing=pricing_yml_path(), adjustments=adjustments_path(), asta_state=asta_state_path())
+                        pricing=pricing_yml_path(), adjustments=adjustments_path(), asta_state=asta_state_path(),
+                        web_dist=web_dist_dir())
     checks = run_doctor(paths, now=utc_now())
     payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
     emit(payload, json_=json_, render=_render_doctor)
@@ -804,6 +806,10 @@ FRESH_OPTION = typer.Option(False, "--fresh", help="Ignore any state file: an em
 ME_OPTION = typer.Option(None, "--me", help="My team, by label or id (a state file remembers it).")
 MAP_OPTION = typer.Option(None, "--map", help="team=nick -- bind a team to its dossier under kb/league/participants; repeatable.")
 SESSION_FILE_ARGUMENT = typer.Argument(..., help="A captured session: one state node per line (JSON lines).")
+SERVE_REPLAY_OPTION = typer.Option(
+    None, "--replay", help="Serve a captured session (JSON lines) instead of the live feed -- the rehearsal.")
+SERVE_STATE_OPTION = typer.Option(
+    None, "--state", help="Serve a state file with no feed -- the post-auction review.")
 
 
 def _asta_paths():
@@ -1072,6 +1078,44 @@ def asta_close_cmd(
     with _asta_errors():
         path = close_auction(_asta_paths(), session_code=session)
     emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
+
+
+@asta_app.command("serve")
+def asta_serve_cmd(
+    session: str | None = typer.Option(None, "--session", help="FantaAstaLive session code (FA-xxx-xxx); prompted for when no source is given."),
+    replay: Path | None = SERVE_REPLAY_OPTION,
+    speed: float = typer.Option(1.0, "--speed", help="Replay pace: one snapshot every 2/N seconds."),
+    state: Path | None = SERVE_STATE_OPTION,
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+    me: str | None = ME_OPTION,
+    map_: list[str] | None = MAP_OPTION,
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address. Localhost by design: the room is not served."),
+    port: int = typer.Option(8765, "--port", help="One port for the dashboard, the API, the WebSocket and the MCP."),
+    no_capture: bool = typer.Option(False, "--no-capture", help="Live mode: do not append feed nodes to data/raw/asta_live/."),
+) -> None:
+    """Serve the live board: mirror the FantaAstaLive session, price every change, and expose the dashboard (/), the API (/api), the WebSocket (/ws) and the fantaclaude-asta MCP (/mcp) from one process. The only network it touches is the Firebase session, read-only."""
+    import asyncio
+
+    from fantaclaude.commands.serve import ServeOptions, prepare, run_serve
+
+    if session is None and replay is None and state is None:
+        session = typer.prompt("FantaAstaLive session code (FA-xxx-xxx)")
+    opts = ServeOptions(session=session, replay=replay, speed=speed, state=state, run_id=run,
+                        scenario=scenario, me=me, maps=tuple(map_ or ()), host=host, port=port,
+                        capture=not no_capture)
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            plan = prepare(con, paths, opts)
+        finally:
+            con.close()
+        typer.echo(plan.server.run.describe())
+        for note in plan.notes:
+            typer.echo(f"note: {note}")
+        typer.echo(f"serving {plan.mode} on http://{host}:{port}  (dashboard /, MCP /mcp) — Ctrl-C to stop")
+        asyncio.run(run_serve(plan, opts, paths))
 
 
 def main() -> None:

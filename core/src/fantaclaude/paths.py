@@ -69,3 +69,8 @@ def asta_captures_dir() -> Path:
     """data/raw/asta_live/: one JSONL of feed nodes per served session — the
     capture `asta replay` rehearses on."""
     return raw_dir() / "asta_live"
+
+
+def web_dist_dir() -> Path:
+    """web/dist: the built dashboard bundle FastAPI mounts (poe web-build)."""
+    return workspace_root() / "web" / "dist"

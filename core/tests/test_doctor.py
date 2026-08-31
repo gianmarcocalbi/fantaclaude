@@ -16,14 +16,15 @@ NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_
          "listone", "league_yml", "preferences", "kb", "modules",
          "web_session", "player_match", "advanced", "fixtures", "aliases",
          "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "kb_favourite_clubs", "scoring", "pricing", "valuations",
-         "pinned_run", "adjustments", "asta_state"]
+         "pinned_run", "adjustments", "asta_state", "dashboard"]
 
 
 def _paths(root):
     return DoctorPaths(env=root / ".env", token_cache=root / ".auth" / "tokens.json",
                        db=root / "data" / "fanta.duckdb", league_yml=root / "league.yml",
                        preferences=root / "preferences.yml", kb=root / "kb", pricing=root / "pricing.yml",
-                       adjustments=root / "data" / "adjustments.yml", asta_state=root / "data" / "asta-state.json")
+                       adjustments=root / "data" / "adjustments.yml", asta_state=root / "data" / "asta-state.json",
+                       web_dist=root / "web" / "dist")
 
 
 def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=31_536_000):
@@ -73,7 +74,7 @@ def test_every_check_passes_on_a_ready_workspace(tmp_path, fixture_json, mcp_fix
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     checks = run_doctor(_paths(tmp_path), now=datetime.now(UTC))
     assert [c.name for c in checks] == NAMES
-    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles", "valuations", "pinned_run"]
+    assert [c.name for c in checks if not c.ok] == ["fixtures", "kb_profiles", "valuations", "pinned_run", "dashboard"]
     assert "17 players" in next(c.detail for c in checks if c.name == "listone")
     assert "login mode" in next(c.detail for c in checks if c.name == "credentials")
     joined = " ".join(c.detail for c in checks)
@@ -606,3 +607,18 @@ def test_the_participants_directory_is_read_once_for_both_checks(monkeypatch, tm
     assert not by["kb_participants"].ok and "budget_style must be one of" in by["kb_participants"].detail
     assert not by["kb_favourite_clubs"].ok
     assert by["kb_favourite_clubs"].detail == by["kb_participants"].detail
+
+
+def test_doctor_reports_the_dashboard_bundle(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    from test_asta_cli import _ranked
+
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    r = CliRunner().invoke(app, ["doctor", "--json"])
+    checks = {c["name"]: c for c in json.loads(r.stdout)["checks"]}
+    assert checks["dashboard"]["ok"] is False and "poe web-build" in checks["dashboard"]["detail"]
+    dist = tmp_path / "web" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    r2 = CliRunner().invoke(app, ["doctor", "--json"])
+    checks2 = {c["name"]: c for c in json.loads(r2.stdout)["checks"]}
+    assert checks2["dashboard"]["ok"] is True
