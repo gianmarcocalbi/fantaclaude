@@ -96,6 +96,15 @@ local-state captures the test fixtures were extracted from; regenerate a
 fixture with its `_extract*.py` script, never by hand. `data/` is gitignored
 and rebuildable from `data/raw/`.
 
+`data/adjustments.yml` is the auction's adjustment file — mine, hand-editable,
+appended by `fantaclaude asta adjust`; every entry needs a `reason`.
+`data/asta-state.json` is the mirrored auction as last seen: written
+atomically by the tooling, never edited by hand, copied to `records/asta/` by
+`fantaclaude asta close` and deleted only once the transfer into the lega is
+verified (Phase 2b). Every `fantaclaude asta` command is local — read-only on
+the database, no network — so it may be run freely, during the auction
+included.
+
 `fantaclaude ingest advanced|calendar|stats-web` read public web hosts. They
 are polite by construction (one request at a time, a pause between pages, no
 retries) and must stay so: never add a retry loop, never run them "to check",

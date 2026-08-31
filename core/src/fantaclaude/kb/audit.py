@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -57,6 +57,19 @@ def parse_front_matter(text: str) -> FrontMatter | None:
                        data.get("confidence"), data.get("source"), data)
 
 
+def read_front_matter(path: Path) -> FrontMatter:
+    """The document's front-matter, or a FrontMatterError naming the file --
+    for a missing block as for a malformed one. The one prologue every
+    structured loader (profiles, notes, participants) used to carry."""
+    try:
+        front_matter = parse_front_matter(path.read_text(encoding="utf-8"))
+    except (FrontMatterError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+        raise FrontMatterError(f"{path}: {exc}") from None
+    if front_matter is None:
+        raise FrontMatterError(f"{path}: no front-matter block")
+    return front_matter
+
+
 def ttl_days(ttl: str) -> int | None:
     if ttl == "never":
         return None
@@ -76,22 +89,18 @@ class AuditEntry:
         return asdict(self)
 
 
-def _validator_for(path: Path):
-    """The structured loader a document must satisfy beyond the four keys:
-    profiles, player notes and participant dossiers each have one. Imported
-    lazily -- those modules import this one."""
-    if path.name == "profile.md" and path.parent.parent.name == "teams":
-        from fantaclaude.kb.profiles import load_profile
+def _validator_for(rel: PurePosixPath):
+    """The structured loader a document must satisfy beyond the four keys,
+    chosen by the same glob the loader reads the tree with -- so the audit
+    and `rank` accept exactly the same files. Imported lazily: those
+    modules import this one."""
+    from fantaclaude.kb.notes import NOTE_GLOB, load_note
+    from fantaclaude.kb.participants import PARTICIPANT_GLOB, load_participant
+    from fantaclaude.kb.profiles import PROFILE_GLOB, load_profile
 
-        return load_profile
-    if path.parent.name == "players" and path.parent.parent.parent.name == "teams":
-        from fantaclaude.kb.notes import load_note
-
-        return load_note
-    if path.parent.name == "participants" and path.parent.parent.name == "league":
-        from fantaclaude.kb.participants import load_participant
-
-        return load_participant
+    for glob, loader in ((PROFILE_GLOB, load_profile), (NOTE_GLOB, load_note), (PARTICIPANT_GLOB, load_participant)):
+        if rel.full_match(glob):
+            return loader
     return None
 
 
@@ -113,7 +122,7 @@ def audit(kb_dir: Path, today: date) -> list[AuditEntry]:
                 entries.append(AuditEntry(rel, "invalid", f"missing {missing}"))
                 continue
             days = ttl_days(fm.ttl)
-            validator = _validator_for(path)
+            validator = _validator_for(PurePosixPath(rel))
             if validator is not None:
                 try:
                     validator(path)

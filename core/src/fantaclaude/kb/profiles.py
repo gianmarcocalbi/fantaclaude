@@ -15,12 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from fantaclaude.ingest.names import normalise
-from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
+from fantaclaude.kb.audit import FrontMatter, FrontMatterError, read_front_matter
 from fantaclaude.values import is_number
 
+PROFILE_GLOB = "serie-a/teams/*/profile.md"
 PROFILE_KEYS = ("team", "team_short", "coach", "module", "europe", "rotation_factor")
 EUROPE = ("none", "UCL", "UEL", "UECL")
 ROTATION_RANGE = (0.5, 1.0)
@@ -50,11 +49,9 @@ def team_slug(name: str) -> str:
 
 def load_profile(path: Path) -> TeamProfile:
     try:
-        front_matter = parse_front_matter(path.read_text(encoding="utf-8"))
-    except (FrontMatterError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        raise ProfileError(f"{path}: {exc}") from None
-    if front_matter is None:
-        raise ProfileError(f"{path}: no front-matter block")
+        front_matter = read_front_matter(path)
+    except FrontMatterError as exc:
+        raise ProfileError(str(exc)) from None
     data: dict[str, Any] = front_matter.raw
     missing = [key for key in PROFILE_KEYS if data.get(key) in (None, "")]
     if missing:
@@ -83,5 +80,5 @@ def load_profile(path: Path) -> TeamProfile:
 
 def load_profiles(kb_dir: Path) -> list[TeamProfile]:
     """Every kb/serie-a/teams/*/profile.md, by team name; the first bad one raises."""
-    profiles = [load_profile(path) for path in sorted(kb_dir.glob("serie-a/teams/*/profile.md"))]
+    profiles = [load_profile(path) for path in sorted(kb_dir.glob(PROFILE_GLOB))]
     return sorted(profiles, key=lambda p: p.team)

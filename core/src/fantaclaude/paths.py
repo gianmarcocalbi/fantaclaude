@@ -53,3 +53,13 @@ def exports_dir() -> Path:
 
 def pricing_yml_path() -> Path:
     return workspace_root() / "pricing.yml"
+
+
+def adjustments_path() -> Path:
+    """data/adjustments.yml: my beliefs and preferences for the auction -- mine, hand-editable, outlives the auction."""
+    return data_dir() / "adjustments.yml"
+
+
+def asta_state_path() -> Path:
+    """data/asta-state.json: the mirrored auction as last seen, written atomically; deleted by verify-transfer (2b)."""
+    return data_dir() / "asta-state.json"

@@ -81,3 +81,16 @@ def test_role_priors_and_club_penalties_come_from_the_back_seasons(db, bm):
 def test_an_empty_history_is_empty_not_broken(db, bm):
     history = load_history(db, sheet="Fantacalcio", bm=bm, current_season=21)
     assert history.lines_for(2764) == () and history.priors == {} and history.giornate_played == 0
+
+
+def test_event_columns_are_real_columns_of_the_view_the_query_interpolates_them_into(db):
+    """load_history's SELECT interpolates EVENT_COLUMNS by name into
+    v_player_match_current (history.py:112), unchecked by the SQL parser
+    until the query runs. A name in EVENT_COLUMNS the view does not have
+    would be a duckdb.Error at that query, not at import -- this is the
+    guard for that, not a restatement of history.py's own derivation."""
+    from fantaclaude.analysis.history import EVENT_COLUMNS
+
+    columns = {row[0] for row in db.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'v_player_match_current'").fetchall()}
+    assert set(EVENT_COLUMNS) <= columns

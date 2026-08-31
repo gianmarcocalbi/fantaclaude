@@ -19,12 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
+from fantaclaude.kb.audit import FrontMatter, FrontMatterError, read_front_matter
 from fantaclaude.kb.profiles import team_slug
 from fantaclaude.values import is_number
 
+NOTE_GLOB = "serie-a/teams/*/players/*.md"
 DEPTHS = ("starter", "contested", "cover", "out")
 PRIOR_RANGE = (3.0, 10.0)
 
@@ -52,11 +51,9 @@ class PlayerNote:
 
 def load_note(path: Path) -> PlayerNote:
     try:
-        front_matter = parse_front_matter(path.read_text(encoding="utf-8"))
-    except (FrontMatterError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        raise NoteError(f"{path}: {exc}") from None
-    if front_matter is None:
-        raise NoteError(f"{path}: no front-matter block")
+        front_matter = read_front_matter(path)
+    except FrontMatterError as exc:
+        raise NoteError(str(exc)) from None
     data: dict[str, Any] = front_matter.raw
     player_id = data.get("player_id")
     if isinstance(player_id, bool) or not isinstance(player_id, int) or player_id <= 0:
@@ -84,7 +81,7 @@ def load_note(path: Path) -> PlayerNote:
 def load_player_notes(kb_dir: Path) -> dict[int, PlayerNote]:
     """Every kb/serie-a/teams/*/players/*.md, by player_id; two notes for one id raise."""
     notes: dict[int, PlayerNote] = {}
-    for path in sorted(kb_dir.glob("serie-a/teams/*/players/*.md")):
+    for path in sorted(kb_dir.glob(NOTE_GLOB)):
         note = load_note(path)
         if note.player_id in notes:
             raise NoteError(f"{path}: player_id {note.player_id} already has a note at {notes[note.player_id].path}")

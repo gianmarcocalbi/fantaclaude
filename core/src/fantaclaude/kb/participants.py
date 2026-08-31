@@ -19,13 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from fantaclaude.kb.audit import FrontMatter, FrontMatterError, parse_front_matter
+from fantaclaude.kb.audit import FrontMatter, FrontMatterError, read_front_matter
 from fantaclaude.league.settings import without_emails
 from fantaclaude.model.demand import ROLE_CLASSES
 from fantaclaude.values import is_number
 
+PARTICIPANT_GLOB = "league/participants/*.md"
 BUDGET_STYLES = ("early", "steady", "hoarder")
 
 
@@ -84,11 +83,9 @@ def _no_emails(data: dict[str, Any], path: Path) -> None:
 
 def load_participant(path: Path) -> Participant:
     try:
-        front_matter = parse_front_matter(path.read_text(encoding="utf-8"))
-    except (FrontMatterError, yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        raise ParticipantError(f"{path}: {exc}") from None
-    if front_matter is None:
-        raise ParticipantError(f"{path}: no front-matter block")
+        front_matter = read_front_matter(path)
+    except FrontMatterError as exc:
+        raise ParticipantError(str(exc)) from None
     data: dict[str, Any] = front_matter.raw
     _no_emails(data, path)
     nick = data.get("nick")
@@ -113,7 +110,7 @@ def load_participant(path: Path) -> Participant:
 def load_participants(kb_dir: Path) -> list[Participant]:
     """Every kb/league/participants/*.md, by nick; two dossiers for one nick raise."""
     by_nick: dict[str, Participant] = {}
-    for path in sorted(kb_dir.glob("league/participants/*.md")):
+    for path in sorted(kb_dir.glob(PARTICIPANT_GLOB)):
         p = load_participant(path)
         if p.nick in by_nick:
             raise ParticipantError(f"{path}: nick {p.nick!r} already has a dossier at {by_nick[p.nick].path}")

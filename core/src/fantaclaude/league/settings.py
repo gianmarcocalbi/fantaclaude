@@ -44,6 +44,12 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def digest(view: Any) -> str:
+    """Sixteen hex characters of the sha256 of the canonical JSON of `view`:
+    the one formula behind rules_hash, model_hash and inputs_hash."""
+    return hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
+
+
 def _rules_view(rosters: dict, lineup: dict, calculate: dict, team_count: int | None) -> dict:
     strip = lambda d: {k: v for k, v in d.items() if k not in VOLATILE_KEYS}
     return {"rosters": strip(rosters), "lineup": strip(lineup),
@@ -54,8 +60,7 @@ def rules_hash(rosters: dict, lineup: dict, calculate: dict, team_count: int | N
     """Sixteen hex characters over everything a valuation depends on: the
     three settings payloads (minus volatile bookkeeping) and the team count,
     which sets the money supply."""
-    view = _rules_view(rosters, lineup, calculate, team_count)
-    return hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
+    return digest(_rules_view(rosters, lineup, calculate, team_count))
 
 
 def _is_email_key(key: Any) -> bool:

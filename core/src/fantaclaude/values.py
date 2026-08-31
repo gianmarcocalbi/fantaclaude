@@ -31,3 +31,21 @@ def is_number(value: Any) -> bool:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     return isinstance(value, int) or math.isfinite(value)     # an int is always finite; math.isfinite(10**400) is not
+
+
+def json_safe(value: Any) -> Any:
+    """The same value with every non-finite float -- -inf, inf, nan -- replaced
+    by None, at any depth; tuples come back as lists, as JSON would have them.
+
+    A -inf is a real answer inside the pricing (no completion exists without
+    this player; his class has no slot left) and not a number JSON has, and
+    DuckDB's JSON column refuses it. One scrubber for the one rule, used by
+    every to_dict and explain that a board or a run is written from -- it used
+    to be two private copies, and explain() applied neither."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value

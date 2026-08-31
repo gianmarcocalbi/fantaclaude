@@ -114,3 +114,21 @@ def test_settings_payloads_are_excluded_from_the_scrub(payloads):
     assert snap.payload["rosters"] is payloads["rosters"]
     assert snap.payload["lineup"] is payloads["lineup"]
     assert snap.payload["calculate"] is payloads["calculate"]
+
+
+def test_digest_is_the_one_formula_behind_every_hash():
+    import hashlib
+
+    from fantaclaude.league.settings import canonical_json, digest
+
+    view = {"b": 1, "a": [1, 2]}
+    # A pinned literal, not a re-derivation: digest and this assertion both
+    # calling canonical_json would still agree with each other if canonical_json's
+    # separators, sort_keys or ensure_ascii ever moved -- and that is exactly
+    # the change that would silently supersede every model_hash in records/,
+    # which are never rewritten. Computed once with
+    # `hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]`
+    # and pinned here so a change to canonical_json's formatting is caught.
+    assert digest(view) == "94a786c3662bc7be"
+    assert digest(view) == hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
+    assert len(digest(view)) == 16 and digest(view) == digest({"a": [1, 2], "b": 1})

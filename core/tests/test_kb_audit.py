@@ -107,3 +107,19 @@ def test_kb_audit_rejects_a_malformed_today(monkeypatch, tmp_path):
     result = CliRunner().invoke(app, ["kb", "audit", "--today", "banana"])
     assert result.exit_code == ExitCode.USAGE
     assert "banana" in result.stderr
+
+
+def test_the_validator_is_chosen_by_the_loaders_own_glob():
+    from pathlib import PurePosixPath
+
+    from fantaclaude.kb.audit import _validator_for
+    from fantaclaude.kb.notes import load_note
+    from fantaclaude.kb.participants import load_participant
+    from fantaclaude.kb.profiles import load_profile
+
+    assert _validator_for(PurePosixPath("serie-a/teams/inter/profile.md")) is load_profile
+    assert _validator_for(PurePosixPath("serie-a/teams/inter/players/thuram.md")) is load_note
+    assert _validator_for(PurePosixPath("league/participants/marco.md")) is load_participant
+    assert _validator_for(PurePosixPath("league/participants/deep/marco.md")) is None
+    assert _validator_for(PurePosixPath("serie-a/teams/inter/deeper/profile.md")) is None
+    assert _validator_for(PurePosixPath("rules/mantra.md")) is None

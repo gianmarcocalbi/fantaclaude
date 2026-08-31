@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import yaml
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 from .settings import LeagueSnapshot
 
@@ -35,9 +35,10 @@ class Provenanced:
 
 
 def load_league_yml(path: Path) -> dict[str, Provenanced]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(data, dict):
-        raise LeagueYmlError(f"{path}: the top level must be a mapping")
+    try:
+        data = read_yaml_mapping(path)
+    except YamlFileError as exc:
+        raise LeagueYmlError(str(exc)) from None
     entries: dict[str, Provenanced] = {}
 
     def walk(node: Any, prefix: str) -> None:

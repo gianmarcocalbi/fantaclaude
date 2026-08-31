@@ -12,8 +12,8 @@ is reproducible from what it names. The permanent record is the run_id
 The stages, in the spec's order: project (Task 6), Mantra-adjust (the
 flexibility bonus in the projection and the role pinning here), value
 above replacement (against the best player expected to cost one credit at
-the class), allocate (price_board with exact=True, once per scenario --
-the composition is the DP's), tier (the largest gaps in value within the
+the class), allocate (price_board, once per scenario -- the composition is
+the DP's), tier (the largest gaps in value within the
 class). The quotazione enters only as the expected price and, at the end,
 as the divergence check: where we disagree most with the market is either
 the edge or a bug, and it is the list worth reading by hand.
@@ -21,10 +21,7 @@ the edge or a bug, and it is the list worth reading by hand.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +38,7 @@ from fantaclaude.analysis.projection import (
     project_all,
 )
 from fantaclaude.asta.pricing import (
+    NEG,
     BoardPricing,
     PoolPlayer,
     PoolState,
@@ -61,7 +59,7 @@ from fantaclaude.kb.notes import (
     orphan_notes,
 )
 from fantaclaude.kb.profiles import ProfileError, TeamProfile, load_profiles
-from fantaclaude.league.settings import canonical_json
+from fantaclaude.league.settings import canonical_json, digest
 from fantaclaude.model.d_factor import DFactorTable
 from fantaclaude.model.demand import (
     ROLE_CLASSES,
@@ -70,7 +68,6 @@ from fantaclaude.model.demand import (
     pin_class,
     rank_weights,
     satisfiable_demand,
-    thin_classes,
 )
 from fantaclaude.model.roles import Role
 from fantaclaude.model.scoring import (
@@ -81,7 +78,7 @@ from fantaclaude.model.scoring import (
 )
 from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
-from fantaclaude.values import is_number
+from fantaclaude.values import is_number, json_safe
 
 MODEL_VERSION = "1"
 RISK_APPETITES = ("cautious", "balanced", "aggressive")
@@ -201,25 +198,9 @@ def load_preferences(preferences: dict[str, Any]) -> list[Scenario]:
     return load_scenarios(preferences)
 
 
-def _digest(view: Any) -> str:
-    return hashlib.sha256(canonical_json(view).encode("utf-8")).hexdigest()[:16]
-
-
-def _finite(value: Any) -> Any:
-    """-inf / inf / nan are not JSON, and DuckDB's JSON column refuses them:
-    stored as null in the JSON payloads (the DOUBLE columns keep the real value)."""
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    if isinstance(value, dict):
-        return {k: _finite(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_finite(v) for v in value]
-    return value
-
-
 def model_hash(projection_cfg: ProjectionConfig, pricing_cfg: PricingConfig, preferences: dict[str, Any],
                d_factor: DFactorTable) -> str:
-    return _digest({"model_version": MODEL_VERSION, "projection": projection_cfg.to_dict(),
+    return digest({"model_version": MODEL_VERSION, "projection": projection_cfg.to_dict(),
                     "pricing": pricing_cfg.to_dict(), "preferences": preferences, "d_factor": d_factor.to_dict()})
 
 
@@ -268,7 +249,7 @@ def inputs_hash(con: duckdb.DuckDBPyConnection, *, profiles: list[TeamProfile], 
     kb = {"profiles": [{"team": p.team, "team_short": p.team_short, "coach": p.coach, "module": p.module,
                         "europe": p.europe, "rotation_factor": p.rotation_factor, "takers": p.takers} for p in profiles],
           "notes": [notes[k].to_dict() for k in sorted(notes)]}
-    return _digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
+    return digest({"listone": list(listone) if listone else None, "voti": [list(r) for r in voti],
                     "advanced": [list(r) for r in advanced], "advanced_matches": [list(r) for r in matches],
                     "fixtures": [list(r) for r in fixtures],
                     "settings": list(settings) if settings else None, "kb": kb})
@@ -283,8 +264,8 @@ class RunContext:
     budget: int
     roster_min: int
     roster_max: int
-    min_goalkeepers: int
-    max_goalkeepers: int
+    class_min: dict[str, int]       # per role class, from minrl/maxrl read as [goalkeepers, outfield]; a
+    class_max: dict[str, int]       # house rule ("3 portieri, 8 difensori") lands here, never in a branch
     calculate: dict[str, Any]
     listone_snapshot_id: int
 
@@ -307,7 +288,7 @@ def load_context(con: duckdb.DuckDBPyConnection) -> RunContext:
     if minrl[0] is None or maxrl[0] is None:
         raise ValuationError("league_settings.rosters lacks minrl/maxrl; the goalkeeper bounds are not known")
     return RunContext(int(row[0]), str(row[1]), int(row[2]), int(row[3]), int(row[4]), int(row[5]), int(row[6]),
-                      int(minrl[0]), int(maxrl[0]), payload.get("calculate") or {}, int(listone))
+                      {"Por": int(minrl[0])}, {"Por": int(maxrl[0])}, payload.get("calculate") or {}, int(listone))
 
 
 def _taker_warning(profile: TeamProfile, name: str, match: Match, candidates: list[Candidate]) -> str:
@@ -512,21 +493,26 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     # values him draws slots nobody is ever priced for, and leaves the classes
     # that do field them weighted as though they had only their own to cover
     # (see satisfiable_demand).
-    demand = satisfiable_demand(module_demand(), listone_role_sets(con), max_rank=max_rank,
+    folded = satisfiable_demand(module_demand(), listone_role_sets(con), teams=ctx.team_count, max_rank=max_rank,
                                 bench_weight=pricing_cfg.bench_weight, bench_decay=pricing_cfg.bench_decay,
                                 bench_slots=pricing_cfg.bench_slots_per_class)
+    # In module-code order, which is the order canonical_json stores it in: the
+    # rank weights are floating-point sums over the modules, so the live board
+    # (asta/pinned.py reads config["demand_by_module"] back) must add them in
+    # the same order to reproduce this run's board to the last bit.
+    demand = {code: folded.by_module[code] for code in sorted(folded.by_module)}
     base_weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                 bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class)
     inputs, warnings = build_inputs(con, history, profiles, notes, base_weights)
-    # satisfiable_demand asks only whether a class has any player, so a class
-    # that keeps its demand off one or two of them is standing on a knife edge:
-    # one more listed player of that class, or one fewer, moves every price on
-    # the board. The run cannot make that transition smooth without moving
-    # every price itself, but it can refuse to make it silently.
-    for cls, pinned, slots in thin_classes(demand, Counter(i.role_class for i in inputs), teams=ctx.team_count):
-        warnings.append(f"{cls}: only {pinned} player(s) in the listone price as one, against the {slots:.1f} starting "
-                        f"slots the league draws from the class -- its demand rests on that handful, and one more or "
-                        f"one fewer listed {cls} moves every price on the board")
+    # A class the listone supplies at less than the league's starting slots keeps
+    # only that share of its demand; the rest is priced through the classes its
+    # players price as. Said once per run, so a partially supplied class is never
+    # a surprise on the board.
+    for cls, fraction in sorted(folded.kept.items()):
+        if 0.0 < fraction < 1.0:
+            warnings.append(f"{cls}: the listone supplies the class at {fraction:.0%} of the starting slots the league draws "
+                            f"from it; the other {1 - fraction:.0%} of its demand is priced through the classes its players "
+                            f"price as")
     table = d_factor if status.d_factor else None
     projections = project_all(inputs, cfg=projection_cfg, priors=history.priors, bm=bm,
                               giornate_remaining=giornate_remaining, current_season=ctx.season_id, d_factor=table)
@@ -536,12 +522,27 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
     for scenario in scenarios:
         weights = rank_weights(demand, max_rank=max_rank, bench_weight=pricing_cfg.bench_weight,
                                bench_decay=pricing_cfg.bench_decay, bench_slots=pricing_cfg.bench_slots_per_class,
-                               targets=scenario.target_composition, target_weight=pricing_cfg.target_weight)
+                               targets=scenario.target_composition, target_weight=pricing_cfg.target_weight,
+                               min_ranks=ctx.class_min)
         state = PoolState(credits=ctx.budget, market_credits=ctx.team_count * ctx.budget, pool=pool, weights=weights,
                           hard_minimums=minimums, roster_min=ctx.roster_min, roster_max=ctx.roster_max,
-                          min_goalkeepers=ctx.min_goalkeepers, max_goalkeepers=ctx.max_goalkeepers,
+                          class_min=ctx.class_min, class_max=ctx.class_max,
                           targets=scenario.target_composition, class_budget_share=scenario.max_budget_share_per_role)
-        boards[scenario.name] = price_board(state, pricing_cfg, exact=True)
+        boards[scenario.name] = price_board(state, pricing_cfg)
+    # price_board answers NEG when no completion of the roster is legal, and that
+    # answer is honest and silent: every band is 0 and the composition is empty.
+    # The caller is where it has to be said, because this run is recorded and
+    # copied to records/ as parquet, which is never rewritten -- an all-zero board
+    # committed with no warning is a worthless permanent record. It is reachable
+    # from a rules change alone (a league moving to more goalkeepers than
+    # pricing.yml's max_goalkeepers allows), so it is a warning, not a refusal --
+    # the same severity, and the same wording, as the live board's problem line.
+    for name, board in boards.items():
+        if board.completion_value == NEG:
+            warnings.append(f"{name}: no completion of my roster is legal under these bounds: the board's prices are zero "
+                            f"-- the league fills {ctx.class_min['Por']}-{ctx.class_max['Por']} goalkeepers and "
+                            f"{ctx.roster_min}-{ctx.roster_max} players, the pricing caps goalkeepers at "
+                            f"{pricing_cfg.max_goalkeepers} (pricing.yml max_goalkeepers)")
     reference = boards[scenarios[0].name]
     replacement = replacement_levels(pool, reference.expected_prices, pricing_cfg)
     vor = {p.player_id: max(0.0, p.value_p50 - replacement[p.role_class]) for p in pool}
@@ -556,6 +557,24 @@ def run_valuation(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path
               # classes that field them. Recorded because it is derived from two inputs
               # at once, so neither modules.yml nor the listone recovers it alone.
               "demand": {cls: sum(m.get(cls, 0.0) for m in demand.values()) / len(demand) for cls in ROLE_CLASSES},
+              # and the same demand per module, so the live board reads the run's own
+              # weights back instead of re-deriving them (asta/pinned.py)
+              "demand_by_module": demand,
+              # the retained fraction the fold's fixed point settled at for each class --
+              # min(1, supply / need), 1.0 where the listone supplies it in full -- so a
+              # partially supplied class is on the record even where the warning below is
+              # silent (a re-run computing divergence, not a human reading warnings). Not
+              # the share of the class's own demand that actually ended up priced in
+              # demand_by_module: classes fold in a fixed order within one pass, so a class
+              # folded early can receive demand back from one folded later in the same pass
+              # (see FoldedDemand.kept).
+              "demand_kept": folded.kept,
+              # with the hard minimums beside them, for the same reason: both are read
+              # off modules.yml, which is in neither model_hash nor rules_hash, so an
+              # edit there supersedes no run and changes no model id. Without this the
+              # live board would price a pinned run's stored demand against today's
+              # file's minimums -- two halves of one input, silently out of step.
+              "hard_minimums": minimums,
               "scenarios": [s.name for s in scenarios], "d_factor": d_factor.to_dict(),
               "model_version": MODEL_VERSION, "sheet": sheet, "bonus_malus": bm.to_dict(),
               "modifiers": status.to_dict()}
@@ -587,18 +606,20 @@ def record_run(con: duckdb.DuckDBPyConnection, run: ValuationRun) -> None:
         con.execute("INSERT INTO valuation_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON)",
                     [run.run_id, to_db(run.created_at), run.rules_hash, run.model_hash, run.inputs_hash,
                      run.settings_snapshot_id, run.listone_snapshot_id, run.season_id, run.giornata,
-                     [s.name for s in run.scenarios], canonical_json(_finite(run.config)),
-                     canonical_json(_finite(run.summary))])
+                     [s.name for s in run.scenarios], canonical_json(json_safe(run.config)),
+                     canonical_json(json_safe(run.summary))])
         con.executemany(
             "INSERT INTO valuations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[run.run_id, p.player_id, p.name, p.team_short, p.classic_role, p.role_class, list(p.roles), p.exp_presenze,
               p.exp_fantamedia, p.exp_voto, p.value_p25, p.value_p50, p.value_p75, run.replacement[p.role_class],
               run.vor[p.player_id], run.tiers[p.player_id], p.quotazione, run.implied[p.player_id][0],
-              run.implied[p.player_id][1], canonical_json(_finite(p.explain))] for p in run.projections])
+              run.implied[p.player_id][1], canonical_json(json_safe(p.explain))] for p in run.projections])
         con.executemany(
             "INSERT INTO valuation_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[run.run_id, name, price.player_id, price.role_class, price.expected_price, price.band.p25, price.band.p50,
-              price.band.p75, price.walk_value, price.exact, canonical_json(_finite(price.to_dict()))]
+              # `exact` is always true since Phase 2a decided on one pricing mode; the column
+              # stays, so the runs recorded before the decision still read the same way.
+              price.band.p75, price.walk_value, True, canonical_json(price.to_dict())]
              for name, board in run.boards.items() for price in board.prices.values()])
     except Exception:
         con.rollback()

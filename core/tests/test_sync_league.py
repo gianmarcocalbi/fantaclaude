@@ -50,6 +50,14 @@ def test_cli_sync_league_json_and_exit_codes(monkeypatch, tmp_path, fake_api):
     assert result.exit_code == ExitCode.CONFLICT
     assert "budget" in result.stdout and "1000" in result.stdout and "500" in result.stdout
 
+    # a league.yml leaf without provenance is not-ready (3), the same code rank gives it,
+    # and it is refused before the network is touched
+    (tmp_path / "league.yml").write_text("budget: 1000\n")
+    calls_before = len(api.calls)
+    result = runner.invoke(app, ["sync-league"])
+    assert result.exit_code == ExitCode.NOT_READY and "league.yml" in result.stderr
+    assert len(api.calls) == calls_before
+
 
 def test_a_rule_change_reports_the_runs_it_supersedes(db, mcp_fixture_json, fake_api):
     import asyncio

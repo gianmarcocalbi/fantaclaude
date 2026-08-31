@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import yaml
 
-from fantaclaude.analysis.exports import export_records, write_asta_plan, write_rankings
+from fantaclaude.analysis.exports import export_records, render_exports
 from fantaclaude.analysis.ordering import by_class, rank_key
 from fantaclaude.analysis.projection import ProjectionConfig
 from fantaclaude.analysis.valuation import (
@@ -32,8 +31,10 @@ from fantaclaude.asta.pricing_config import (
     load_pricing_config,
 )
 from fantaclaude.commands.ingest import NotReady
+from fantaclaude.commands.sync_league import SyncReport
 from fantaclaude.league.league_yml import Provenanced
 from fantaclaude.model.d_factor import DFactorTable, DFactorTableError, load_d_factor
+from fantaclaude.yamlio import YamlFileError, read_yaml_mapping
 
 # The spec (open question 1) fixes no day count -- only that the run after the
 # freeze is the final one. Seven days is this plan's own stated requirement
@@ -88,6 +89,10 @@ class RankReport:
     provisional: str
     freeze: FreezeStatus | None = None
     top: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # the re-sync that preceded the run, when there was one: a rules change
+    # detected here is reported with its diff and the runs it superseded, as
+    # sync-league reports it, instead of being absorbed silently
+    sync: SyncReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"run_id": self.run_id, "created_at": self.created_at.isoformat(), "rules_hash": self.rules_hash,
@@ -95,7 +100,8 @@ class RankReport:
                 "giornata": self.giornata, "scenarios": self.scenarios, "players": self.players,
                 "exports": self.exports, "records": self.records, "warnings": self.warnings,
                 "summary": self.summary, "provisional": self.provisional,
-                "freeze": self.freeze.to_dict() if self.freeze is not None else None, "top": self.top}
+                "freeze": self.freeze.to_dict() if self.freeze is not None else None, "top": self.top,
+                "sync": self.sync.to_dict() if self.sync is not None else None}
 
 
 def _expected_teams(entries: dict[str, Provenanced] | None) -> int | None:
@@ -158,18 +164,6 @@ def provisional_note(entries: dict[str, Provenanced] | None, now: datetime, team
     return freeze_status(entries, now, team_count).note
 
 
-def _load_preferences(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise NotReady(f"{path} is missing")
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise NotReady(f"{path} does not parse: {exc}") from None
-    if not isinstance(data, dict):
-        raise NotReady(f"{path}: the top level must be a mapping")
-    return data
-
-
 def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, Any], PricingConfig, DFactorTable]:
     """The three not-ready checks a run needs no database connection for:
     preferences.yml, pricing.yml and d_factor.yml. Call this before opening
@@ -184,7 +178,10 @@ def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, A
     hashed config file exactly as a malformed pricing.yml is, so it is
     not-ready (exit 3), and it is worth refusing before the live re-sync
     rather than after it."""
-    preferences = _load_preferences(preferences_path)
+    try:
+        preferences = read_yaml_mapping(preferences_path)
+    except YamlFileError as exc:
+        raise NotReady(str(exc)) from None
     try:
         load_preferences(preferences)
     except PreferencesError as exc:
@@ -202,7 +199,7 @@ def check_ready(preferences_path: Path, pricing_path: Path) -> tuple[dict[str, A
 
 def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, preferences_path: Path, pricing_path: Path,
          exports_dir: Path, records_dir: Path, league_yml: dict[str, Provenanced] | None = None,
-         scenarios: list[str] | None = None) -> RankReport:
+         scenarios: list[str] | None = None, sync: SyncReport | None = None) -> RankReport:
     preferences, pricing_cfg, d_factor = check_ready(preferences_path, pricing_path)
     try:
         run = run_valuation(con, now=now, kb_dir=kb_dir, preferences=preferences, projection_cfg=ProjectionConfig(),
@@ -218,8 +215,7 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
         # subclasses ValueError; neither is a PreferencesError.
         raise NotReady(str(exc)) from None
     record_run(con, run)
-    md, csv = write_rankings(run, exports_dir)
-    plan = write_asta_plan(run, exports_dir)
+    md, csv, plan = render_exports(run, exports_dir)
     records = export_records(con, run.run_id, run.rules_hash, records_dir)
     board = run.boards[run.scenarios[0].name]
     freeze = freeze_status(league_yml, now, run.summary["team_count"])
@@ -237,4 +233,4 @@ def rank(con: duckdb.DuckDBPyConnection, *, now: datetime, kb_dir: Path, prefere
                       giornata=run.giornata, scenarios=[s.name for s in run.scenarios], players=len(run.projections),
                       exports=[str(md), str(csv), str(plan)], records=[str(p) for p in records],
                       warnings=list(run.warnings), summary=run.summary,
-                      provisional=freeze.note, freeze=freeze, top=top)
+                      provisional=freeze.note, freeze=freeze, top=top, sync=sync)
