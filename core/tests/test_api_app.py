@@ -1,0 +1,125 @@
+import pytest
+from fantaclaude.api.app import create_app
+from fantaclaude.api.serve import AstaServer
+from fantaclaude.asta.adjustments import EMPTY_LAYER
+from fantaclaude.asta.state import parse_snapshot
+from fantaclaude.commands.asta import AstaPaths
+from starlette.testclient import TestClient
+from test_advisor import SESSION, pinned_run
+
+
+def snap(picks, *, selected=None, teams=(0, 1, 2), settings=SESSION):
+    return parse_snapshot({
+        "picks": [{"playerId": pid, "teamId": tid, "cost": cost, "index": i}
+                  for i, (pid, tid, cost) in enumerate(picks)],
+        "teams": [{"id": t, "connection": {"label": f"t{t}"}} for t in teams],
+        "settings": settings, "selectedPlayerId": selected, "status": "live", "locked": False})
+
+
+@pytest.fixture
+def kit(tmp_path, fixture_json, mcp_fixture_json):
+    _result, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    paths = AstaPaths(db=tmp_path / "data" / "fanta.duckdb", adjustments=tmp_path / "data" / "adjustments.yml",
+                      state=tmp_path / "data" / "asta-state.json", records=tmp_path / "records", kb=tmp_path / "kb")
+    server = AstaServer(run=pinned, layer=EMPTY_LAYER, participants={}, scenario=None,
+                        paths=paths, mode="replay", session_code=None)
+    return server, pinned, create_app(server)
+
+
+def test_hello_then_mapping_then_board(kit):
+    _server, _pinned, app = kit
+    with TestClient(app) as client:
+        assert client.get("/api/board").status_code == 409
+        hello = client.get("/api/hello").json()
+        assert hello["phase"] == "pending" and hello["run"].startswith("run ")
+        answered = client.post("/api/mapping", json={"mine": 0, "nicks": {}}).json()
+        assert answered["phase"] == "live"
+        board = client.get("/api/board").json()
+        assert board["me"]["credits"] == 500 and board["prices"]
+
+
+def test_mapping_refuses_an_unknown_dossier_nick(kit):
+    _server, _pinned, app = kit
+    with TestClient(app) as client:
+        resp = client.post("/api/mapping", json={"mine": 0, "nicks": {"1": "Nobody"}})
+        assert resp.status_code == 422 and "Nobody" in resp.json()["detail"]
+
+
+def test_websocket_hears_hello_then_every_mutation(kit):
+    _server, pinned, app = kit
+    pids = sorted(pinned.players)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        first = ws.receive_json()
+        assert first["type"] == "hello" and first["hello"]["phase"] == "pending"
+        client.post("/api/mapping", json={"mine": 0, "nicks": {}})
+        assert ws.receive_json()["hello"]["phase"] == "live"
+        client.post("/api/adjust", json={"type": "exclude", "player_id": pids[0], "reason": "not buying"})
+        msg = ws.receive_json()
+        assert msg["type"] == "board" and str(pids[0]) not in msg["board"]["prices"]
+
+
+def test_adjust_maps_the_error_classes_to_the_contract(kit):
+    server, pinned, app = kit
+    with TestClient(app) as client:
+        pending = client.post("/api/adjust", json={"type": "exclude", "player_id": 1, "reason": "x"})
+        assert pending.status_code == 409
+        client.post("/api/mapping", json={"mine": 0, "nicks": {}})
+        bad_input = client.post("/api/adjust", json={"type": "value", "player_id": 1, "reason": "x"})
+        assert bad_input.status_code == 422            # value without factor
+        inert = client.post("/api/adjust", json={"type": "exclude", "player_id": 999_999, "reason": "x"})
+        assert inert.status_code == 422
+        server.paths.adjustments.parent.mkdir(parents=True, exist_ok=True)
+        server.paths.adjustments.write_text("]: not yaml", encoding="utf-8")
+        broken_file = client.post("/api/adjust", json={"type": "exclude",
+                                                       "player_id": min(pinned.players), "reason": "x"})
+        assert broken_file.status_code == 400
+
+
+def test_refresh_rereads_and_reports(kit):
+    server, pinned, app = kit
+    pids = sorted(pinned.players)
+    with TestClient(app) as client:
+        client.post("/api/mapping", json={"mine": 0, "nicks": {}})
+        server.paths.adjustments.parent.mkdir(parents=True, exist_ok=True)
+        server.paths.adjustments.write_text(f"- player_id: {pids[0]}\n  type: exclude\n  reason: hand-edit\n",
+                                            encoding="utf-8")
+        out = client.post("/api/refresh")
+        assert out.status_code == 200 and str(pids[0]) not in out.json()["board"]["prices"]
+
+
+def test_static_dist_is_served_when_built_and_a_hint_stands_in_when_not(kit, tmp_path):
+    server, _pinned, _ = kit
+    bare = create_app(server)
+    with TestClient(bare) as client:
+        resp = client.get("/")
+        assert resp.status_code == 200 and "poe web-build" in resp.text
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<title>fantaclaude asta</title>", encoding="utf-8")
+    built = create_app(server, web_dist=dist)
+    with TestClient(built) as client:
+        assert "fantaclaude asta" in client.get("/").text
+
+
+def test_hello_maps_a_broken_session_to_400(kit):
+    server, _pinned, app = kit
+    # A malformed settings node reaches AstaServer.last_snapshot exactly the
+    # way a real feed snapshot would (session mode's on_snapshot assigns it
+    # unconditionally, before it ever tries to read it); assigning it here
+    # directly is the seam that exercises the *route's* SessionError mapping
+    # without re-testing AstaServer.hello() itself, which test_api_serve.py
+    # already covers.
+    server.last_snapshot = snap([], settings={"budget": "not-a-number", "game": 2,
+                                              "roles": {"gk": [3, 3], "mov": [22, 22], "size": [25, 25]}})
+    with TestClient(app) as client:
+        resp = client.get("/api/hello")
+        assert resp.status_code == 400
+        assert "settings.budget" in resp.json()["detail"]
+
+
+def test_the_schema_dump_app_needs_no_server():
+    app = create_app(None)
+    schema = app.openapi()
+    assert "/api/board" in schema["paths"] and "/api/adjust" in schema["paths"]
+    with TestClient(app) as client:
+        assert client.get("/api/hello").status_code == 503
