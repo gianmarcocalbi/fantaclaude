@@ -11,3 +11,6 @@ __pycache__/
 data/
 site/_build/
 .claude/settings.local.json
+web/node_modules/
+web/dist/
+web/openapi.json

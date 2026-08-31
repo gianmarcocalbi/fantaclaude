@@ -135,3 +135,15 @@ def test_the_mcp_mounts_under_the_app_and_answers(kit):
                            headers={"accept": "application/json, text/event-stream",
                                     "content-type": "application/json"})
         assert resp.status_code != 404
+
+
+def test_openapi_dump_writes_the_document(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    from fantaclaude.api import openapi_dump
+    out = tmp_path / "openapi.json"
+    monkeypatch.setattr(sys, "argv", ["openapi_dump", "--out", str(out)])
+    openapi_dump.main()
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    assert "/api/board" in doc["paths"] and "BoardPayload" in doc["components"]["schemas"]

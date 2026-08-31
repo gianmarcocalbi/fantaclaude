@@ -114,10 +114,20 @@ class PriceRowOut(_Model):
     pressure: PressureOut | None = None
 
     @model_serializer(mode="wrap")
-    def _omit_pressure_when_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def _omit_pressure_when_absent(self, handler: SerializerFunctionWrapHandler):
         """Board._row() only adds the "pressure" key when the player has
         pressure (`if p.player_id in self.pressure`); it never emits a null.
-        Mirror that here rather than always serialising `pressure: null`."""
+        Mirror that here rather than always serialising `pressure: null`.
+
+        Deliberately left without a `-> dict[str, Any]` return annotation:
+        pydantic reads that annotation as the model's *serialization-mode*
+        JSON schema, so `dict[str, Any]` collapses OpenAPI's PriceRowOut to
+        an opaque `{"type": "object"}` and openapi-typescript turns it into
+        `[key: string]: unknown`. Leaving it unannotated makes pydantic fall
+        back to the model's own field schema (validation-mode, which every
+        other model here also uses) -- `pressure` shows up as optional and
+        nullable rather than sometimes-absent, which is close enough for a
+        generated type and exact for every other field."""
         data = handler(self)
         if self.pressure is None:
             data.pop("pressure", None)
