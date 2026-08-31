@@ -1,6 +1,6 @@
 ---
 name: fanta-asta
-description: The auction copilot's offline half with fantaclaude — read the board the pinned run gives against the mirrored auction (`asta board`), explain one price (`asta explain`), turn a fact from the room into an adjustment (`asta adjust`), rehearse on a captured session (`asta replay`), close the auction (`asta close`). Use before and during the auction, and to rehearse. The live feed, the dashboard and the MCP tools are Phase 2b and are not here yet.
+description: The auction copilot with fantaclaude — read the board the pinned run gives against the mirrored auction (`asta board`), explain one price (`asta explain`), turn a fact from the room into an adjustment (`asta adjust`), rehearse on a captured session (`asta replay`), close the auction (`asta close`). Use before and during the auction, and to rehearse. During the auction, `asta serve` mirrors the live session and serves the dashboard and the `fantaclaude-asta` MCP; `adjust` and `refresh` write through it.
 ---
 
 # fanta-asta
@@ -9,8 +9,12 @@ Python does the math; this skill does the judgment. It never computes a max
 price: it reads the board `fantaclaude asta board` prints, changes *inputs*
 (an adjustment with a reason, a dossier, the scenario) and reads again.
 Discover the CLI with `fantaclaude asta --help`; every command takes `--json`
-and every one is local — no network, the database read-only — so it may be
-run as often as needed, during the auction included.
+and every one except `serve` is local — no network, the database read-only —
+so it may be run as often as needed, during the auction included. `asta
+serve` is the one networked command: it subscribes to the FantaAstaLive
+Firebase session (anonymous sign-in, read-only, exactly one subscriber,
+reconnect with backoff) and serves the dashboard, the WebSocket and the
+`fantaclaude-asta` MCP on localhost.
 
 Three rules, defended hard:
 
@@ -79,8 +83,20 @@ so closing twice over an unchanged state file writes one record and not two
 identical ones under two names. Nothing offline knows the session code, so
 pass `--session`: without it the copy is named `session-<UTC stamp>.json`,
 which is a record nobody can tie to a night (and it names one file, so it may
-not contain `/`). The file is deleted only once `verify-transfer` (2b)
-confirms the lega.
+not contain `/`). The file is deleted only once `verify-transfer` (a
+post-auction task, open question 9) confirms the lega.
+
+### `serve`
+
+`fantaclaude asta serve --session FA-xxx-xxx` — the night's process: the
+live mirror, the dashboard on http://127.0.0.1:8765, and the
+`fantaclaude-asta` MCP at `/mcp`. `--replay <capture> --speed N` rehearses
+it; `--state` reviews a finished auction. While it runs, prefer the MCP
+tools (`asta_board`, `asta_explain`, `asta_adjust`, `asta_refresh`,
+`asta_query`) over the CLI: they read the same in-memory board the
+dashboard shows. `asta adjust` from the CLI proxies to the server by
+itself; a hand edit of `data/adjustments.yml` needs `asta refresh` (or the
+dashboard's refresh button) to land.
 
 ## Worked example
 
@@ -94,3 +110,10 @@ runs `asta adjust --type value --player Bastoni --factor 0.85 --reason
 
 **Bad answer:** computes a discount by hand; edits `data/asta-state.json`;
 writes "Bastoni is worth 38" into the knowledge base; connects to anything.
+
+**Ask, with `asta serve` running:** "he's limping" (Bastoni, on the block).
+
+**Good answer:** calls `asta_adjust {type: "value", player: "Bastoni", factor:
+0.85, reason: "limping, reported in the room"}`; reads the returned
+`band_after`; tells the user what moved, same as the CLI case above but
+without leaving the conversation.
