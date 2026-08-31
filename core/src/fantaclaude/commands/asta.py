@@ -47,6 +47,7 @@ from fantaclaude.asta.snapshot import (
     copy_to_records,
     read_state,
     render_state,
+    session_code_is_path,
     write_state,
 )
 from fantaclaude.asta.state import (
@@ -460,10 +461,16 @@ def close_auction(paths: AstaPaths, *, session_code: str | None = None) -> Path:
     rather than two identical ones under two names (`copy_to_records`)."""
     if not paths.state.is_file():
         raise NotReady(f"no state file at {paths.state} -- nothing mirrored yet")
-    if session_code is not None and (set(session_code) & {"/", "\\"} or session_code in (".", "..")):
+    if session_code is not None and session_code_is_path(session_code):
         # --session becomes one path component under records/asta/: a value
         # with a separator in it would write outside records/ entirely. A
         # typo guard, and the code the league shows never contains one.
+        #
+        # copy_to_records refuses the same value at the sink, so the state
+        # file's own session.code is covered too -- but there it is a torn
+        # file (exit 3), and here it is a bad flag (exit 2). Same predicate,
+        # two verdicts: this one answers first, so a typed --session never
+        # reaches the sink and never reports as "not ready".
         raise UsageError(f"--session {session_code!r} is a path, not a session code; it names one file under records/asta/")
     try:
         stored = read_state(paths.state)

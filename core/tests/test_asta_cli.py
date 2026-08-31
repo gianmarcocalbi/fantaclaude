@@ -384,3 +384,40 @@ def test_a_session_code_with_a_path_separator_is_refused(monkeypatch, tmp_path, 
         assert "is a path, not a session code" in bad.stderr, (code, bad.stderr)
     assert not (tmp_path / "records" / "asta").exists()             # and nothing was written on the way out
     assert runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm"]).exit_code == ExitCode.OK
+
+
+def test_a_session_code_out_of_the_state_file_is_refused_too(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """The guard used to sit on the flag alone, but `close` falls back to the
+    state file's own `session.code` when no --session is given, and that
+    value reaches the same path component under records/asta/ unvalidated.
+    Unreachable while render_state writes None there, and exactly the route
+    2b's live mirror will use once the feed supplies the code.
+
+    The two routes are two verdicts: a typed --session is a usage error
+    (exit 2), a session code read out of the state file says the file is not
+    one this code wrote (exit 3, the way every other torn-file condition
+    reports here). The message matters as much as the code -- an exit 2 or 3
+    for an unrelated cause looks identical from outside."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+
+    # route 1: the flag, unchanged -- a usage error, with the message it has always had
+    flag = runner.invoke(app, ["asta", "close", "--session", "../FA-nri-okm"])
+    assert flag.exit_code == ExitCode.USAGE, flag.output
+    assert "--session '../FA-nri-okm' is a path, not a session code" in flag.stderr
+
+    # route 2: the state file's own session.code, with no flag at all
+    for code in ("../FA-nri-okm", "nested/FA-nri-okm", "..", r"back\slash"):
+        _rewrite_state(state_file, session={"code": code})
+        stored = runner.invoke(app, ["asta", "close"])
+        assert stored.exit_code == ExitCode.NOT_READY, (code, stored.exit_code, stored.output)
+        assert f"session code {code!r} is a path, not a session code" in stored.stderr, (code, stored.stderr)
+    assert not (tmp_path / "records" / "asta").exists()          # and nothing was written on the way out
+
+    # a sound code in the state file closes, and the flag naming the same one closes to the same record
+    _rewrite_state(state_file, session={"code": "FA-nri-okm"})
+    stored = runner.invoke(app, ["asta", "close", "--json"])
+    assert stored.exit_code == ExitCode.OK, stored.output
+    assert Path(json.loads(stored.stdout)["records"]).name.startswith("FA-nri-okm-")
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm"]).exit_code == ExitCode.OK

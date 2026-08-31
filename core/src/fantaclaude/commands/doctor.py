@@ -45,7 +45,7 @@ from fantaclaude.kb.notes import (
     misplaced_notes,
     orphan_notes,
 )
-from fantaclaude.kb.participants import ParticipantError, load_participants
+from fantaclaude.kb.participants import Participant, ParticipantError, load_participants
 from fantaclaude.kb.profiles import ProfileError, load_profiles
 from fantaclaude.league.league_yml import LeagueYmlError, load_league_yml
 from fantaclaude.model.d_factor import DFactorTableError, load_d_factor
@@ -370,11 +370,17 @@ def _notes_check(kb: Path, con: duckdb.DuckDBPyConnection | None) -> Check:
     return Check("kb_notes", True, f"{len(notes)} notes")
 
 
-def _participants_check(kb: Path, league_yml: Path) -> Check:
+def _participants_check(kb: Path, league_yml: Path) -> tuple[Check, list[Participant] | None]:
+    """Do the dossiers load, and does league.yml map every nick it names to one.
+
+    Returns the dossiers beside the check so `_favourite_clubs_check` can
+    resolve them against the listone without reading the directory a second
+    time -- the same shape `_pinned_run_check` uses for the run. `None` is
+    "they did not load", and the check beside it already says why."""
     try:
         dossiers = load_participants(kb)
     except ParticipantError as exc:
-        return Check("kb_participants", False, str(exc))
+        return Check("kb_participants", False, str(exc)), None
     mapped: dict[str, str] = {}
     if league_yml.is_file():
         try:
@@ -388,11 +394,12 @@ def _participants_check(kb: Path, league_yml: Path) -> Check:
                 for nick, path in mapped.items() if not (kb.parent / path).is_file() or nick not in by_nick]
     head = f"{len(dossiers)} dossiers; league.yml maps {len(mapped)}"
     if problems:
-        return Check("kb_participants", False, f"{head}; {'; '.join(problems)}")
-    return Check("kb_participants", True, head)
+        return Check("kb_participants", False, f"{head}; {'; '.join(problems)}"), dossiers
+    return Check("kb_participants", True, head), dossiers
 
 
-def _favourite_clubs_check(kb: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+def _favourite_clubs_check(dossiers: list[Participant] | None, participants: Check,
+                           con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
     """Every club a dossier calls a favourite, resolved against the listone's
     own club names -- the set-piece takers' problem again, one field over.
 
@@ -405,11 +412,14 @@ def _favourite_clubs_check(kb: Path, con: duckdb.DuckDBPyConnection | None, skip
     1.25x factor too low for exactly the clubs the dossier was written to
     flag, with nothing anywhere saying so. Nothing else can catch it -- an
     unresolved club is not a parse error, not a problem line, and not
-    visible on the board."""
-    try:
-        dossiers = load_participants(kb)
-    except ParticipantError as exc:
-        return Check("kb_favourite_clubs", False, str(exc))      # the kb_participants check says the same
+    visible on the board.
+
+    The dossiers arrive from `_participants_check`, which has just read the
+    directory: `dossiers is None` is a load failure, and the check beside it
+    carries the parse error verbatim, which is what this one used to report
+    by loading them again itself."""
+    if dossiers is None:
+        return Check("kb_favourite_clubs", False, participants.detail)   # the kb_participants check says the same
     if con is None:
         return Check("kb_favourite_clubs", False, skip)
     try:
@@ -605,8 +615,9 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         checks.append(_profiles_check(paths.kb, con))
         checks.append(_takers_check(paths.kb, con, skip))
         checks.append(_notes_check(paths.kb, con))
-        checks.append(_participants_check(paths.kb, paths.league_yml))
-        checks.append(_favourite_clubs_check(paths.kb, con, skip))
+        participants, dossiers = _participants_check(paths.kb, paths.league_yml)
+        checks.append(participants)
+        checks.append(_favourite_clubs_check(dossiers, participants, con, skip))
         checks.append(_scoring_check(con, skip))
         checks.append(_pricing_check(paths.pricing))
         checks.append(_valuations_check(con, skip, now))

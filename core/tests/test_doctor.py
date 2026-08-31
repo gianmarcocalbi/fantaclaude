@@ -567,3 +567,42 @@ def test_the_pinned_run_is_loaded_once_for_the_asta_checks(tmp_path, fixture_jso
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert by["pinned_run"].ok and by["adjustments"].ok and "resolved against run" in by["adjustments"].detail
     assert len(calls) == 1, calls
+
+
+def test_the_participants_directory_is_read_once_for_both_checks(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """kb_favourite_clubs used to re-load the dossiers kb_participants had
+    just loaded, one line earlier in the same run -- the duplication the
+    pinned run's `(Check, PinnedRun | None)` shape exists to avoid. The
+    dossiers are threaded through instead, and both verdicts stand
+    unchanged: a directory that does not parse still fails both checks with
+    the same message, and a directory that does is still resolved against
+    the listone."""
+    from fantaclaude.commands import doctor as doctor_module
+    from test_kb_participants import _write as write_dossier
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    kb = tmp_path / "kb"
+    write_dossier(kb, "Marco")
+    write_dossier(kb, "Anna")
+
+    real = doctor_module.load_participants
+    calls = []
+
+    def counted(kb_dir):
+        calls.append(kb_dir)
+        return real(kb_dir)
+
+    monkeypatch.setattr(doctor_module, "load_participants", counted)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert calls == [kb]                                     # once for the two checks, not once each
+    assert by["kb_participants"].ok and by["kb_participants"].detail == "2 dossiers; league.yml maps 0"
+    assert not by["kb_favourite_clubs"].ok and "0/2" in by["kb_favourite_clubs"].detail
+
+    # and the outcome that shares one load: a dossier that does not parse fails both, with the same message
+    calls.clear()
+    write_dossier(kb, "Bruno", style="reckless")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert calls == [kb]
+    assert not by["kb_participants"].ok and "budget_style must be one of" in by["kb_participants"].detail
+    assert not by["kb_favourite_clubs"].ok
+    assert by["kb_favourite_clubs"].detail == by["kb_participants"].detail

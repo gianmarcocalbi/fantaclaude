@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -120,3 +122,47 @@ def test_the_records_copy_refuses_a_missing_source_loudly(tmp_path):
     with pytest.raises(StateFileError, match="asta-state.json"):
         copy_to_records(tmp_path / "data" / "asta-state.json", tmp_path / "records", session_code="FA-nri-okm", written_at=WHEN)
 
+
+
+def test_the_records_copy_refuses_a_session_code_that_is_a_path(tmp_path):
+    """The name becomes one path component under records/asta/, so the check
+    belongs here, where both routes to it end: the --session flag (guarded a
+    layer up, where it is a usage error) and the state file's own
+    session.code, which nothing else validates and 2b's live mirror writes."""
+    path = tmp_path / "data" / "asta-state.json"
+    write_state(path, {"version": STATE_VERSION, "me": 0})
+    records = tmp_path / "records"
+    for code in ("../FA-nri-okm", "nested/FA-nri-okm", "..", ".", r"back\slash"):
+        with pytest.raises(StateFileError, match="is a path, not a session code"):
+            copy_to_records(path, records, session_code=code, written_at=WHEN)
+    assert not records.exists()                                  # refused before anything was written
+    assert copy_to_records(path, records, session_code="FA-nri-okm", written_at=WHEN).exists()
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="TZ is not settable at runtime on this platform")
+def test_a_written_at_without_an_offset_is_read_as_utc_not_as_local_time(tmp_path):
+    """A state file's written_at is UTC by construction -- render_state writes
+    `utc_now().isoformat()`. Read back with `astimezone(UTC)`, a value that
+    somehow lost its offset (a hand-edited file) was interpreted in the
+    machine's local zone instead, and records/ -- committed, never rewritten
+    -- got a filename naming an instant hours away from the one it holds, in
+    a zone nothing in the file records."""
+    path = tmp_path / "data" / "asta-state.json"
+    write_state(path, {"version": STATE_VERSION, "me": 0})
+    records = tmp_path / "records"
+    # exactly what close_auction hands the sink: datetime.fromisoformat over a hand-edited written_at with no offset on it
+    naive = datetime.fromisoformat("2026-09-05T22:30:00")
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Tokyo"                             # UTC+9 all year: no DST to make this read either way
+    time.tzset()
+    try:
+        copy = copy_to_records(path, records, session_code="FA-nri-okm", written_at=naive)
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
+    # read as UTC: 22:30. Read as local Tokyo time it would be 13:30Z, and the record would name the wrong instant.
+    assert copy.name == "FA-nri-okm-20260905T223000Z.json"
+    assert copy.name == f"FA-nri-okm-{naive.replace(tzinfo=UTC):%Y%m%dT%H%M%SZ}.json"

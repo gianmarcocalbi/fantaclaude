@@ -37,6 +37,19 @@ class StateFileError(ValueError):
     """The state file is not one this code wrote, or is torn."""
 
 
+def session_code_is_path(code: str) -> bool:
+    """Would this session code stop being one path component under records/asta/?
+
+    One predicate, two callers with two different verdicts. A session code
+    reaches `copy_to_records` by two routes: the `--session` flag, where a
+    separator is the operator's typo (a usage error), and the state file's
+    own `session.code`, where it is a file this code did not write (not
+    ready). The check belongs at the sink, because that is where the name
+    becomes a path -- but the sink cannot raise one error for both, so the
+    CLI keeps its own guard over the same predicate and answers first."""
+    return bool(set(code) & {"/", "\\"}) or code in (".", "..")
+
+
 def _scrub_nick(nick: str | None) -> str | None:
     """A nick is caller-supplied (TeamMapping is offline input -- flags, or a
     prior state file -- and never passes through the feed, so it never
@@ -118,6 +131,14 @@ def copy_to_records(path: Path, records_dir: Path, *, session_code: str | None, 
     the same name and no-ops, and a state file that genuinely moved on gets
     its own record.
     """
+    if session_code is not None and session_code_is_path(session_code):
+        # Both routes to this name end here: the CLI flag, guarded one layer
+        # up so a typo stays a usage error, and the state file's own
+        # session.code, which Phase 2b's live mirror writes and nothing else
+        # validates. A code with a separator in it does not name one file
+        # under records/asta/ -- it writes outside records/ entirely.
+        raise StateFileError(f"{path}: session code {session_code!r} is a path, not a session code; "
+                             f"it names one file under records/asta/")
     try:
         data = path.read_bytes()
     except OSError as exc:
