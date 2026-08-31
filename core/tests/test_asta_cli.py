@@ -421,3 +421,32 @@ def test_a_session_code_out_of_the_state_file_is_refused_too(monkeypatch, tmp_pa
     assert stored.exit_code == ExitCode.OK, stored.output
     assert Path(json.loads(stored.stdout)["records"]).name.startswith("FA-nri-okm-")
     assert runner.invoke(app, ["asta", "close", "--session", "FA-nri-okm"]).exit_code == ExitCode.OK
+
+
+def test_a_session_code_with_an_embedded_nul_is_refused_too(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """A NUL (or other control character) in a session code never reaches a
+    path separator check, but it is just as fatal to the write: unguarded,
+    it survives `session_code_is_path` and blows up inside
+    `write_atomic`'s `tempfile.mkstemp` as a bare ValueError that neither
+    `StateFileError` nor `_asta_errors` maps -- a traceback and exit 1,
+    where every other torn-state-file condition here is exit 3 (or, from
+    the flag, exit 2). Same two routes, same two verdicts as a separator."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "Claude", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+
+    # route 1: the flag -- a usage error, same as a separator
+    flag = runner.invoke(app, ["asta", "close", "--session", "FA-nri\x00okm"])
+    assert flag.exit_code == ExitCode.USAGE, (flag.exit_code, flag.output, flag.exception)
+    assert "is a path, not a session code" in flag.stderr
+
+    # route 2: the state file's own session.code, with no flag at all
+    _rewrite_state(state_file, session={"code": "FA-nri\x00okm"})
+    stored = runner.invoke(app, ["asta", "close"])
+    assert stored.exit_code == ExitCode.NOT_READY, (stored.exit_code, stored.output, stored.exception)
+    assert "session code 'FA-nri\\x00okm' is a path, not a session code" in stored.stderr
+    assert not (tmp_path / "records" / "asta").exists()          # and nothing was written on the way out
+
+    # a sound code in the state file still closes cleanly
+    _rewrite_state(state_file, session={"code": "FA-nri-okm"})
+    assert runner.invoke(app, ["asta", "close"]).exit_code == ExitCode.OK

@@ -46,8 +46,17 @@ def session_code_is_path(code: str) -> bool:
     own `session.code`, where it is a file this code did not write (not
     ready). The check belongs at the sink, because that is where the name
     becomes a path -- but the sink cannot raise one error for both, so the
-    CLI keeps its own guard over the same predicate and answers first."""
-    return bool(set(code) & {"/", "\\"}) or code in (".", "..")
+    CLI keeps its own guard over the same predicate and answers first.
+
+    A separator or `.`/`..` changes which path the code names; a C0 control
+    character or DEL (0x00-0x1F, 0x7F -- NUL included) never names a path at
+    all: it fails inside `write_atomic`'s `tempfile.mkstemp`, three frames
+    past the sink's own `except OSError`, as a bare ValueError that neither
+    `StateFileError` nor `_asta_errors` maps. Caught here, both routes fold
+    it into the same verdict as a separator: a usage error from the flag, a
+    torn state file from the feed."""
+    return (bool(set(code) & {"/", "\\"}) or code in (".", "..")
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in code))
 
 
 def _scrub_nick(nick: str | None) -> str | None:
