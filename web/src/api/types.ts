@@ -6,6 +6,8 @@ export type PriceRow = components["schemas"]["PriceRowOut"];
 export type Ledger = components["schemas"]["LedgerOut"];
 export type Pressure = components["schemas"]["PressureOut"];
 export type Lot = components["schemas"]["LotOut"];
+export type AdjustResult = components["schemas"]["AdjustResult"];
+export type RefreshResult = components["schemas"]["RefreshResult"];
 
 /** The WebSocket envelope. Hand-written: the socket carries the same
  * generated payloads, only this thin union is ours. */
