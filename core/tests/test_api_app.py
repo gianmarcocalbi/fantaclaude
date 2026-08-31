@@ -123,3 +123,15 @@ def test_the_schema_dump_app_needs_no_server():
     assert "/api/board" in schema["paths"] and "/api/adjust" in schema["paths"]
     with TestClient(app) as client:
         assert client.get("/api/hello").status_code == 503
+
+
+def test_the_mcp_mounts_under_the_app_and_answers(kit):
+    server, _pinned, _ = kit
+    from fantaclaude.asta.mcp import build_mcp
+    mcp_app = build_mcp(server, server.paths.db).http_app(path="/", transport="http", stateless_http=True)
+    app = create_app(server, mcp_app=mcp_app)
+    with TestClient(app) as client:
+        resp = client.post("/mcp/", json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                           headers={"accept": "application/json, text/event-stream",
+                                    "content-type": "application/json"})
+        assert resp.status_code != 404

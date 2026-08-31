@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.5",
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.4",
+    "fastmcp>=3.4.7",
 ]
 
 [project.scripts]

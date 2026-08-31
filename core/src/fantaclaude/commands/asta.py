@@ -201,7 +201,7 @@ def _settings(snapshot: Snapshot | None, run: PinnedRun) -> SessionSettings:
         raise NotReady(f"the session's settings cannot be read: {exc}") from None
 
 
-def _player(run: PinnedRun, key: str) -> PinnedPlayer:
+def player_of(run: PinnedRun, key: str) -> PinnedPlayer:
     if key.isdigit() and int(key) in run.players:
         return run.players[int(key)]
     match = match_listone(key, run.candidates())
@@ -212,6 +212,9 @@ def _player(run: PinnedRun, key: str) -> PinnedPlayer:
                          + (f"; did you mean {close}?" if close
                             else "; write him the listone's way, or give his id"))
     return run.players[match.player_id]
+
+
+_player = player_of
 
 
 def _check_mapping(board: Board, mapping: TeamMapping) -> None:
