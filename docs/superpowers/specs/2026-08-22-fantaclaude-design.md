@@ -1149,6 +1149,18 @@ SDK, no JavaScript, no second runtime.
   an `@`-shaped nick is replaced by its `teamId` before it can reach the snapshot,
   the dashboard or a tool result. The repository rule that an email address never
   reaches a tool result applies to the mirror too.
+- **The session code is refused at ingestion if it is not a name.** The feed's session
+  code is written into `data/asta-state.json` and becomes a path component under
+  `records/asta/` when `asta close` copies the night's record out. The adapter
+  therefore refuses a code carrying a path separator, `.`/`..`, or a control
+  character, at the moment it would write it — the same rule the nick scrub follows,
+  and for the same reason: a value that arrives from outside is sanitised where it
+  arrives, not where it is finally used. 2a guards the sink as well (`copy_to_records`
+  refuses such a code, and the `--session` flag refuses it as a usage error), but that
+  guard is a backstop. Left to the sink alone, a malformed code is discovered at
+  `close` — after the room has gone home, when the state file is the only record of
+  what was paid and the copy into `records/` is the one thing standing between it and
+  a gitignored disk.
 
 **Two identity joins, both resolved before the auction rather than during it.** The
 player join is Firebase `playerId` → listone `id`, and they are the same
