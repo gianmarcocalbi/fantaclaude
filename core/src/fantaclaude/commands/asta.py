@@ -454,6 +454,50 @@ def adjust(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, adjustment: Adju
                         _effect(after.board, player_id, cls))
 
 
+SERVER_URL_DEFAULT = "http://127.0.0.1:8765"
+
+
+def _server_payload(resp) -> dict[str, Any]:
+    try:
+        detail = resp.json().get("detail")
+    except ValueError:
+        detail = None
+    if resp.status_code == 200:
+        return resp.json()
+    message = detail or f"the server answered {resp.status_code}"
+    if resp.status_code == 422:
+        raise UsageError(message)
+    raise NotReady(message)          # 409 pending, 400 malformed file or unreadable session settings, anything else
+
+
+def server_adjust(url: str, adjustment: Adjustment, timeout: float = 5.0) -> dict[str, Any] | None:
+    """POST the adjustment to a running `asta serve`; None when nothing is
+    listening there -- the offline path appends directly and stays the one
+    writer. While a server runs, it is the one writer (spec, "Live
+    adjustments"), so the CLI never touches the file behind its back."""
+    import httpx
+
+    try:
+        resp = httpx.post(f"{url}/api/adjust", json=adjustment.to_entry(), timeout=timeout)
+    except httpx.ConnectError:
+        return None
+    return _server_payload(resp)
+
+
+def server_refresh(url: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Tell a running `asta serve` to reread adjustments.yml and the dossiers
+    and re-price the board. Unlike `server_adjust`, refresh has no offline
+    fallback -- it is a live-server action, so nothing listening is NotReady."""
+    import httpx
+
+    try:
+        resp = httpx.post(f"{url}/api/refresh", timeout=timeout)
+    except httpx.ConnectError:
+        raise NotReady(f"no `asta serve` is listening at {url} -- refresh re-prices a live board; "
+                       f"offline boards recompute on every command") from None
+    return _server_payload(resp)
+
+
 def close_auction(paths: AstaPaths, *, session_code: str | None = None) -> Path:
     """Copy the state file to records/ when the auction closes (live-event
     requirement 5): the days between the room and the transfer are not spent

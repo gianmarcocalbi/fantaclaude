@@ -806,6 +806,11 @@ FRESH_OPTION = typer.Option(False, "--fresh", help="Ignore any state file: an em
 ME_OPTION = typer.Option(None, "--me", help="My team, by label or id (a state file remembers it).")
 MAP_OPTION = typer.Option(None, "--map", help="team=nick -- bind a team to its dossier under kb/league/participants; repeatable.")
 SESSION_FILE_ARGUMENT = typer.Argument(..., help="A captured session: one state node per line (JSON lines).")
+# The literal is declared here, not imported from commands.asta, so the CLI module stays free of eager imports;
+# a test asserts it matches commands.asta.SERVER_URL_DEFAULT.
+SERVER_OPTION = typer.Option(
+    "http://127.0.0.1:8765", "--server",
+    help="The running asta serve to proxy through (adjust falls back to the offline path when nothing is listening).")
 SERVE_REPLAY_OPTION = typer.Option(
     None, "--replay", help="Serve a captured session (JSON lines) instead of the live feed -- the rehearsal.")
 SERVE_STATE_OPTION = typer.Option(
@@ -1032,6 +1037,15 @@ def _render_adjust(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_adjust_live(payload: dict) -> str:
+    lines = [(f"applied via the running server at {payload['applied_via']} "
+              f"({payload['count']} entries): {payload['described']}")]
+    if payload["player_id"] is not None:
+        lines.append(f"his band now: {_band(payload['band'])}")
+    lines += [f"problem: {p}" for p in payload["problems"]]
+    return "\n".join(lines)
+
+
 @asta_app.command("adjust")
 def asta_adjust_cmd(
     type_: str = typer.Option(..., "--type", help="value | exclude | target."),
@@ -1046,10 +1060,11 @@ def asta_adjust_cmd(
     scenario: str | None = ONE_SCENARIO_OPTION,
     state: Path | None = STATE_OPTION,
     fresh: bool = FRESH_OPTION,
+    server_: str = SERVER_OPTION,
 ) -> None:
-    """Append a belief to data/adjustments.yml -- a value factor, an exclusion, a target -- and show what it moved on the board."""
+    """Append a belief to data/adjustments.yml -- a value factor, an exclusion, a target -- and show what it moved on the board. Proxies to a running `asta serve` when one is listening: while the server runs it is the one writer of adjustments.yml, so this never appends behind its back."""
     from fantaclaude.asta.adjustments import AdjustmentsError, adjustment_from_entry
-    from fantaclaude.commands.asta import UsageError, adjust
+    from fantaclaude.commands.asta import UsageError, adjust, server_adjust
 
     raw = {k: v for k, v in (("player", player), ("player_id", player_id), ("type", type_), ("factor", factor),
                              ("class", class_), ("count", count), ("reason", reason)) if v is not None}
@@ -1058,6 +1073,18 @@ def asta_adjust_cmd(
             adjustment = adjustment_from_entry(raw, "asta adjust")
         except AdjustmentsError as exc:
             raise UsageError(str(exc)) from None
+
+        proxied = server_adjust(server_, adjustment)
+        if proxied is not None:
+            prices = proxied["board"].get("prices", {})
+            row = None if proxied.get("player_id") is None else prices.get(str(proxied["player_id"]))
+            emit({"applied_via": server_, "described": proxied["described"], "count": proxied["count"],
+                  "player_id": proxied.get("player_id"),
+                  "band": None if row is None else row["band"],
+                  "problems": proxied["board"].get("problems", [])},
+                 json_=json_, render=_render_adjust_live)
+            return
+
         con = _open_read_only()
         try:
             report = adjust(con, paths=_asta_paths(), adjustment=adjustment, run_id=run, scenario=scenario,
@@ -1078,6 +1105,23 @@ def asta_close_cmd(
     with _asta_errors():
         path = close_auction(_asta_paths(), session_code=session)
     emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
+
+
+@asta_app.command("refresh")
+def asta_refresh_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    server_: str = SERVER_OPTION,
+) -> None:
+    """Tell the running `asta serve` to reread data/adjustments.yml and the dossiers and re-price the board -- the hand-edited-file case (live-event requirement 6). Offline boards recompute on every command, so this needs the server."""
+    from fantaclaude.commands.asta import server_refresh
+
+    with _asta_errors():
+        payload = server_refresh(server_)
+    adj = payload["board"]["adjustments"]
+    emit({"applied_via": server_, "adjustments": adj, "problems": payload["problems"]}, json_=json_,
+         render=lambda p: f"refreshed via {p['applied_via']}: {p['adjustments']['count']} adjustment(s), "
+                          f"{p['adjustments']['applied']} applied"
+                          + ("".join(f"\nproblem: {q}" for q in p["problems"])))
 
 
 @asta_app.command("serve")

@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import httpx
+import pytest
+import respx
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.db.connection import connect
 from test_rank_cli import _workspace
@@ -8,6 +11,32 @@ from typer.testing import CliRunner
 
 runner = CliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "asta_session_sample.jsonl"
+
+ADJUST_URL = "http://127.0.0.1:8765/api/adjust"
+REFRESH_URL = "http://127.0.0.1:8765/api/refresh"
+
+# The tests below that predate the server proxy (`asta adjust` invoked with no
+# respx mock in place) must never let `server_adjust` attempt a real connect:
+# CLAUDE.md's "no test touches the network" is unconditional, and a real TCP
+# connect to 127.0.0.1:8765 is a real socket operation whose outcome depends
+# on whether something happens to be listening there on the machine running
+# the suite -- including a developer's own `asta serve`, running in another
+# terminal, which would silently reroute an "offline path" test onto the
+# proxy path it is not testing. The four tests below that prove the proxy
+# itself are excluded here: neutralising the probe for them would defeat what
+# they test.
+_OFFLINE_ADJUST_TESTS = {
+    "test_adjust_appends_and_shows_what_moved",
+    "test_a_database_that_cannot_answer_is_not_ready_not_a_crash",
+    "test_a_state_file_that_does_not_exist_is_a_bad_argument_not_an_empty_board",
+}
+
+
+@pytest.fixture(autouse=True)
+def _no_real_server_probe(request, monkeypatch):
+    if request.node.name in _OFFLINE_ADJUST_TESTS:
+        monkeypatch.setattr("fantaclaude.commands.asta.server_adjust", lambda *a, **k: None)
+
 
 DOSSIER = """---
 updated: 2026-08-30
@@ -450,3 +479,73 @@ def test_a_session_code_with_an_embedded_nul_is_refused_too(monkeypatch, tmp_pat
     # a sound code in the state file still closes cleanly
     _rewrite_state(state_file, session={"code": "FA-nri-okm"})
     assert runner.invoke(app, ["asta", "close"]).exit_code == ExitCode.OK
+
+
+def test_server_option_default_matches_the_proxy_helpers_default():
+    """The CLI module declares the server URL as its own literal, to stay free
+    of an eager import of commands.asta -- this pins the two from drifting."""
+    from fantaclaude.cli.app import SERVER_OPTION
+    from fantaclaude.commands.asta import SERVER_URL_DEFAULT
+
+    assert SERVER_OPTION.default == SERVER_URL_DEFAULT
+
+
+def _served_adjust_payload(pid):
+    return {"described": f"exclude player_id {pid} (room says gone)", "count": 3, "player_id": pid,
+            "board": {"prices": {}, "problems": [], "adjustments": {"count": 3, "applied": 3, "value_factor": {},
+                                                                    "excluded": [pid], "targets": {},
+                                                                    "problems": [], "sha256": ""}}}
+
+
+def test_adjust_proxies_to_a_running_server_and_writes_nothing_locally(monkeypatch, tmp_path, fixture_json,
+                                                                       mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(200, json=_served_adjust_payload(pid))
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone"])
+    assert r.exit_code == ExitCode.OK, r.output
+    assert "server" in r.output and "3 entries" in r.output
+    assert not (tmp_path / "data" / "adjustments.yml").exists()      # the server owns the file
+
+
+def test_adjust_falls_back_to_the_offline_path_when_nothing_listens(monkeypatch, tmp_path, fixture_json,
+                                                                    mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    with respx.mock:
+        respx.post(ADJUST_URL).mock(side_effect=httpx.ConnectError("nothing listening"))
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone"])
+    assert r.exit_code == ExitCode.OK, r.output
+    assert (tmp_path / "data" / "adjustments.yml").exists()          # offline: the CLI is the writer
+
+
+def test_adjust_maps_server_verdicts_onto_the_exit_contract(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(422, json={"detail": "'Nobody' is not in the pinned run"})
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player", "Nobody", "--reason", "x"])
+    assert r.exit_code == ExitCode.USAGE and "Nobody" in r.output
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(409, json={"detail": "the mapping screen has not been answered"})
+        r2 = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player", "Malen", "--reason", "x"])
+    assert r2.exit_code == ExitCode.NOT_READY
+
+
+def test_refresh_needs_a_running_server(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    with respx.mock:
+        respx.post(REFRESH_URL).mock(side_effect=httpx.ConnectError("nothing listening"))
+        r = runner.invoke(app, ["asta", "refresh"])
+    assert r.exit_code == ExitCode.NOT_READY and "asta serve" in r.output
+    with respx.mock:
+        respx.post(REFRESH_URL).respond(200, json={
+            "board": {"adjustments": {"count": 1, "applied": 1, "value_factor": {}, "excluded": [],
+                                      "targets": {}, "problems": [], "sha256": "ff"}},
+            "problems": []})
+        r2 = runner.invoke(app, ["asta", "refresh"])
+    assert r2.exit_code == ExitCode.OK and "1 applied" in r2.output
