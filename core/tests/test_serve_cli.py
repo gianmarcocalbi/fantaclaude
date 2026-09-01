@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -128,3 +129,64 @@ def test_serve_cli_validates_flags_then_hands_off_to_run_serve(monkeypatch, tmp_
     assert "run " in r.output and "http://127.0.0.1:9000" in r.output
     bad = runner.invoke(app, ["asta", "serve", "--replay", str(tmp_path / "nope.jsonl")])
     assert bad.exit_code == ExitCode.USAGE
+
+
+class _Recorder:
+    """Just enough AstaServer for the source tasks: the two calls they make."""
+
+    def __init__(self, boom):
+        self.boom = boom
+        self.statuses: list[str] = []
+
+    async def on_snapshot(self, snap):
+        raise self.boom
+
+    async def set_feed_status(self, status):
+        self.statuses.append(status)
+
+
+async def test_a_domain_error_out_of_a_snapshot_stops_the_feed_loudly_and_turns_the_dot_red(capsys):
+    # The failure this guards: SessionError (an admin changing a league
+    # setting mid-auction) is not a FeedError, so catching FeedError alone let
+    # it escape _feed_task and die as an unretrieved task exception -- the
+    # mirror stopped forever while feed_status stayed LIVE and the dashboard
+    # dot stayed green. Same hole for an OSError out of write_state.
+    from types import SimpleNamespace
+
+    from fantaclaude.asta.session import SessionError
+    from fantaclaude.commands import serve as serve_mod
+
+    for boom in (SessionError("settings.budget is not a number"), OSError("no space left on device")):
+        server = _Recorder(boom)
+
+        class _Feed:
+            def __init__(self, *a, _server=server, **k):
+                self.server = _server
+
+            async def run(self):
+                await self.server.on_snapshot(object())
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(serve_mod, "AstaLiveFeed", _Feed)
+            await serve_mod._feed_task(server, SimpleNamespace(session_code="FA-aaa-bbb", capture_path=None))
+        assert server.statuses == ["offline"]
+        assert str(boom) in capsys.readouterr().err
+
+
+async def test_a_replay_that_blows_up_reports_and_goes_offline_but_cancellation_does_not(capsys):
+    from fantaclaude.asta.session import SessionError
+    from fantaclaude.commands.serve import _replay_task
+
+    server = _Recorder(SessionError("settings.budget is not a number"))
+    await _replay_task(server, (object(),), 1.0)
+    assert server.statuses == ["offline"] and "settings.budget" in capsys.readouterr().err
+
+    quiet = _Recorder(None)
+
+    async def on_snapshot(snap):
+        raise asyncio.CancelledError
+
+    quiet.on_snapshot = on_snapshot
+    with pytest.raises(asyncio.CancelledError):
+        await _replay_task(quiet, (object(),), 1.0)
+    assert quiet.statuses == []                    # shutdown is not a dead feed

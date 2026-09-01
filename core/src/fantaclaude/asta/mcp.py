@@ -29,6 +29,24 @@ from fantaclaude.asta.pricing import explain as explain_price
 from fantaclaude.asta.session import SessionError
 from fantaclaude.commands.asta import UsageError, player_of
 
+MCP_PATH = "/mcp"
+"""Where create_app mounts this MCP."""
+MCP_URL_PATH = MCP_PATH + "/"
+"""The path a client must actually use, trailing slash included -- and so the
+path `.mcp.json` carries (a test asserts the two agree).
+
+The inner app is built with `path="/"`, so the mount answers `/mcp/`, never a
+bare `/mcp`. Starlette's `redirect_slashes` only fires when NO route matches,
+and in production the dashboard's `StaticFiles` mount at `/` matches
+everything -- it answers `/mcp` itself (404 for GET, 405 for POST: StaticFiles
+allows GET/HEAD alone) before the redirect is ever considered. The trailing
+slash is therefore the fix; the `/mcp` -> `/mcp/` redirect create_app also
+registers is ergonomics for a hand-typed URL, not something to rely on
+(httpx-based MCP clients default to follow_redirects=False)."""
+
+MAX_QUERY_ROWS = 500
+"""Hard ceiling on asta_query's `limit`: the argument comes from a model."""
+
 INSTRUCTIONS = (
     "Live read-and-adjust access to the fantaclaude auction board while `fantaclaude asta serve` runs. "
     "Bands and pressure are computed by the server; read them, explain them, and turn facts from the room "
@@ -132,7 +150,9 @@ def build_mcp(server: AstaServer, db_path: Path) -> FastMCP:
     async def asta_query(sql: str, limit: int = 50) -> dict[str, Any]:
         """Run one read-only SQL query against fanta.duckdb (players, history, valuations — see
         `fantaclaude schema`). Auction state is NOT in the database; use the board tools. Rows are
-        capped at `limit`."""
+        capped at `limit`, itself capped at 500."""
+        limit = min(max(limit, 1), MAX_QUERY_ROWS)   # the model supplies this; 10_000_000 rows would
+                                                      # be materialised in the worker thread, mid-auction
         def work() -> dict[str, Any]:
             con = duckdb.connect(str(db_path), read_only=True)
             try:

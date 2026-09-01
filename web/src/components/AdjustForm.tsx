@@ -14,6 +14,19 @@ type ApiErrorBody = { detail: string };
 const hasStringDetail = (x: unknown): x is ApiErrorBody =>
   typeof x === "object" && x !== null && typeof (x as { detail?: unknown }).detail === "string";
 
+/** The error body is *not* always JSON: an exception none of the four handlers
+ * in app.py names (an OSError out of write_state, say) is FastAPI's own
+ * PlainTextResponse("Internal Server Error"). A bare `await resp.json()`
+ * there rejects unhandled and the screen says nothing at all — the one thing
+ * this form must never do, since it is used all night. */
+const refusal = async (resp: Response): Promise<string> => {
+  try {
+    const body: unknown = await resp.json();
+    if (hasStringDetail(body)) return body.detail;
+  } catch { /* a non-JSON error body keeps the status message */ }
+  return `refused (${resp.status})`;
+};
+
 /** The dashboard's third of the one adjustments file: value / exclude /
  * target, always with a reason, POSTed to the one writer (the server).
  * The refresh button is the hand-edited-file case (live-event req. 6). */
@@ -25,36 +38,52 @@ export function AdjustForm({ board }: { board: BoardPayload }) {
   const [count, setCount] = useState("4");
   const [reason, setReason] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const classes = [...new Set(Object.values(board.prices).map(r => r.role_class))].sort();
 
   const submit = async () => {
+    if (busy) return;
+    setBusy(true);                                    // a double-click would append two entries to adjustments.yml
     setNote(null);
     const body: Record<string, unknown> = { type, reason };
     if (type === "target") { body["class"] = cls; body.count = Number(count); }
     else body.player = player;
     if (type === "value") body.factor = Number(factor);
-    const resp = await fetch("/api/adjust", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    });
-    if (resp.ok) {
-      const out: AdjustResult = await resp.json();
-      setNote(`applied: ${out.described}`);
-      setPlayer(""); setReason("");
-      return;
+    try {
+      const resp = await fetch("/api/adjust", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        const out: AdjustResult = await resp.json();
+        setNote(`applied: ${out.described}`);
+        setPlayer(""); setReason("");
+        return;
+      }
+      setNote(await refusal(resp));
+    } catch (e) {                                     // a dead server: say so, never fail silently
+      setNote(`the server did not answer: ${String(e)} — is \`asta serve\` still up?`);
+    } finally {
+      setBusy(false);
     }
-    const err: unknown = await resp.json();
-    setNote(hasStringDetail(err) ? err.detail : `refused (${resp.status})`);
   };
   const refresh = async () => {
-    const resp = await fetch("/api/refresh", { method: "POST" });
-    if (resp.ok) {
-      const out: RefreshResult = await resp.json();   // typed against the 200 contract; no field is read yet
-      void out;
-      setNote("refreshed from adjustments.yml and the dossiers");
-      return;
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const resp = await fetch("/api/refresh", { method: "POST" });
+      if (resp.ok) {
+        const out: RefreshResult = await resp.json();   // typed against the 200 contract; no field is read yet
+        void out;
+        setNote("refreshed from adjustments.yml and the dossiers");
+        return;
+      }
+      setNote(await refusal(resp));
+    } catch (e) {
+      setNote(`the server did not answer: ${String(e)} — is \`asta serve\` still up?`);
+    } finally {
+      setBusy(false);
     }
-    const err: unknown = await resp.json();
-    setNote(hasStringDetail(err) ? err.detail : `refused (${resp.status})`);
   };
 
   return (
@@ -91,8 +120,10 @@ export function AdjustForm({ board }: { board: BoardPayload }) {
       <Input value={reason} onChange={e => setReason(e.target.value)}
              placeholder="reason — the auction record explains itself" />
       <div className="flex gap-2">
-        <Button size="sm" onClick={submit} disabled={!reason || (type !== "target" && !player)}>apply</Button>
-        <Button size="sm" variant="outline" onClick={refresh}
+        <Button size="sm" onClick={submit} disabled={busy || !reason || (type !== "target" && !player)}>
+          {busy ? "…" : "apply"}
+        </Button>
+        <Button size="sm" variant="outline" onClick={refresh} disabled={busy}
                 title="reread adjustments.yml and the dossiers, re-price everything">refresh</Button>
       </div>
       {note && <p className="text-neutral-400">{note}</p>}

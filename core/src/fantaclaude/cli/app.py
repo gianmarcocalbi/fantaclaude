@@ -1138,7 +1138,7 @@ def asta_serve_cmd(
     port: int = typer.Option(8765, "--port", help="One port for the dashboard, the API, the WebSocket and the MCP."),
     no_capture: bool = typer.Option(False, "--no-capture", help="Live mode: do not append feed nodes to data/raw/asta_live/."),
 ) -> None:
-    """Serve the live board: mirror the FantaAstaLive session, price every change, and expose the dashboard (/), the API (/api), the WebSocket (/ws) and the fantaclaude-asta MCP (/mcp) from one process. The only network it touches is the Firebase session, read-only."""
+    """Serve the live board: mirror the FantaAstaLive session, price every change, and expose the dashboard (/), the API (/api), the WebSocket (/ws) and the fantaclaude-asta MCP (/mcp/) from one process. The only network it touches is the Firebase session, read-only."""
     import asyncio
 
     from fantaclaude.commands.serve import ServeOptions, prepare, run_serve
@@ -1158,7 +1158,7 @@ def asta_serve_cmd(
         typer.echo(plan.server.run.describe())
         for note in plan.notes:
             typer.echo(f"note: {note}")
-        typer.echo(f"serving {plan.mode} on http://{host}:{port}  (dashboard /, MCP /mcp) — Ctrl-C to stop")
+        typer.echo(f"serving {plan.mode} on http://{host}:{port}  (dashboard /, MCP /mcp/) — Ctrl-C to stop")
         asyncio.run(run_serve(plan, opts, paths))
 
 

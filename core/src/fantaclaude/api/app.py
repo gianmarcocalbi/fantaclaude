@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from fantaclaude.api.models import (
@@ -30,6 +30,7 @@ from fantaclaude.api.models import (
 )
 from fantaclaude.api.serve import AstaServer, PhaseError
 from fantaclaude.asta.adjustments import AdjustmentsError, adjustment_from_entry
+from fantaclaude.asta.mcp import MCP_PATH, MCP_URL_PATH
 from fantaclaude.asta.session import SessionError
 from fantaclaude.commands.asta import UsageError
 
@@ -114,7 +115,17 @@ def create_app(server: AstaServer | None, *, web_dist: Path | None = None,
             unsubscribe()
 
     if mcp_app is not None:
-        app.mount("/mcp", mcp_app)
+        # Registered *before* the mount, and before the static mount below:
+        # a bare /mcp matches no route otherwise, and in production the
+        # dashboard's catch-all StaticFiles answers it (404/405) before
+        # Starlette's redirect_slashes can. Ergonomics for a hand-typed URL
+        # only -- the URL that ships is MCP_URL_PATH, because httpx-based MCP
+        # clients default to follow_redirects=False.
+        @app.get(MCP_PATH, include_in_schema=False)
+        async def _mcp_slash() -> Any:
+            return RedirectResponse(MCP_URL_PATH, status_code=307)
+
+        app.mount(MCP_PATH, mcp_app)
     if web_dist is not None and (web_dist / "index.html").is_file():
         app.mount("/", StaticFiles(directory=web_dist, html=True))
     else:

@@ -25,10 +25,16 @@ export function MappingGate({ hello, connected }: { hello: HelloPayload; connect
     if (mine === null) { setError("pick your team"); return; }
     setError(null);
     const clean = Object.fromEntries(Object.entries(nicks).filter(([id, v]) => v && Number(id) !== mine));
-    const resp = await fetch("/api/mapping", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mine, nicks: clean }),
-    });
+    let resp: Response;
+    try {
+      resp = await fetch("/api/mapping", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mine, nicks: clean }),
+      });
+    } catch (e) {                 // a dead server rejects the fetch itself; say so rather than nothing
+      setError(`the server did not answer: ${String(e)} — is \`asta serve\` still up?`);
+      return;
+    }
     if (!resp.ok) {
       let detail = `mapping refused (${resp.status})`;
       try { detail = (await resp.json()).detail ?? detail; } catch { /* a non-JSON error body keeps the status message */ }

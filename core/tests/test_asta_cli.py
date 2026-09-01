@@ -15,27 +15,47 @@ FIXTURE = Path(__file__).parent / "fixtures" / "asta_session_sample.jsonl"
 ADJUST_URL = "http://127.0.0.1:8765/api/adjust"
 REFRESH_URL = "http://127.0.0.1:8765/api/refresh"
 
-# The tests below that predate the server proxy (`asta adjust` invoked with no
-# respx mock in place) must never let `server_adjust` attempt a real connect:
-# CLAUDE.md's "no test touches the network" is unconditional, and a real TCP
-# connect to 127.0.0.1:8765 is a real socket operation whose outcome depends
-# on whether something happens to be listening there on the machine running
-# the suite -- including a developer's own `asta serve`, running in another
-# terminal, which would silently reroute an "offline path" test onto the
-# proxy path it is not testing. The four tests below that prove the proxy
-# itself are excluded here: neutralising the probe for them would defeat what
-# they test.
-_OFFLINE_ADJUST_TESTS = {
-    "test_adjust_appends_and_shows_what_moved",
-    "test_a_database_that_cannot_answer_is_not_ready_not_a_crash",
-    "test_a_state_file_that_does_not_exist_is_a_bad_argument_not_an_empty_board",
-}
+# No test in this file may let `server_adjust` or `server_refresh` attempt a
+# real connect: CLAUDE.md's "no test touches the network" is unconditional,
+# and a TCP connect to 127.0.0.1:8765 is a real socket operation whose outcome
+# depends on whether something happens to be listening there on the machine
+# running the suite -- a developer's own `asta serve` in another terminal
+# would silently reroute an "offline path" test onto the proxy path it is not
+# testing.
+#
+# So the neutraliser is default-on and opt-out, never an allowlist. An
+# allowlist fails *open*: a new test calling `asta adjust` gets the real
+# `server_adjust`, and because that swallows httpx.ConnectError and returns
+# None it still passes -- right up to the machine that has something on 8765.
+# A guard that fails open is not a guard. The four tests that prove the proxy
+# itself opt back in by requesting `real_server_proxy`, and drive the real
+# functions through respx.
+
+
+@pytest.fixture
+def real_server_proxy():
+    """Opt out of the neutraliser below: this test drives the real
+    `server_adjust`/`server_refresh`, with respx standing in for the socket."""
+    return True
+
+
+def _no_server_listening(*_args, **_kwargs):
+    """What `server_adjust` returns when nothing is on 8765: fall back to the
+    offline path, which is what every non-proxy test in this file expects."""
+    return
+
+
+def _refuse_refresh(url: str, *_args, **_kwargs):
+    from fantaclaude.commands.ingest import NotReady
+    raise NotReady(f"no `asta serve` is listening at {url} (neutralised in tests)")
 
 
 @pytest.fixture(autouse=True)
 def _no_real_server_probe(request, monkeypatch):
-    if request.node.name in _OFFLINE_ADJUST_TESTS:
-        monkeypatch.setattr("fantaclaude.commands.asta.server_adjust", lambda *a, **k: None)
+    if "real_server_proxy" in request.fixturenames:
+        return
+    monkeypatch.setattr("fantaclaude.commands.asta.server_adjust", _no_server_listening)
+    monkeypatch.setattr("fantaclaude.commands.asta.server_refresh", _refuse_refresh)
 
 
 DOSSIER = """---
@@ -497,8 +517,8 @@ def _served_adjust_payload(pid):
                                                                     "problems": [], "sha256": ""}}}
 
 
-def test_adjust_proxies_to_a_running_server_and_writes_nothing_locally(monkeypatch, tmp_path, fixture_json,
-                                                                       mcp_fixture_json):
+def test_adjust_proxies_to_a_running_server_and_writes_nothing_locally(real_server_proxy, monkeypatch, tmp_path,
+                                                                       fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     board = runner.invoke(app, ["asta", "board", "--json"])
     pid = int(next(iter(json.loads(board.stdout)["prices"])))
@@ -511,8 +531,8 @@ def test_adjust_proxies_to_a_running_server_and_writes_nothing_locally(monkeypat
     assert not (tmp_path / "data" / "adjustments.yml").exists()      # the server owns the file
 
 
-def test_adjust_falls_back_to_the_offline_path_when_nothing_listens(monkeypatch, tmp_path, fixture_json,
-                                                                    mcp_fixture_json):
+def test_adjust_falls_back_to_the_offline_path_when_nothing_listens(real_server_proxy, monkeypatch, tmp_path,
+                                                                    fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     board = runner.invoke(app, ["asta", "board", "--json"])
     pid = int(next(iter(json.loads(board.stdout)["prices"])))
@@ -524,7 +544,8 @@ def test_adjust_falls_back_to_the_offline_path_when_nothing_listens(monkeypatch,
     assert (tmp_path / "data" / "adjustments.yml").exists()          # offline: the CLI is the writer
 
 
-def test_adjust_maps_server_verdicts_onto_the_exit_contract(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+def test_adjust_maps_server_verdicts_onto_the_exit_contract(real_server_proxy, monkeypatch, tmp_path, fixture_json,
+                                                            mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     with respx.mock:
         respx.post(ADJUST_URL).respond(422, json={"detail": "'Nobody' is not in the pinned run"})
@@ -536,7 +557,7 @@ def test_adjust_maps_server_verdicts_onto_the_exit_contract(monkeypatch, tmp_pat
     assert r2.exit_code == ExitCode.NOT_READY
 
 
-def test_refresh_needs_a_running_server(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+def test_refresh_needs_a_running_server(real_server_proxy, monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     with respx.mock:
         respx.post(REFRESH_URL).mock(side_effect=httpx.ConnectError("nothing listening"))

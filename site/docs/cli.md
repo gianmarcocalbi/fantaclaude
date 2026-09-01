@@ -37,7 +37,7 @@ FA-xxx-xxx` for the live FantaAstaLive feed over Firebase, `--replay <capture>
 --speed N` to rehearse from a captured session, `--state [file]` to review a
 finished one (`data/asta-state.json` if the argument is omitted) — and one
 process serves all of it: the dashboard at `/`, the REST API under `/api`,
-the WebSocket at `/ws`, and the `fantaclaude-asta` MCP at `/mcp`, all on one
+the WebSocket at `/ws`, and the `fantaclaude-asta` MCP at `/mcp/`, all on one
 `--host`/`--port` (default `127.0.0.1:8765`, localhost by design). The first
 thing it asks, live or replayed, is the mapping screen — who is mine
 (`--me`), which dossier each rival maps to (`--map team=nick`) — before the

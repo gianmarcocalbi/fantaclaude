@@ -45,5 +45,7 @@ the same in-memory board the dashboard shows:
 `asta_query` is the one tool that touches the database: it opens
 `fanta.duckdb` read-only, per call, inside a threadpool, so an analytical
 scan never blocks the WebSocket. `.mcp.json` carries the server as
-`{"type": "http", "url": "http://127.0.0.1:8765/mcp"}` — it resolves once
-`asta serve` is up and answers connection refused otherwise.
+`{"type": "http", "url": "http://127.0.0.1:8765/mcp/"}` — the trailing slash
+is load-bearing, because the dashboard's static mount at `/` answers a bare
+`/mcp` before Starlette's redirect can. It resolves once `asta serve` is up
+and answers connection refused otherwise.

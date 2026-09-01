@@ -277,6 +277,17 @@ class AstaLiveFeed:
                     raise httpx.HTTPStatusError(
                         "unauthorized", request=resp.request, response=resp
                     )
+                if resp.status_code >= 500 or resp.status_code == 429:
+                    # Google's edge, not the session: a 503 or a rate-limit is
+                    # the textbook case that *does* recover by retrying, and
+                    # FeedError is reserved (see this module's docstring) for
+                    # what never can. Raise the transport error run()'s
+                    # backoff already handles, exactly like the 401/403 branch.
+                    raise httpx.HTTPStatusError(
+                        f"the feed answered {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
                 raise FeedError(
                     f"the feed answered {resp.status_code} for session {self.session_code}"
                 )

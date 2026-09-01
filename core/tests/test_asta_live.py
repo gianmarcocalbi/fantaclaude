@@ -434,6 +434,72 @@ async def test_no_such_session_and_cancel_are_fatal():
             await feed.run()
 
 
+@respx.mock
+async def test_a_5xx_from_the_edge_is_retried_but_another_4xx_is_still_fatal():
+    # FeedError is reserved for what can never recover by retrying (module
+    # docstring). A 503 from Google's edge is the textbook case that *does*
+    # recover: raising FeedError there ended the mirror for good on one bad
+    # response, on a night that happens once.
+    respx.post(SIGNUP_URL).respond(
+        200,
+        json={
+            "idToken": "tok",
+            "refreshToken": "ref",
+            "expiresIn": "3600",
+            "localId": "anon",
+        },
+    )
+    route = respx.get("https://db.example/sessions/FA-nri-okm/state.json")
+    route.side_effect = [
+        httpx.Response(503, text="upstream unavailable"),  # the edge, briefly
+        httpx.Response(429, text="slow down"),  # rate-limited, also transient
+        _stream_response(_frames(("put", {"path": "/", "data": NODE}))),  # back
+    ]
+    statuses: list[str] = []
+    slept: list[float] = []
+    done = asyncio.Event()
+
+    async def on_snapshot(_snap):
+        done.set()
+
+    async def on_status(status):
+        statuses.append(status)
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    async with httpx.AsyncClient() as client:
+        feed = AstaLiveFeed(
+            "FA-nri-okm",
+            client=client,
+            on_snapshot=on_snapshot,
+            on_status=on_status,
+            database_url="https://db.example",
+            sleep=fake_sleep,
+        )
+        await _run_feed(feed, done)
+    assert done.is_set()  # the mirror survived both and resumed
+    assert statuses[:2] == [RECONNECTING, RECONNECTING] and LIVE in statuses
+    assert slept[:2] == [1.0, 2.0]  # the existing backoff, not a new retry loop
+
+    respx.get("https://db.example/sessions/FA-gone/state.json").respond(404)
+    async def nothing(_):
+        pass
+
+    async with httpx.AsyncClient() as client:
+        feed = AstaLiveFeed(
+            "FA-gone",
+            client=client,
+            on_snapshot=nothing,
+            on_status=nothing,
+            database_url="https://db.example",
+            sleep=lambda s: asyncio.sleep(0),
+        )
+        with pytest.raises(FeedError) as err:
+            await feed.run()
+    assert "404" in str(err.value) and "FA-gone" in str(err.value)
+
+
 def test_asta_captures_dir_is_under_raw(monkeypatch, tmp_path):
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
     from fantaclaude.paths import asta_captures_dir, raw_dir

@@ -1,11 +1,18 @@
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
+
 import pytest
 from fantaclaude.api.app import create_app
 from fantaclaude.api.serve import AstaServer
 from fantaclaude.asta.adjustments import EMPTY_LAYER
+from fantaclaude.asta.mcp import MCP_PATH
 from fantaclaude.asta.state import parse_snapshot
 from fantaclaude.commands.asta import AstaPaths
 from starlette.testclient import TestClient
 from test_advisor import SESSION, pinned_run
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def snap(picks, *, selected=None, teams=(0, 1, 2), settings=SESSION):
@@ -125,20 +132,47 @@ def test_the_schema_dump_app_needs_no_server():
         assert client.get("/api/hello").status_code == 503
 
 
-def test_the_mcp_mounts_under_the_app_and_answers(kit):
+def shipped_mcp_url() -> str:
+    """The URL `.mcp.json` hands to the MCP client -- the one thing production
+    actually dials."""
+    config = json.loads((REPO_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+    return config["mcpServers"]["fantaclaude-asta"]["url"]
+
+
+def test_the_shipped_mcp_url_is_the_path_the_app_serves():
+    # The guard that would have caught the ship-broken URL: `.mcp.json` is
+    # hand-written and the mount path is code, and nothing else compares them.
+    from fantaclaude.asta.mcp import MCP_URL_PATH
+    assert urlsplit(shipped_mcp_url()).path == MCP_URL_PATH
+
+
+def test_the_mcp_mounts_under_the_app_and_answers(kit, tmp_path):
+    # Built the way production builds it -- *with* a dashboard, whose
+    # StaticFiles mount at "/" is what swallowed a bare /mcp -- and driven at
+    # the path .mcp.json actually carries, not a hardcoded working one.
     server, _pinned, _ = kit
     from fantaclaude.asta.mcp import build_mcp
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<title>fantaclaude asta</title>", encoding="utf-8")
     mcp_app = build_mcp(server, server.paths.db).http_app(path="/", transport="http", stateless_http=True)
-    app = create_app(server, mcp_app=mcp_app)
+    app = create_app(server, web_dist=dist, mcp_app=mcp_app)
+    path = urlsplit(shipped_mcp_url()).path
     with TestClient(app) as client:
-        resp = client.post("/mcp/", json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+        resp = client.post(path, json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
                            headers={"accept": "application/json, text/event-stream",
                                     "content-type": "application/json"})
-        assert resp.status_code != 404
+        assert resp.status_code == 200, f"{path} answered {resp.status_code}: {resp.text[:200]}"
+        body = resp.text
+        if resp.headers["content-type"].startswith("text/event-stream"):   # one SSE frame carries the reply
+            body = next(line[len("data: "):] for line in body.splitlines() if line.startswith("data: "))
+        answer = json.loads(body)
+        assert answer["jsonrpc"] == "2.0" and answer["id"] == 1 and answer["result"] == {}
+        # and the hand-typed form still lands somewhere useful rather than on the dashboard's 404
+        assert client.get(MCP_PATH, follow_redirects=False).status_code == 307
 
 
 def test_openapi_dump_writes_the_document(tmp_path, monkeypatch):
-    import json
     import sys
 
     from fantaclaude.api import openapi_dump

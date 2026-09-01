@@ -170,8 +170,9 @@ class AstaServer:
                 entries = append_adjustment(self.paths.adjustments, adjustment)
                 layer = resolve(load_adjustments(self.paths.adjustments), self.run.candidates(),
                                  sha256=file_sha256(self.paths.adjustments))
-                self.layer = layer
-                return len(entries), self._mutate_and_write(Refresh(layer=layer))
+                result = self._mutate_and_write(Refresh(layer=layer))
+                self.layer = layer      # after the mutation, never before: a raising _mutate_and_write
+                return len(entries), result   # would otherwise leave self.layer ahead of self.auction
             count, result = await asyncio.to_thread(work)
         await self._broadcast_board(result)
         return {"described": adjustment.describe(), "count": count, "player_id": player_id,
@@ -184,8 +185,9 @@ class AstaServer:
                 layer = resolve(load_adjustments(self.paths.adjustments), self.run.candidates(),
                                  sha256=file_sha256(self.paths.adjustments))       # AdjustmentsError propagates; the previous layer stands
                 participants = {p.nick: p for p in load_participants(self.paths.kb)} if self.paths.kb.is_dir() else {}
-                self.layer, self.participants = layer, participants
-                return self._mutate_and_write(Refresh(layer=layer, participants=participants))
+                result = self._mutate_and_write(Refresh(layer=layer, participants=participants))
+                self.layer, self.participants = layer, participants   # after the mutation, never before
+                return result
             result = await asyncio.to_thread(work)
         await self._broadcast_board(result)
         return {"board": result.board.to_dict(), "problems": list(result.board.problems)}
@@ -228,6 +230,13 @@ class AstaServer:
         write_state(self.paths.state, render_state(board, session_code=self.session_code, written_at=utc_now()))
 
     async def _broadcast_board(self, result: MutationResult) -> None:
+        # Called outside the lock, so two mutations can in principle broadcast
+        # out of order. Accepted: the state file, not frame order, is the
+        # authority, and every frame carries a *whole* board rather than a
+        # delta -- so a reordered pair self-corrects on the next frame, and
+        # the next frame is the very next mutation. Broadcasting under the
+        # lock would instead make one slow WebSocket client hold up the
+        # mirror, which is the failure that actually costs a lot.
         labels = {tid: ledger.label for tid, ledger in result.board.ledgers.items()}
         events = [describe_event(e, self.run, labels) for e in result.events]
         await self._broadcast({"type": "board", "board": result.board.to_dict(), "events": events})

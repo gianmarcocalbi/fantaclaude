@@ -14,6 +14,10 @@ before, the drills, and the after.
 - Rehearse: `fantaclaude asta serve --replay <capture> --speed 5` and run
   the drills below. A capture with picks comes from the rehearsal itself
   (`data/raw/asta_live/…`) or from `core/tests/fixtures/asta_session_sample.jsonl`.
+- **Never run `asta replay --write-state` while a server is running**: it is a
+  second writer of `data/asta-state.json` and would clobber the server's
+  mirror with the replayed board. Replay through `asta serve --replay`
+  instead, or stop the server first.
 
 ## Drills (each proven once before the night)
 

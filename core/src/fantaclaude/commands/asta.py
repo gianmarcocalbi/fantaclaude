@@ -459,11 +459,14 @@ SERVER_URL_DEFAULT = "http://127.0.0.1:8765"
 
 def _server_payload(resp) -> dict[str, Any]:
     try:
-        detail = resp.json().get("detail")
+        body = resp.json()                      # parsed once: the 200 path read it a second time
     except ValueError:
-        detail = None
+        body = None
     if resp.status_code == 200:
-        return resp.json()
+        if not isinstance(body, dict):
+            raise NotReady(f"the server answered 200 with a body this client cannot read: {resp.text[:120]!r}")
+        return body
+    detail = body.get("detail") if isinstance(body, dict) else None
     message = detail or f"the server answered {resp.status_code}"
     if resp.status_code == 422:
         raise UsageError(message)
@@ -479,7 +482,11 @@ def server_adjust(url: str, adjustment: Adjustment, timeout: float = 5.0) -> dic
 
     try:
         resp = httpx.post(f"{url}/api/adjust", json=adjustment.to_entry(), timeout=timeout)
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        # Both mean the connection never came up, so nothing is serving and
+        # the offline path is safe. A *read* timeout is deliberately not here:
+        # the server accepted, may well have written the file, and falling
+        # back would make a second writer of it.
         return None
     return _server_payload(resp)
 
@@ -492,7 +499,7 @@ def server_refresh(url: str, timeout: float = 30.0) -> dict[str, Any]:
 
     try:
         resp = httpx.post(f"{url}/api/refresh", timeout=timeout)
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.ConnectTimeout):
         raise NotReady(f"no `asta serve` is listening at {url} -- refresh re-prices a live board; "
                        f"offline boards recompute on every command") from None
     return _server_payload(resp)

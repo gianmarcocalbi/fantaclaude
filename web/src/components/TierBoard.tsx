@@ -33,7 +33,7 @@ export function TierBoard({ board }: { board: BoardPayload }) {
                 {rows.map(r => (
                   <tr key={r.player_id} className={r.player_id === board.selected ? "bg-neutral-700/50" : ""}>
                     <td className="py-0.5 pr-1 text-neutral-600 tabular-nums">t{r.tier}</td>
-                    <td className="py-0.5 pr-2 truncate max-w-40">{r.name} <span className="text-neutral-600">{r.team_short}</span></td>
+                    <td className="py-0.5 pr-2 truncate max-w-40" title={r.name}>{r.name} <span className="text-neutral-600">{r.team_short}</span></td>
                     <td className="py-0.5 text-right tabular-nums whitespace-nowrap">{band(r.band)}</td>
                     <td className="py-0.5 pl-2 text-right tabular-nums text-neutral-500" title="room likely to">
                       {r.pressure ? r.pressure.estimate : ""}

@@ -4,9 +4,12 @@ loads the layer and the dossiers, chooses exactly one source — the live
 feed, a replayed capture, or the state file — and serves the dashboard,
 the REST API, the WebSocket and the fantaclaude-asta MCP from one uvicorn.
 
-The feed dying is not the server dying: a fatal FeedError is reported and
-the board stands on its last state (the printed tier board is the
-backstop); transport drops reconnect with backoff inside the adapter.
+The feed dying is not the server dying: anything fatal to the source task —
+a FeedError, but equally a SessionError out of a settings node that changed
+mid-auction or an OSError out of the state file — is reported on stderr, the
+feed dot goes red, and the board stands on its last state (the printed tier
+board is the backstop). Transport drops reconnect with backoff inside the
+adapter.
 """
 
 from __future__ import annotations
@@ -133,10 +136,37 @@ def prepare(con: duckdb.DuckDBPyConnection, paths: AstaPaths, opts: ServeOptions
     return ServePlan(server, "state", stored.session_code, (), stored.snapshot, None, tuple(notes))
 
 
+async def _died(server: AstaServer, message: str) -> None:
+    """A source task has stopped for good. Say so on stderr and turn the dot
+    red -- never leave it green.
+
+    This is the whole point of the feed dot (spec: "a silently dead feed and a
+    quiet auction look identical from across the table"). The mirror is fed by
+    much more than the transport: on_snapshot -> Auction.mutate ->
+    session_from_feed raises SessionError on a settings node it cannot read
+    (the admin changes a league setting mid-auction), write_state raises
+    OSError on a full disk, describe_event can raise on its own. None of those
+    is a FeedError and none is caught inside AstaLiveFeed.run(); catching
+    FeedError alone let them escape the task and die as an unretrieved
+    exception, while run_serve -- which does not await the side task until
+    shutdown -- kept uvicorn serving a green dot over a mirror that had
+    stopped forever."""
+    typer.echo(message, err=True)
+    try:
+        await server.set_feed_status(OFFLINE)
+    except Exception as exc:                    # noqa: BLE001 -- the report is the last thing left; it must land
+        typer.echo(f"and the feed status could not even be broadcast: {exc!r}", err=True)
+
+
 async def _replay_task(server: AstaServer, snapshots: tuple[Snapshot, ...], speed: float) -> None:
-    for snap in snapshots:
-        await server.on_snapshot(snap)
-        await asyncio.sleep(REPLAY_INTERVAL / speed)
+    try:
+        for snap in snapshots:
+            await server.on_snapshot(snap)
+            await asyncio.sleep(REPLAY_INTERVAL / speed)
+    except asyncio.CancelledError:
+        raise                                   # shutdown, not a failure
+    except Exception as exc:                    # noqa: BLE001 -- see _died
+        await _died(server, f"the replay stopped: {exc!r} — the board stands on its last state")
 
 
 async def _feed_task(server: AstaServer, plan: ServePlan) -> None:
@@ -145,9 +175,12 @@ async def _feed_task(server: AstaServer, plan: ServePlan) -> None:
                             on_status=server.set_feed_status, capture=plan.capture_path)
         try:
             await feed.run()
+        except asyncio.CancelledError:
+            raise                               # shutdown, not a failure
         except FeedError as exc:
-            typer.echo(f"the feed is gone: {exc} — the board stands on its last state", err=True)
-            await server.set_feed_status(OFFLINE)
+            await _died(server, f"the feed is gone: {exc} — the board stands on its last state")
+        except Exception as exc:                # noqa: BLE001 -- see _died
+            await _died(server, f"the mirror stopped: {exc!r} — the board stands on its last state")
 
 
 async def run_serve(plan: ServePlan, opts: ServeOptions, paths: AstaPaths) -> None:

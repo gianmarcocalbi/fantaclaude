@@ -1,32 +1,15 @@
-# React + TypeScript + Vite
+# web — the asta dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The auction-night dashboard (React + Vite + Tailwind), served by `fantaclaude
+asta serve` from the same process and port as the API, the WebSocket and the
+`fantaclaude-asta` MCP.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- `uv run poe types` — regenerate `src/api/schema.d.ts` from the FastAPI app's
+  own OpenAPI document. Run it whenever `core/src/fantaclaude/api/models.py`
+  changes; the payload types are never hand-written.
+- `uv run poe web-build` — type-check and build into `web/dist/`.
+- `uv run poe web-dev` — Vite's dev server alongside `asta serve --replay` on
+  the sample capture, with `/api` and `/ws` proxied to it.
+- `web/dist/` is what FastAPI mounts at `/`. It is gitignored, so a fresh
+  clone serves a "run `poe web-build`" hint until you build it — which is what
+  `fantaclaude doctor`'s `dashboard` check reports.
