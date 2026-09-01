@@ -19,7 +19,7 @@ the league API looks like" in this codebase.
 ## The fantaclaude-asta server
 
 `fantaclaude asta serve` runs a second MCP server, `fantaclaude-asta`, over
-HTTP at `/mcp` on the same process and port as the dashboard. It is not a
+HTTP at `/mcp/` on the same process and port as the dashboard. It is not a
 separate command and not always available: it exists only while an auction
 is being served, and that is correct rather than a limitation — there is no
 board to answer questions about otherwise. Six tools, all reading or writing

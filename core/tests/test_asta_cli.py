@@ -557,6 +557,48 @@ def test_adjust_maps_server_verdicts_onto_the_exit_contract(real_server_proxy, m
     assert r2.exit_code == ExitCode.NOT_READY
 
 
+def test_a_reached_but_failed_exchange_is_not_ready_and_never_a_traceback(real_server_proxy, monkeypatch, tmp_path,
+                                                                          fixture_json, mcp_fixture_json):
+    """Only ConnectError/ConnectTimeout mean "nothing is serving". Everything
+    else httpx raises used to sail past `_asta_errors` -- which maps NotReady,
+    duckdb.Error, UsageError and UnknownScenarioError, and nothing else -- and
+    land as a Python traceback with exit 1, mid-auction: a ReadTimeout when a
+    re-derive plus the fsync'd write runs long, a RemoteProtocolError when the
+    server restarts mid-request, an UnsupportedProtocol from a typo'd
+    --server. Exit 3, with a message, and the file still untouched: the server
+    may well have taken the write, so falling back would make a second writer
+    of data/adjustments.yml."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    adjustments = tmp_path / "data" / "adjustments.yml"
+    for boom in (httpx.ReadTimeout("the re-derive ran long"),
+                 httpx.RemoteProtocolError("server disconnected without sending a response"),
+                 httpx.PoolTimeout("no connection available")):
+        with respx.mock:
+            respx.post(ADJUST_URL).mock(side_effect=boom)
+            r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                    "--reason", "room says gone"])
+        assert r.exit_code == ExitCode.NOT_READY, (boom, r.exit_code, r.output, r.exception)
+        assert "was reached but the" in r.stderr and "will not append behind its back" in r.stderr
+        assert not adjustments.exists(), boom            # the CLI did not become a second writer
+
+    # a typo'd --server never reaches a socket at all: httpx refuses the scheme
+    # (UnsupportedProtocol) or the URL (InvalidURL, which is not an HTTPError)
+    for bad_url in ("localhost:8765", "ftp://127.0.0.1:8765"):
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone", "--server", bad_url])
+        assert r.exit_code == ExitCode.NOT_READY, (bad_url, r.exit_code, r.output, r.exception)
+        assert not adjustments.exists(), bad_url
+
+    # and refresh, which has no offline path at all, answers the same way
+    with respx.mock:
+        respx.post(REFRESH_URL).mock(side_effect=httpx.ReadTimeout("the re-derive ran long"))
+        r = runner.invoke(app, ["asta", "refresh"])
+    assert r.exit_code == ExitCode.NOT_READY, (r.exit_code, r.output, r.exception)
+    assert "was reached but the refresh exchange failed" in r.stderr
+
+
 def test_refresh_needs_a_running_server(real_server_proxy, monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     with respx.mock:

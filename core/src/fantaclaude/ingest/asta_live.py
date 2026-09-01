@@ -142,11 +142,29 @@ class AnonymousAuth:
     @staticmethod
     def _payload(resp: httpx.Response, what: str) -> dict[str, Any]:
         if resp.status_code != 200:
+            if resp.status_code >= 500 or resp.status_code == 429:
+                # Google's identity edge having a bad minute, not a refused
+                # sign-in: FeedError is reserved (module docstring) for what
+                # can never recover by retrying, and run() never retries one.
+                # The stream endpoint already gets this treatment; auth did
+                # not, so the token refresh ~55 minutes into the auction
+                # meeting a 503 -- _refresh raises, token() falls through to
+                # _signup(), which meets the same 503 -- killed the mirror for
+                # the rest of the night, one retry away from fine. Raise the
+                # transport error run()'s backoff already handles instead.
+                raise httpx.HTTPStatusError(
+                    f"{what} answered {resp.status_code}",
+                    request=resp.request,
+                    response=resp,
+                )
             code = None
             try:
                 code = resp.json().get("error", {}).get("message")
             except json.JSONDecodeError, AttributeError:
                 pass
+            # Every other non-200 stays a FeedError, which is what token()
+            # catches to fall back from a refused refresh (400 TOKEN_EXPIRED)
+            # to a fresh anonymous sign-up.
             raise FeedError(
                 f"{what} answered {resp.status_code}" + (f" ({code})" if code else "")
             )
@@ -304,15 +322,15 @@ class AstaLiveFeed:
                     )
                 if event not in ("put", "patch"):
                     continue
-                body = json.loads(data)
+                path, payload = self._decode(event, data, resp.request)
                 if event == "put":
-                    if body.get("path") in ("/", "") and body.get("data") is None:
+                    if path in ("/", "") and payload is None:
                         raise FeedError(
                             f"no session {self.session_code} is being served"
                         )
-                    self._node = apply_put(self._node, body["path"], body["data"])
+                    self._node = apply_put(self._node, path, payload)
                 else:
-                    self._node = apply_patch(self._node, body["path"], body["data"])
+                    self._node = apply_patch(self._node, path, payload)
                 try:
                     snap = parse_snapshot(self._node)
                 except SnapshotError as exc:
@@ -325,6 +343,31 @@ class AstaLiveFeed:
                 self._write_capture()
                 await self._on_snapshot(snap)
             return not first
+
+    def _decode(
+        self, event: str, data: str, request: httpx.Request
+    ) -> tuple[str, Any]:
+        """The (path, data) a put/patch frame carries.
+
+        A frame that will not decode is a torn *transport*, not a session this
+        mirror cannot read: the bytes arrived damaged, and the next connect
+        refetches a fresh full `put` that supersedes whatever was lost. So it
+        raises the transport error run()'s backoff already handles, where a
+        bare JSONDecodeError or KeyError used to escape _stream_once and end
+        the mirror for the night.
+
+        The SnapshotError on the maintained node, a few lines below, stays
+        fatal on purpose -- that one says the auction's own shape is not one
+        this code reads, and reconnecting would deliver it again. The mirror
+        never guesses."""
+        try:
+            body = json.loads(data)
+            return body["path"], body["data"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise httpx.RemoteProtocolError(
+                f"session {self.session_code}: an unreadable {event} frame ({exc})",
+                request=request,
+            ) from None
 
     def _write_capture(self) -> None:
         if self._capture is None:

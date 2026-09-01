@@ -1134,20 +1134,18 @@ def asta_serve_cmd(
     scenario: str | None = ONE_SCENARIO_OPTION,
     me: str | None = ME_OPTION,
     map_: list[str] | None = MAP_OPTION,
-    host: str = typer.Option("127.0.0.1", "--host", help="Bind address. Localhost by design: the room is not served."),
-    port: int = typer.Option(8765, "--port", help="One port for the dashboard, the API, the WebSocket and the MCP."),
     no_capture: bool = typer.Option(False, "--no-capture", help="Live mode: do not append feed nodes to data/raw/asta_live/."),
 ) -> None:
-    """Serve the live board: mirror the FantaAstaLive session, price every change, and expose the dashboard (/), the API (/api), the WebSocket (/ws) and the fantaclaude-asta MCP (/mcp/) from one process. The only network it touches is the Firebase session, read-only."""
+    """Serve the live board: mirror the FantaAstaLive session, price every change, and expose the dashboard (/), the API (/api), the WebSocket (/ws) and the fantaclaude-asta MCP (/mcp/) from one process, on 127.0.0.1:8765 and nowhere else. The only network it touches is the Firebase session, read-only."""
     import asyncio
 
+    from fantaclaude.commands.asta import SERVER_URL_DEFAULT
     from fantaclaude.commands.serve import ServeOptions, prepare, run_serve
 
     if session is None and replay is None and state is None:
         session = typer.prompt("FantaAstaLive session code (FA-xxx-xxx)")
     opts = ServeOptions(session=session, replay=replay, speed=speed, state=state, run_id=run,
-                        scenario=scenario, me=me, maps=tuple(map_ or ()), host=host, port=port,
-                        capture=not no_capture)
+                        scenario=scenario, me=me, maps=tuple(map_ or ()), capture=not no_capture)
     paths = _asta_paths()
     with _asta_errors():
         con = _open_read_only()
@@ -1158,7 +1156,7 @@ def asta_serve_cmd(
         typer.echo(plan.server.run.describe())
         for note in plan.notes:
             typer.echo(f"note: {note}")
-        typer.echo(f"serving {plan.mode} on http://{host}:{port}  (dashboard /, MCP /mcp/) — Ctrl-C to stop")
+        typer.echo(f"serving {plan.mode} on {SERVER_URL_DEFAULT}  (dashboard /, MCP /mcp/) — Ctrl-C to stop")
         asyncio.run(run_serve(plan, opts, paths))
 
 

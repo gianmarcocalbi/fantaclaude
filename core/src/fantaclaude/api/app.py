@@ -104,9 +104,27 @@ def create_app(server: AstaServer | None, *, web_dist: Path | None = None,
     async def ws(websocket: WebSocket) -> None:
         s = live()
         await websocket.accept()
-        await websocket.send_text(json.dumps({"type": "hello", "hello": s.hello()}, ensure_ascii=False))
+        # Subscribe *before* the hello, never after. A board broadcast landing
+        # in the gap between the two reached no subscriber at all, so a browser
+        # reloading at the exact moment a lot was knocked down rendered a board
+        # missing that sale until the next mutation -- and the next mutation is
+        # the next lot. The client tolerates a board frame arriving first: ws.ts
+        # stores it and App.tsx waits on `hello` before rendering either way.
         unsubscribe = s.subscribe(websocket.send_text)
         try:
+            try:
+                hello = s.hello()
+            except SessionError as exc:
+                # Past accept() there is no status code left to answer with, so
+                # raising here died in the serving terminal's stderr while the
+                # browser reconnect-looped against it forever. Hand the reason
+                # to the client and close cleanly instead -- the operator must
+                # be able to read *why* from the screen.
+                await websocket.send_text(json.dumps({"type": "error", "error": str(exc)},
+                                                     ensure_ascii=False))
+                await websocket.close()
+                return
+            await websocket.send_text(json.dumps({"type": "hello", "hello": hello}, ensure_ascii=False))
             while True:
                 await websocket.receive_text()          # the socket is one-directional; drain and ignore
         except WebSocketDisconnect:

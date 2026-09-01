@@ -90,8 +90,9 @@ post-auction task, open question 9) confirms the lega.
 
 `fantaclaude asta serve --session FA-xxx-xxx` — the night's process: the
 live mirror, the dashboard on http://127.0.0.1:8765, and the
-`fantaclaude-asta` MCP at `/mcp`. `--replay <capture> --speed N` rehearses
-it; `--state` reviews a finished auction. While it runs, prefer the MCP
+`fantaclaude-asta` MCP at `/mcp/` (the trailing slash is load-bearing).
+`--replay <capture> --speed N` rehearses it; `--state <file>` reviews a
+finished auction. The address is fixed: there is no `--host`/`--port`. While it runs, prefer the MCP
 tools (`asta_board`, `asta_explain`, `asta_adjust`, `asta_refresh`,
 `asta_query`) over the CLI: they read the same in-memory board the
 dashboard shows. `asta adjust` from the CLI proxies to the server by

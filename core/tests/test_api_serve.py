@@ -152,6 +152,35 @@ async def test_bad_pending_flags_fall_back_to_the_screen_with_a_note(server_kit)
     assert "nobody-by-this-name" in (server.pending_note or "")
 
 
+async def test_a_map_without_a_me_is_loud_rather_than_dropped(server_kit):
+    """`asta serve --session FA-xxx-xxx --map 1=Marco` used to discard every
+    --map silently: the pending branch was entered only for --me, so the flags
+    vanished, no note appeared, and the pressure model ran with no priors while
+    the screen looked exactly like a normal start. Replay mode already refuses
+    the same pair loudly; the two modes must not disagree about identical
+    flags.
+
+    The dossier here is a membership marker, not a real Participant: nothing
+    reads it, because resolve_mapping refuses the missing --me before an
+    Auction is ever built -- which is the point being pinned."""
+    make, _pinned, _ = server_kit
+    server = make(participants={"Marco": None}, pending_maps=("1=Marco",))
+    await server.on_snapshot(snap([]))
+    assert server.hello()["phase"] == "pending"
+    assert "which team is mine?" in (server.pending_note or ""), server.pending_note
+    assert "--me/--map" in server.pending_note
+
+    # and a --map that names a dossier nobody has is just as loud
+    unknown = make(pending_maps=("1=Nobody",))
+    await unknown.on_snapshot(snap([]))
+    assert unknown.hello()["phase"] == "pending" and "Nobody" in (unknown.pending_note or "")
+
+    # the flags together still go straight to live, as they always did
+    both = make(participants={"Marco": None}, pending_me="0", pending_maps=())
+    await both.on_snapshot(snap([]))
+    assert both.hello()["phase"] == "live"
+
+
 async def test_a_dead_sender_is_dropped_not_fatal(server_kit):
     make, _pinned, _ = server_kit
     server = make()

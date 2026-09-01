@@ -454,7 +454,23 @@ def adjust(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, adjustment: Adju
                         _effect(after.board, player_id, cls))
 
 
-SERVER_URL_DEFAULT = "http://127.0.0.1:8765"
+# One address, by construction. `asta serve` binds exactly this and takes no
+# --host/--port, because the number has to agree in six places at once --
+# .mcp.json's URL, SERVER_URL_DEFAULT (the CLI proxy), cli/app.py's
+# SERVER_OPTION literal, web/vite.config.ts's /api and /ws proxy targets, and
+# the docs -- and a flag is the only thing that could make them disagree. When
+# it did, it broke three mechanisms silently and at once: `asta adjust` stopped
+# reaching the server and became a second writer of data/adjustments.yml, the
+# MCP config pointed at a dead port, and `poe web-dev`'s proxy missed. No
+# workflow needs another port, and --host's only non-default value would serve
+# the live board to the room, which the spec calls a non-goal.
+#
+# These constants live here rather than in commands/serve.py so the light
+# paths (the CLI proxy, the tests) can read them without importing
+# fastapi/uvicorn; serve.py imports them, never the other way round.
+SERVE_HOST = "127.0.0.1"
+SERVE_PORT = 8765
+SERVER_URL_DEFAULT = f"http://{SERVE_HOST}:{SERVE_PORT}"
 
 
 def _server_payload(resp) -> dict[str, Any]:
@@ -473,6 +489,24 @@ def _server_payload(resp) -> dict[str, Any]:
     raise NotReady(message)          # 409 pending, 400 malformed file or unreadable session settings, anything else
 
 
+def _exchange_failed(url: str, what: str, exc: Exception) -> NotReady:
+    """Every httpx failure that is *not* "nothing came up on the socket".
+
+    A read timeout (a re-derive plus the fsync'd write running long), a
+    RemoteProtocolError (the server restarted mid-request), an
+    UnsupportedProtocol or InvalidURL (a typo'd --server) all propagated past
+    `_asta_errors` -- which maps NotReady, duckdb.Error, UsageError and
+    UnknownScenarioError, and nothing else -- so they printed a Python
+    traceback and exited 1, mid-auction. They are "not ready" (exit 3), and the
+    message has to say what the ConnectError path can say and this one cannot:
+    the server may well have taken the write, so the CLI is not going to append
+    behind its back."""
+    return NotReady(f"{url} was reached but the {what} exchange failed: {exc!r}\n"
+                    f"nothing was written here -- while `asta serve` runs it is the one writer of the "
+                    f"adjustments file, and this command will not append behind its back. Check the "
+                    f"serving terminal, then retry (or stop the server and run this again).")
+
+
 def server_adjust(url: str, adjustment: Adjustment, timeout: float = 5.0) -> dict[str, Any] | None:
     """POST the adjustment to a running `asta serve`; None when nothing is
     listening there -- the offline path appends directly and stays the one
@@ -488,6 +522,8 @@ def server_adjust(url: str, adjustment: Adjustment, timeout: float = 5.0) -> dic
         # the server accepted, may well have written the file, and falling
         # back would make a second writer of it.
         return None
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:   # InvalidURL is not an HTTPError; both end here
+        raise _exchange_failed(url, "adjust", exc) from None
     return _server_payload(resp)
 
 
@@ -502,6 +538,8 @@ def server_refresh(url: str, timeout: float = 30.0) -> dict[str, Any]:
     except (httpx.ConnectError, httpx.ConnectTimeout):
         raise NotReady(f"no `asta serve` is listening at {url} -- refresh re-prices a live board; "
                        f"offline boards recompute on every command") from None
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+        raise _exchange_failed(url, "refresh", exc) from None
     return _server_payload(resp)
 
 

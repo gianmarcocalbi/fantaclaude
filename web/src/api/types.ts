@@ -14,4 +14,9 @@ export type RefreshResult = components["schemas"]["RefreshResult"];
 export type WsMessage =
   | { type: "hello"; hello: HelloPayload }
   | { type: "board"; board: BoardPayload; events: string[] }
-  | { type: "feed"; status: string };
+  | { type: "feed"; status: string }
+  /** The server could not build a hello — a session whose settings node it
+   * cannot read, say. Sent instead of the hello, then the socket closes: past
+   * accept() there is no status code to answer with, and the reason has to
+   * reach the screen rather than only the serving terminal's stderr. */
+  | { type: "error"; error: string };

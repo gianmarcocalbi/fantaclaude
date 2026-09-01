@@ -500,6 +500,189 @@ async def test_a_5xx_from_the_edge_is_retried_but_another_4xx_is_still_fatal():
     assert "404" in str(err.value) and "FA-gone" in str(err.value)
 
 
+@respx.mock
+async def test_a_5xx_from_the_sign_in_endpoint_is_retried_not_fatal():
+    # The same class of bug as the 5xx on the stream, one endpoint over. The
+    # scenario it killed: the token refresh ~55 minutes in meets a 503 from
+    # identitytoolkit, _refresh raises, token() falls through to _signup(),
+    # which meets the same 503 -- FeedError out of _stream_once, and run()
+    # never retries a FeedError, so the mirror was dead for the rest of a
+    # night that happens once.
+    signup = respx.post(SIGNUP_URL)
+    signup.side_effect = [
+        httpx.Response(503, text="identity toolkit unavailable"),  # the edge, briefly
+        httpx.Response(429, json={"error": {"message": "QUOTA_EXCEEDED"}}),
+        httpx.Response(
+            200,
+            json={
+                "idToken": "tok",
+                "refreshToken": "ref",
+                "expiresIn": "3600",
+                "localId": "anon",
+            },
+        ),
+    ]
+    respx.get("https://db.example/sessions/FA-nri-okm/state.json").mock(
+        return_value=_stream_response(_frames(("put", {"path": "/", "data": NODE})))
+    )
+    statuses: list[str] = []
+    slept: list[float] = []
+    done = asyncio.Event()
+
+    async def on_snapshot(_snap):
+        done.set()
+
+    async def on_status(status):
+        statuses.append(status)
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    async with httpx.AsyncClient() as client:
+        feed = AstaLiveFeed(
+            "FA-nri-okm",
+            client=client,
+            on_snapshot=on_snapshot,
+            on_status=on_status,
+            database_url="https://db.example",
+            sleep=fake_sleep,
+        )
+        await _run_feed(feed, done)
+    assert done.is_set()  # the mirror survived both and signed in on the third try
+    assert statuses[:2] == [RECONNECTING, RECONNECTING] and LIVE in statuses
+    assert slept[:2] == [1.0, 2.0]  # the existing backoff, not a new retry loop
+
+    # and a refused sign-in is still fatal: 403 can only ever answer 403
+    respx.post(SIGNUP_URL).mock(
+        return_value=httpx.Response(
+            403, json={"error": {"message": "ADMIN_ONLY_OPERATION"}}
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        auth = AnonymousAuth(client)
+        with pytest.raises(FeedError):
+            await auth.token()
+
+
+@respx.mock
+async def test_a_5xx_on_the_refresh_still_leaves_the_400_fallback_alone():
+    """The retry must not swallow the fallback that makes an expired token
+    recover: a 400 TOKEN_EXPIRED is still a FeedError, which token() catches
+    to sign up afresh, while a 503 propagates as a transport error for run()
+    to back off over -- retrying is right there, signing up a new anonymous
+    user against a broken edge is not."""
+    signup = respx.post(SIGNUP_URL)
+    signup.side_effect = [
+        httpx.Response(
+            200,
+            json={
+                "idToken": "tok-1",
+                "refreshToken": "ref-1",
+                "expiresIn": "3600",
+                "localId": "a",
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "idToken": "tok-3",
+                "refreshToken": "ref-3",
+                "expiresIn": "3600",
+                "localId": "b",
+            },
+        ),
+    ]
+    refresh = respx.post(TOKEN_URL)
+    refresh.side_effect = [
+        httpx.Response(503, text="securetoken unavailable"),
+        httpx.Response(400, json={"error": {"message": "TOKEN_EXPIRED"}}),
+    ]
+    clock = [0.0]
+    async with httpx.AsyncClient() as client:
+        auth = AnonymousAuth(client, now=lambda: clock[0])
+        await auth.token()
+        clock[0] = 3600.0
+        with pytest.raises(httpx.HTTPStatusError):  # retryable: run() backs off
+            await auth.token()
+        assert signup.call_count == 1  # and no new user was signed up behind it
+        assert await auth.token() == "tok-3"  # the 400 fallback, still intact
+    assert signup.call_count == 2
+
+
+@respx.mock
+async def test_a_torn_frame_reconnects_but_a_node_this_mirror_cannot_read_is_fatal():
+    """A put/patch frame that will not decode is damaged transport: the next
+    connect refetches a fresh full `put`, so it must reconnect rather than end
+    the mirror. The node itself failing to parse stays fatal -- reconnecting
+    would only deliver the same shape again, and the mirror never guesses."""
+    respx.post(SIGNUP_URL).respond(
+        200,
+        json={
+            "idToken": "tok",
+            "refreshToken": "ref",
+            "expiresIn": "3600",
+            "localId": "anon",
+        },
+    )
+    torn = [
+        "event: put\ndata: {\"path\": \"/\", \"dat\n\n",           # json.JSONDecodeError
+        'event: patch\ndata: {"path": "/"}\n\n',                    # KeyError: no "data"
+        'event: put\ndata: ["path", "/"]\n\n',                      # TypeError: not an object
+    ]
+    route = respx.get("https://db.example/sessions/FA-nri-okm/state.json")
+    route.side_effect = [
+        _stream_response([frame]) for frame in torn
+    ] + [_stream_response(_frames(("put", {"path": "/", "data": NODE})))]
+    seen: list = []
+    slept: list[float] = []
+    done = asyncio.Event()
+
+    async def on_snapshot(snap):
+        seen.append(snap)
+        done.set()
+
+    async def on_status(_status):
+        pass
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    async with httpx.AsyncClient() as client:
+        feed = AstaLiveFeed(
+            "FA-nri-okm",
+            client=client,
+            on_snapshot=on_snapshot,
+            on_status=on_status,
+            database_url="https://db.example",
+            sleep=fake_sleep,
+        )
+        await _run_feed(feed, done)
+    assert len(seen) == 1 and slept[:3] == [1.0, 2.0, 4.0]  # three torn frames, three backoffs
+
+    # the node itself, on the other hand, is fatal and stays fatal
+    respx.get("https://db.example/sessions/FA-junk/state.json").mock(
+        return_value=_stream_response(
+            _frames(("put", {"path": "/", "data": {"picks": "not a list"}}))
+        )
+    )
+
+    async def nothing(_):
+        pass
+
+    async with httpx.AsyncClient() as client:
+        feed = AstaLiveFeed(
+            "FA-junk",
+            client=client,
+            on_snapshot=nothing,
+            on_status=nothing,
+            database_url="https://db.example",
+            sleep=lambda s: asyncio.sleep(0),
+        )
+        with pytest.raises(FeedError) as err:
+            await feed.run()
+    assert "FA-junk" in str(err.value)
+
+
 def test_asta_captures_dir_is_under_raw(monkeypatch, tmp_path):
     monkeypatch.setenv("FANTACALCIO_HOME", str(tmp_path))
     from fantaclaude.paths import asta_captures_dir, raw_dir

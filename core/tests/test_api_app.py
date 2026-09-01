@@ -10,6 +10,7 @@ from fantaclaude.asta.mcp import MCP_PATH
 from fantaclaude.asta.state import parse_snapshot
 from fantaclaude.commands.asta import AstaPaths
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from test_advisor import SESSION, pinned_run
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +123,42 @@ def test_hello_maps_a_broken_session_to_400(kit):
         resp = client.get("/api/hello")
         assert resp.status_code == 400
         assert "settings.budget" in resp.json()["detail"]
+
+
+def test_a_broken_session_reaches_the_socket_as_an_error_frame_not_a_dead_loop(kit):
+    """The same SessionError as above, over the WebSocket. It used to be raised
+    *after* accept(), where there is no status code left to answer with: the
+    reason went to the serving terminal's stderr, the browser saw a socket that
+    opened and died, reconnected, and looped -- while /api/hello's 400 was
+    discarded client-side, so the dashboard read "connecting to asta serve..."
+    for the rest of the night. The frame is what lets the screen say why."""
+    server, _pinned, app = kit
+    server.last_snapshot = snap([], settings={"budget": "not-a-number", "game": 2,
+                                              "roles": {"gk": [3, 3], "mov": [22, 22], "size": [25, 25]}})
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        first = ws.receive_json()
+        assert first["type"] == "error" and "settings.budget" in first["error"]
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()                       # closed cleanly, not raising post-accept
+
+
+def test_the_socket_subscribes_before_it_says_hello(kit):
+    """A board broadcast landing between accept() and the hello reached no
+    subscriber: a browser reloading exactly as a lot was knocked down rendered
+    a board missing that sale until the next mutation -- and the next mutation
+    is the next lot. Subscribing first means the frame is held, not lost; the
+    client tolerates a board arriving before its hello."""
+    server, _pinned, app = kit
+    order: list[str] = []
+    original_subscribe, original_hello = server.subscribe, server.hello
+    server.subscribe = lambda fn: (order.append("subscribe"), original_subscribe(fn))[1]
+    server.hello = lambda: (order.append("hello"), original_hello())[1]
+    try:
+        with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "hello"
+    finally:
+        server.subscribe, server.hello = original_subscribe, original_hello
+    assert order == ["subscribe", "hello"]
 
 
 def test_the_schema_dump_app_needs_no_server():

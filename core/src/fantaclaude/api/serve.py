@@ -120,7 +120,15 @@ class AstaServer:
     async def on_snapshot(self, snap: Snapshot) -> None:
         self.last_snapshot = snap
         if self.auction is None:
-            if self._pending_me is not None:
+            # `or self._pending_maps`, never `self._pending_me is not None`
+            # alone: `asta serve --session FA-xxx-xxx --map 1=Marco` used to
+            # fall straight past this branch, so every --map was discarded, no
+            # note said so, and the pressure model ran with no priors while the
+            # screen looked ordinary. Replay mode refuses the identical
+            # combination loudly (prepare() calls resolve_mapping when
+            # `opts.me is not None or opts.maps`); two modes disagreeing about
+            # the same two flags is the part that costs.
+            if self._pending_me is not None or self._pending_maps:
                 me, maps = self._pending_me, self._pending_maps
                 self._pending_me, self._pending_maps = None, ()
                 try:

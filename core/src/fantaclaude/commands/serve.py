@@ -30,6 +30,8 @@ from fantaclaude.asta.mcp import build_mcp
 from fantaclaude.asta.snapshot import StateFileError, read_state
 from fantaclaude.asta.state import Snapshot, SnapshotError, read_snapshots
 from fantaclaude.commands.asta import (
+    SERVE_HOST,
+    SERVE_PORT,
     AstaPaths,
     UsageError,
     load_dossiers,
@@ -60,9 +62,9 @@ class ServeOptions:
     scenario: str | None = None
     me: str | None = None
     maps: tuple[str, ...] = ()
-    host: str = "127.0.0.1"
-    port: int = 8765
     capture: bool = True
+    # No host/port: the address is SERVE_HOST:SERVE_PORT and nothing else --
+    # see the note over them in commands/asta.py.
 
 
 @dataclass(frozen=True)
@@ -186,7 +188,10 @@ async def _feed_task(server: AstaServer, plan: ServePlan) -> None:
 async def run_serve(plan: ServePlan, opts: ServeOptions, paths: AstaPaths) -> None:
     mcp_app = build_mcp(plan.server, paths.db).http_app(path="/", transport="http", stateless_http=True)
     app = create_app(plan.server, web_dist=web_dist_dir(), mcp_app=mcp_app)
-    config = uvicorn.Config(app, host=opts.host, port=opts.port, log_level="warning")
+    # A port already in use is not silent: uvicorn's bind_socket logs
+    # "[Errno 48] Address already in use" at ERROR (above this log_level) and
+    # exits 3, so the operator reads the address, not a traceback.
+    config = uvicorn.Config(app, host=SERVE_HOST, port=SERVE_PORT, log_level="warning")
     uv_server = uvicorn.Server(config)
     side: asyncio.Task | None = None
     if plan.mode == "feed":
