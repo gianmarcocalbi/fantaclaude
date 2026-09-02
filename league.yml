@@ -8,10 +8,17 @@ auction:
     source: admin
     verified_on: 2026-08-23
   mode:
-    value: unknown        # draft | rilanci -- ask the admin when asking for the session code
+    value: rilanci        # draft | rilanci
     source: admin
-    verified_on: 2026-08-24
-    note: FantaAstaLive offers DRAFT and A RILANCI; the admin has not said which
+    verified_on: 2026-09-02
+    note: >-
+      A RILANCI, confirmed by the admin. Anyone bids at any time and the lot
+      goes to the last offer when the countdown expires. The 2026-08-23 capture
+      shows the parameters FantaAstaLive uses for it -- countdownSeconds 10,
+      countdownInterval 2000, countdownType auction, minimumBid fixed 1,
+      beatRaise 1 -- but nothing in this repo reads a live bid: the board shows
+      the modelled band and modelled pressure, never the current offer. Watch
+      the offer on FantaAstaLive itself and the max price here (open question 10).
   date:
     value: 2026-09-05
     source: admin
@@ -24,4 +31,40 @@ roster:
     verified_on: 2026-08-24
     note: stated verbally; equals the API's minrl[0], and the cross-check keeps it that way
 # nick -> participant dossier, filled by `fanta-kb interview` (Phase 1)
-participants: {}
+participants:
+  'Abderrazak Hamdallah':
+    value: kb/league/participants/abderrazak-hamdallah.md
+    source: interview
+    verified_on: 2026-09-02
+  CavA:
+    value: kb/league/participants/cava.md
+    source: interview
+    verified_on: 2026-09-02
+  Chuck:
+    value: kb/league/participants/chuck.md
+    source: interview
+    verified_on: 2026-09-02
+  Edo:
+    value: kb/league/participants/edo.md
+    source: interview
+    verified_on: 2026-09-02
+  Fantacristo:
+    value: kb/league/participants/fantacristo.md
+    source: interview
+    verified_on: 2026-09-02
+  Gene:
+    value: kb/league/participants/gene.md
+    source: interview
+    verified_on: 2026-09-02
+  KingNazzario:
+    value: kb/league/participants/kingnazzario.md
+    source: interview
+    verified_on: 2026-09-02
+  piantaz:
+    value: kb/league/participants/piantaz.md
+    source: interview
+    verified_on: 2026-09-02
+  radyandre:
+    value: kb/league/participants/radyandre.md
+    source: interview
+    verified_on: 2026-09-02

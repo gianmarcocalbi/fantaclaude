@@ -93,8 +93,8 @@ live mirror, the dashboard on http://127.0.0.1:8765, and the
 `fantaclaude-asta` MCP at `/mcp/` (the trailing slash is load-bearing).
 `--replay <capture> --speed N` rehearses it; `--state <file>` reviews a
 finished auction. The address is fixed: there is no `--host`/`--port`. While it runs, prefer the MCP
-tools (`asta_board`, `asta_explain`, `asta_adjust`, `asta_refresh`,
-`asta_query`) over the CLI: they read the same in-memory board the
+tools (`asta_status`, `asta_board`, `asta_explain`, `asta_adjust`,
+`asta_refresh`, `asta_query`) over the CLI: they read the same in-memory board the
 dashboard shows. `asta adjust` from the CLI proxies to the server by
 itself; a hand edit of `data/adjustments.yml` needs `asta refresh` (or the
 dashboard's refresh button) to land.
