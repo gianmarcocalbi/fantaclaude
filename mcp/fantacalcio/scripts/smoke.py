@@ -3,7 +3,6 @@
 import asyncio
 
 import httpx
-
 from fantacalcio_mcp.api import FantacalcioAPI
 from fantacalcio_mcp.auth import Auth
 from fantacalcio_mcp.config import load_settings, token_cache_path

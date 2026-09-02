@@ -1,5 +1,11 @@
 from fantacalcio_mcp.models import (
-    Account, League, LeagueSettings, LeagueStatus, Participant, ServerTime, Team,
+    Account,
+    League,
+    LeagueSettings,
+    LeagueStatus,
+    Participant,
+    ServerTime,
+    Team,
 )
 
 

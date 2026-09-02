@@ -16,7 +16,13 @@ from typing import Any
 from fastmcp import FastMCP
 
 from .models import (
-    Account, League, LeagueSettings, LeagueStatus, Participant, ServerTime, Team,
+    Account,
+    League,
+    LeagueSettings,
+    LeagueStatus,
+    Participant,
+    ServerTime,
+    Team,
 )
 
 INSTRUCTIONS = (

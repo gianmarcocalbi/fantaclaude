@@ -3,9 +3,8 @@ from pathlib import Path
 
 import pytest
 from conftest import keys_at_any_depth
-from fastmcp import Client
-
 from fantacalcio_mcp.server import build_server
+from fastmcp import Client
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "fantacalcio_mcp"
 
