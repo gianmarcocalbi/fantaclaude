@@ -82,7 +82,8 @@ network.
 `fantaclaude sync-league`, `fantaclaude ingest …` and `fantaclaude rank`
 (unless `--offline`) call the live league API with the real account — the
 same rule as `smoke.py`: run once when data is needed, never repeatedly
-"to check". Everything else in the CLI is local.
+"to check". Everything else in the CLI is local, except `asta serve` — a
+different, read-only service, not this one (below).
 
 `records/` is committed: `fantaclaude rank` writes parquet copies of every run
 there, named by `run_id`, and they are never rewritten — commit them with the
@@ -101,9 +102,17 @@ appended by `fantaclaude asta adjust`; every entry needs a `reason`.
 `data/asta-state.json` is the mirrored auction as last seen: written
 atomically by the tooling, never edited by hand, copied to `records/asta/` by
 `fantaclaude asta close` and deleted only once the transfer into the lega is
-verified (Phase 2b). Every `fantaclaude asta` command is local — read-only on
-the database, no network — so it may be run freely, during the auction
-included.
+verified (`verify-transfer`, a post-auction task blocked on open question 9 —
+until it lands, nothing deletes them). Every `fantaclaude asta` command except
+`serve` is local — read-only on the database, no network — so it may be
+run freely, during the auction included. `asta serve` is the one networked
+command: it subscribes to the FantaAstaLive Firebase session (anonymous
+sign-in, read-only, exactly one subscriber, reconnect with backoff) and
+serves the dashboard, the WebSocket and the `fantaclaude-asta` MCP on
+localhost. Never point it at a live session "to check" — rehearse with
+`--replay`. While it runs it is the one writer of `data/adjustments.yml`;
+`asta adjust` and `asta refresh` proxy to it on localhost, and `adjust`
+falls back to the offline path when nothing is listening.
 
 `fantaclaude ingest advanced|calendar|stats-web` read public web hosts. They
 are polite by construction (one request at a time, a pause between pages, no

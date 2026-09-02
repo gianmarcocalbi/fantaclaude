@@ -63,3 +63,14 @@ def adjustments_path() -> Path:
 def asta_state_path() -> Path:
     """data/asta-state.json: the mirrored auction as last seen, written atomically; deleted by verify-transfer (2b)."""
     return data_dir() / "asta-state.json"
+
+
+def asta_captures_dir() -> Path:
+    """data/raw/asta_live/: one JSONL of feed nodes per served session — the
+    capture `asta replay` rehearses on."""
+    return raw_dir() / "asta_live"
+
+
+def web_dist_dir() -> Path:
+    """web/dist: the built dashboard bundle FastAPI mounts (poe web-build)."""
+    return workspace_root() / "web" / "dist"

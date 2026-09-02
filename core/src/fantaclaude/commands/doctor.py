@@ -83,6 +83,7 @@ class DoctorPaths:
     pricing: Path
     adjustments: Path
     asta_state: Path
+    web_dist: Path
 
 
 def _age(then: datetime, now: datetime) -> str:
@@ -554,6 +555,13 @@ def _asta_state_check(path: Path, now: datetime) -> Check:
                                      f"{len(stored.snapshot.picks)} picks, written {_age(written, now)}")
 
 
+def _dashboard_check(web_dist: Path) -> Check:
+    index = web_dist / "index.html"
+    if index.is_file():
+        return Check("dashboard", True, f"built ({index})")
+    return Check("dashboard", False, "web/dist/index.html missing -- run `poe web-build` before the night")
+
+
 def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
     # Mirror load_settings() exactly -- same merge, same resolver. Deriving
     # this independently made doctor disagree with the commands it exists to
@@ -625,6 +633,7 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         checks.append(pinned_run)
         checks.append(_adjustments_check(paths.adjustments, con, run, skip))
         checks.append(_asta_state_check(paths.asta_state, now))
+        checks.append(_dashboard_check(paths.web_dist))
     finally:
         if con is not None:
             con.close()

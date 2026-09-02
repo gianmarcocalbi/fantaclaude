@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import httpx
+import pytest
+import respx
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.db.connection import connect
 from test_rank_cli import _workspace
@@ -8,6 +11,52 @@ from typer.testing import CliRunner
 
 runner = CliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "asta_session_sample.jsonl"
+
+ADJUST_URL = "http://127.0.0.1:8765/api/adjust"
+REFRESH_URL = "http://127.0.0.1:8765/api/refresh"
+
+# No test in this file may let `server_adjust` or `server_refresh` attempt a
+# real connect: CLAUDE.md's "no test touches the network" is unconditional,
+# and a TCP connect to 127.0.0.1:8765 is a real socket operation whose outcome
+# depends on whether something happens to be listening there on the machine
+# running the suite -- a developer's own `asta serve` in another terminal
+# would silently reroute an "offline path" test onto the proxy path it is not
+# testing.
+#
+# So the neutraliser is default-on and opt-out, never an allowlist. An
+# allowlist fails *open*: a new test calling `asta adjust` gets the real
+# `server_adjust`, and because that swallows httpx.ConnectError and returns
+# None it still passes -- right up to the machine that has something on 8765.
+# A guard that fails open is not a guard. The four tests that prove the proxy
+# itself opt back in by requesting `real_server_proxy`, and drive the real
+# functions through respx.
+
+
+@pytest.fixture
+def real_server_proxy():
+    """Opt out of the neutraliser below: this test drives the real
+    `server_adjust`/`server_refresh`, with respx standing in for the socket."""
+    return True
+
+
+def _no_server_listening(*_args, **_kwargs):
+    """What `server_adjust` returns when nothing is on 8765: fall back to the
+    offline path, which is what every non-proxy test in this file expects."""
+    return
+
+
+def _refuse_refresh(url: str, *_args, **_kwargs):
+    from fantaclaude.commands.ingest import NotReady
+    raise NotReady(f"no `asta serve` is listening at {url} (neutralised in tests)")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_server_probe(request, monkeypatch):
+    if "real_server_proxy" in request.fixturenames:
+        return
+    monkeypatch.setattr("fantaclaude.commands.asta.server_adjust", _no_server_listening)
+    monkeypatch.setattr("fantaclaude.commands.asta.server_refresh", _refuse_refresh)
+
 
 DOSSIER = """---
 updated: 2026-08-30
@@ -450,3 +499,116 @@ def test_a_session_code_with_an_embedded_nul_is_refused_too(monkeypatch, tmp_pat
     # a sound code in the state file still closes cleanly
     _rewrite_state(state_file, session={"code": "FA-nri-okm"})
     assert runner.invoke(app, ["asta", "close"]).exit_code == ExitCode.OK
+
+
+def test_server_option_default_matches_the_proxy_helpers_default():
+    """The CLI module declares the server URL as its own literal, to stay free
+    of an eager import of commands.asta -- this pins the two from drifting."""
+    from fantaclaude.cli.app import SERVER_OPTION
+    from fantaclaude.commands.asta import SERVER_URL_DEFAULT
+
+    assert SERVER_OPTION.default == SERVER_URL_DEFAULT
+
+
+def _served_adjust_payload(pid):
+    return {"described": f"exclude player_id {pid} (room says gone)", "count": 3, "player_id": pid,
+            "board": {"prices": {}, "problems": [], "adjustments": {"count": 3, "applied": 3, "value_factor": {},
+                                                                    "excluded": [pid], "targets": {},
+                                                                    "problems": [], "sha256": ""}}}
+
+
+def test_adjust_proxies_to_a_running_server_and_writes_nothing_locally(real_server_proxy, monkeypatch, tmp_path,
+                                                                       fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(200, json=_served_adjust_payload(pid))
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone"])
+    assert r.exit_code == ExitCode.OK, r.output
+    assert "server" in r.output and "3 entries" in r.output
+    assert not (tmp_path / "data" / "adjustments.yml").exists()      # the server owns the file
+
+
+def test_adjust_falls_back_to_the_offline_path_when_nothing_listens(real_server_proxy, monkeypatch, tmp_path,
+                                                                    fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    with respx.mock:
+        respx.post(ADJUST_URL).mock(side_effect=httpx.ConnectError("nothing listening"))
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone"])
+    assert r.exit_code == ExitCode.OK, r.output
+    assert (tmp_path / "data" / "adjustments.yml").exists()          # offline: the CLI is the writer
+
+
+def test_adjust_maps_server_verdicts_onto_the_exit_contract(real_server_proxy, monkeypatch, tmp_path, fixture_json,
+                                                            mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(422, json={"detail": "'Nobody' is not in the pinned run"})
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player", "Nobody", "--reason", "x"])
+    assert r.exit_code == ExitCode.USAGE and "Nobody" in r.output
+    with respx.mock:
+        respx.post(ADJUST_URL).respond(409, json={"detail": "the mapping screen has not been answered"})
+        r2 = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player", "Malen", "--reason", "x"])
+    assert r2.exit_code == ExitCode.NOT_READY
+
+
+def test_a_reached_but_failed_exchange_is_not_ready_and_never_a_traceback(real_server_proxy, monkeypatch, tmp_path,
+                                                                          fixture_json, mcp_fixture_json):
+    """Only ConnectError/ConnectTimeout mean "nothing is serving". Everything
+    else httpx raises used to sail past `_asta_errors` -- which maps NotReady,
+    duckdb.Error, UsageError and UnknownScenarioError, and nothing else -- and
+    land as a Python traceback with exit 1, mid-auction: a ReadTimeout when a
+    re-derive plus the fsync'd write runs long, a RemoteProtocolError when the
+    server restarts mid-request, an UnsupportedProtocol from a typo'd
+    --server. Exit 3, with a message, and the file still untouched: the server
+    may well have taken the write, so falling back would make a second writer
+    of data/adjustments.yml."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    board = runner.invoke(app, ["asta", "board", "--json"])
+    pid = int(next(iter(json.loads(board.stdout)["prices"])))
+    adjustments = tmp_path / "data" / "adjustments.yml"
+    for boom in (httpx.ReadTimeout("the re-derive ran long"),
+                 httpx.RemoteProtocolError("server disconnected without sending a response"),
+                 httpx.PoolTimeout("no connection available")):
+        with respx.mock:
+            respx.post(ADJUST_URL).mock(side_effect=boom)
+            r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                    "--reason", "room says gone"])
+        assert r.exit_code == ExitCode.NOT_READY, (boom, r.exit_code, r.output, r.exception)
+        assert "was reached but the" in r.stderr and "will not append behind its back" in r.stderr
+        assert not adjustments.exists(), boom            # the CLI did not become a second writer
+
+    # a typo'd --server never reaches a socket at all: httpx refuses the scheme
+    # (UnsupportedProtocol) or the URL (InvalidURL, which is not an HTTPError)
+    for bad_url in ("localhost:8765", "ftp://127.0.0.1:8765"):
+        r = runner.invoke(app, ["asta", "adjust", "--type", "exclude", "--player-id", str(pid),
+                                "--reason", "room says gone", "--server", bad_url])
+        assert r.exit_code == ExitCode.NOT_READY, (bad_url, r.exit_code, r.output, r.exception)
+        assert not adjustments.exists(), bad_url
+
+    # and refresh, which has no offline path at all, answers the same way
+    with respx.mock:
+        respx.post(REFRESH_URL).mock(side_effect=httpx.ReadTimeout("the re-derive ran long"))
+        r = runner.invoke(app, ["asta", "refresh"])
+    assert r.exit_code == ExitCode.NOT_READY, (r.exit_code, r.output, r.exception)
+    assert "was reached but the refresh exchange failed" in r.stderr
+
+
+def test_refresh_needs_a_running_server(real_server_proxy, monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    with respx.mock:
+        respx.post(REFRESH_URL).mock(side_effect=httpx.ConnectError("nothing listening"))
+        r = runner.invoke(app, ["asta", "refresh"])
+    assert r.exit_code == ExitCode.NOT_READY and "asta serve" in r.output
+    with respx.mock:
+        respx.post(REFRESH_URL).respond(200, json={
+            "board": {"adjustments": {"count": 1, "applied": 1, "value_factor": {}, "excluded": [],
+                                      "targets": {}, "problems": [], "sha256": "ff"}},
+            "problems": []})
+        r2 = runner.invoke(app, ["asta", "refresh"])
+    assert r2.exit_code == ExitCode.OK and "1 applied" in r2.output
