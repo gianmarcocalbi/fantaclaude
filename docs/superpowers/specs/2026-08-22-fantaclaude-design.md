@@ -1711,6 +1711,49 @@ often than to bad models.
     ladder exists client-side; what the rehearsal checks is whether it is mirrored
     into the session node.
 
+11. **Should the club penalty rate fall back for a promoted club? Found
+    2026-09-02.** `penalty_rate_clubs` is built from `last_back` — the single
+    most recent *completed* season (20) — so a club absent from it has no
+    observed rate, and `_taker_warning`'s sibling warning fires. In the
+    2026-27 listone that is Frosinone, Monza and Venezia: all three played
+    seasons 18/19 and are back in 21, none played 20. The consequence is
+    bounded and deliberate (the projection does not redistribute on a rate it
+    never observed, so the taker is not punished) but it is real: for three of
+    twenty clubs, the profile's penalty taker changes nothing, and a promoted
+    club's designated taker is valued conservatively against an established
+    club's. The candidate fixes — read those clubs' own seasons 18/19, or fall
+    back to a league-average rate — each move every price at those clubs and
+    mint a new `model_hash`, so **not before the 2026-27 auction**. Phase 3.
+
+12. **The team snapshot reads only the first page. Found 2026-09-02.**
+    `fetch_snapshot` calls `api.teams(page=1, league=league)` and never asks for
+    page 2. The endpoint's page size is 10, so the defect is invisible in a
+    league of ten or fewer and silent above it: at eleven teams the response
+    carried ten objects and `divisions[A].count = 11`; at twelve, ten objects
+    and `count = 12`. The teams that fall off are the newest, which is exactly
+    the case that matters before an auction — a manager who has just joined is
+    the one the snapshot cannot see.
+
+    It does **not** corrupt `team_count`, which reads the league profile's
+    `n_s` and only falls back to `len(team_rows)` when that is null; and the
+    auction binds rivals by nick against the FantaAstaLive session rather than
+    against this list, so the dossiers are unaffected. What it does break is any
+    reading of the embedded team list as complete. Fix is to page until
+    exhausted and cross-check the total against `divisions[].count` — after the
+    2026-27 auction, not during the freeze.
+
+13. **`n_s` is the league's configured size, not its actual one. Found
+    2026-09-02.** The valuation reads it for `team_count`, and it is baked into
+    `rules_hash`, so it sets the market (`teams x budget`) and every price. It
+    is set by the admin and drifts freely from reality: it read 8 while ten
+    teams existed, then 12 when the true figure was 10. There is deliberately no
+    override — `team_count` is in `league_yml.COMPARABLE`, so a disagreeing
+    entry makes `apply_sync` refuse and record nothing. That refusal is correct
+    (a league.yml that silently overrode the API would be worse) but it means
+    **the pre-auction run is blocked on the admin setting the number
+    correctly**, and that dependency deserves to be visible rather than
+    discovered on the night.
+
 ## Non-goals
 
 - Automating bids, or acting on the platform during the auction
