@@ -1,18 +1,15 @@
 ---
-updated: 2026-08-29
+updated: 2026-09-02
 ttl: 14d
-confidence: medium
-source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it (2026-08-29); coach, squad and appearances from the listone and the voti workbook"
+confidence: low
+source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it (2026-08-29); listone snapshot 3 (2026-09-02) for the post-window squad"
 team: Fiorentina
 team_short: FIO
 coach: Grosso
 module: 4-3-2-1
 europe: none
 rotation_factor: 0.95
-takers:
-  penalties: Gudmundsson A.
-  corners: Gudmundsson A.
-  free_kicks: Gudmundsson A.
+takers: {}          # unknown post-window; see "Set pieces"
 ---
 
 # Fiorentina — 2026-27
@@ -56,18 +53,18 @@ happens.
 
 ## Set pieces
 
-Gudmundsson is first on all three — penalties, corners and direct free kicks —
-in both set-piece sources, and the season-20 workbook shows him converting his
-penalties without a miss, which is the strongest corroboration available for
-any Fiorentina taker. Mastantuono, Mandragora and Fagioli are the alternative
-deliverers, and Kean and Mandragora are named behind Gudmundsson on penalties.
+**Unknown, deliberately, as of 2026-09-02.** The entire published hierarchy has
+left the club in the 2026 window: Gudmundsson to Lazio, Mandragora to Torino,
+Kean to Como -- confirmed against listone snapshot 3, not inferred. Every
+rigoristi list in circulation still names those three and is therefore stale for
+this club.
 
-The caveat is large and belongs here rather than in a footnote: Gudmundsson did
-not appear in the opening giornata. Everything in this section assumes he plays.
-
-```
-fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_player_match_current WHERE season_id = 20 AND sheet = 'Fantacalcio' AND team = 'Fiorentina' AND (pen_scored > 0 OR pen_missed > 0) GROUP BY 1"
-```
+The three `takers` fields are empty rather than guessed. A named taker applies a
+penalty uplift to that player, so a guess here would silently move his price and
+the prices around him on the strength of nothing; an empty field costs only the
+uplift, which is the conservative error. The remaining candidates by profile are
+Beto and Pellegrino M. up front, with Atta, Goncalves P. and Mastantuono as
+deliverers, but no source and no observation supports naming one.
 
 ## Watch
 
