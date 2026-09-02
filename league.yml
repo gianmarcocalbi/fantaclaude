@@ -1,3 +1,16 @@
+team_count:
+  value: 10
+  source: admin
+  verified_on: 2026-09-02
+  note: >-
+    The league is ten teams, stated by the account holder who is in it. The
+    league API's own `n_s` is the admin's configured size and has been wrong in
+    both directions -- 8 while ten teams existed, then 12 -- so it is not
+    trusted here. Because `team_count` is in `league_yml.COMPARABLE`, this leaf
+    makes `sync-league` refuse while the API still says 12, which is the point:
+    it stops a sync silently re-pricing the auction for a room that does not
+    exist. Remove it, or set it to whatever the admin finally configures, once
+    the API agrees.
 # league.yml -- only what the league API cannot express. Never override what
 # it can: a key that duplicates an API value must agree with it, or
 # `fantaclaude sync-league` fails loud (exit 4). Every leaf carries
