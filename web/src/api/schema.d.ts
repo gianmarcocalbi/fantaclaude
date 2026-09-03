@@ -205,6 +205,39 @@ export interface components {
             credits_by_class: {
                 [key: string]: number;
             };
+            /**
+             * Modules
+             * @default []
+             */
+            modules: string[];
+            /**
+             * Role Demand
+             * @default {}
+             */
+            role_demand: {
+                [key: string]: number[];
+            };
+            /**
+             * My Coverage
+             * @default {}
+             */
+            my_coverage: {
+                [key: string]: number;
+            };
+            /**
+             * Module Demand
+             * @default {}
+             */
+            module_demand: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /**
+             * My Squad
+             * @default []
+             */
+            my_squad: components["schemas"]["SquadMemberOut"][];
             /** Reserve */
             reserve: number;
             /** Budget */
@@ -331,6 +364,16 @@ export interface components {
             expected_price: number | null;
             /** Sold To */
             sold_to: number | null;
+            /**
+             * Fvm
+             * @default 0
+             */
+            fvm: number;
+            /**
+             * Apps
+             * @default 0
+             */
+            apps: number;
         };
         /** MappingIn */
         MappingIn: {
@@ -380,6 +423,16 @@ export interface components {
             expected_price: number;
             /** Value P50 */
             value_p50: number;
+            /**
+             * Fvm
+             * @default 0
+             */
+            fvm: number;
+            /**
+             * Apps
+             * @default 0
+             */
+            apps: number;
             pressure?: components["schemas"]["PressureOut"] | null;
         };
         /** RefreshResult */
@@ -407,6 +460,19 @@ export interface components {
              * @enum {string}
              */
             source: "session" | "league";
+        };
+        /** SquadMemberOut */
+        SquadMemberOut: {
+            /** Player Id */
+            player_id: number;
+            /** Name */
+            name: string;
+            /** Team Short */
+            team_short: string;
+            /** Roles */
+            roles: string[];
+            /** Role Class */
+            role_class: string;
         };
         /** TeamOut */
         TeamOut: {

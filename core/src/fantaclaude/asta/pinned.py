@@ -53,7 +53,7 @@ from fantaclaude.model.demand import (
     rank_weights,
     satisfiable_demand,
 )
-from fantaclaude.model.roles import Role
+from fantaclaude.model.roles import Role, UnknownRoleCode, decode_mantra, sort_roles
 
 
 class PinnedRunError(RuntimeError):
@@ -73,6 +73,16 @@ class PinnedPlayer:
     value_p75: float
     quotazione: int
     tier: int
+    # The listone's own market value (FVM, Mantra), joined from the snapshot
+    # the run pinned rather than stored on `valuations`: it is the listone's
+    # number, not the model's, so it belongs to the snapshot and re-reading it
+    # never invalidates a recorded run. Defaulted for a run read by older code.
+    fvm: int = 0
+    # Appearances in the season already under way -- the fact the projection is
+    # structurally blind to. `rate` is a ratio over the seasons he *played*
+    # (projection.py skips a line with presenze <= 0), so "he has stopped
+    # playing" can never lower it. Carried beside the value, never into it.
+    apps: int = 0
 
     @property
     def is_goalkeeper(self) -> bool:
@@ -86,7 +96,7 @@ class PinnedPlayer:
         return {"player_id": self.player_id, "name": self.name, "team_short": self.team_short,
                 "classic_role": self.classic_role, "role_class": self.role_class, "roles": list(self.roles),
                 "value_p25": self.value_p25, "value_p50": self.value_p50, "value_p75": self.value_p75,
-                "quotazione": self.quotazione, "tier": self.tier}
+                "quotazione": self.quotazione, "tier": self.tier, "fvm": self.fvm, "apps": self.apps}
 
 
 @dataclass(frozen=True)
@@ -171,11 +181,46 @@ def load_pinned_run(con: duckdb.DuckDBPyConnection, run_id: str | None = None) -
         defined = load_scenarios(config["preferences"])
     except (KeyError, TypeError, PreferencesError) as exc:
         raise PinnedRunError(f"run {run_id}: its config cannot be read back by this code ({exc})") from None
-    players = {int(r[0]): PinnedPlayer(int(r[0]), str(r[1]), str(r[2] or ""), str(r[3]), str(r[4]), tuple(r[5]),
-                                       float(r[6]), float(r[7]), float(r[8]), int(r[9] or 0), int(r[10]))
-               for r in con.execute("SELECT player_id, name, team_short, classic_role, role_class, roles, value_p25, "
-                                    "value_p50, value_p75, quot_mantra, tier FROM valuations WHERE run_id = ? "
-                                    "ORDER BY player_id", [run_id]).fetchall()}
+    # The run stored the roles its decoder produced, and until 2026-09-03 that
+    # decoder had the trequartista and the ala transposed (model/roles.py). The
+    # listone snapshot the run pinned still holds the codes, so decode them again
+    # here rather than trust the strings: a run written before the fix is
+    # corrected on load, and one written after decodes to the same thing, so this
+    # heals itself and needs no flag. The pinned class follows the roles -- it is
+    # kept when it is still one of them, and mapped through the transposition when
+    # it is not, which is the class pin_class would have chosen for the pair.
+    codes = {int(a): list(c or []) for a, c in con.execute(
+        "SELECT player_id, mantra_role_codes FROM players WHERE snapshot_id = ?", [int(row[6])]).fetchall()}
+
+    def _roles(pid: int, stored: tuple[str, ...]) -> tuple[str, ...]:
+        try:
+            decoded = decode_mantra(codes[pid], context=f"player {pid}") if codes.get(pid) else None
+        except UnknownRoleCode:
+            decoded = None
+        return tuple(r.value for r in sort_roles(decoded)) if decoded else stored
+
+    _TRANSPOSED = {"W": "T", "T": "W"}
+
+    def _pin(cls: str, roles: tuple[str, ...]) -> str:
+        return cls if cls in roles else _TRANSPOSED.get(cls, cls)
+
+    apps = {int(a): int(n) for a, n in con.execute(
+        "SELECT player_id, count(DISTINCT giornata) FROM v_player_match_current "
+        "WHERE season_id = ? AND sheet = 'Fantacalcio' AND NOT senza_voto GROUP BY player_id",
+        [int(row[7])]).fetchall()}
+    def _player(r: Any) -> PinnedPlayer:
+        pid = int(r[0])
+        roles = _roles(pid, tuple(r[5]))
+        return PinnedPlayer(pid, str(r[1]), str(r[2] or ""), str(r[3]), _pin(str(r[4]), roles), roles,
+                            float(r[6]), float(r[7]), float(r[8]), int(r[9] or 0), int(r[10]),
+                            int(r[11] or 0), apps.get(pid, 0))
+
+    players = {int(r[0]): _player(r)
+               for r in con.execute("SELECT v.player_id, v.name, v.team_short, v.classic_role, v.role_class, v.roles, "
+                                    "v.value_p25, v.value_p50, v.value_p75, v.quot_mantra, v.tier, p.fvm_mantra "
+                                    "FROM valuations v LEFT JOIN players p "
+                                    "ON p.player_id = v.player_id AND p.snapshot_id = ? "
+                                    "WHERE v.run_id = ? ORDER BY v.player_id", [int(row[6]), run_id]).fetchall()}
     if not players:
         raise PinnedRunError(f"run {run_id} has no valuations rows")
     try:

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from fantaclaude.asta.session import (
     GAME_CLASSIC,
@@ -57,7 +59,9 @@ def test_league_bounds_read_the_run_settings_row(db, mcp_fixture_json):
         rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
         calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
     bounds = league_bounds(db, 1)
-    assert bounds == LEAGUE and bounds.source == "league" and bounds.game == GAME_MANTRA and bounds.is_mantra
+    # league_bounds now also carries the league's modules; LEAGUE is built without them
+    assert bounds.modules and replace(bounds, modules=()) == LEAGUE
+    assert bounds.source == "league" and bounds.game == GAME_MANTRA and bounds.is_mantra
     assert (bounds.goalkeepers, bounds.outfield, bounds.size) == ((2, 6), (21, 34), (23, 40))
     with pytest.raises(SessionError, match="snapshot 9"):
         league_bounds(db, 9)

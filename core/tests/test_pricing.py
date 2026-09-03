@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pytest
 from fantaclaude.asta.pricing import (
+    _occupancy,
     Band,
     BoardPricing,
     OwnedPlayer,
@@ -434,3 +435,24 @@ def test_curve_matches_the_scalar_reference():
         vectorised = _curve(costs, values, weights, budget, penalty)
         scalar = _curve_scalar(costs, values, weights, budget, penalty)
         assert np.array_equal(vectorised, scalar), (n, budget, k, rows, penalty)
+
+
+def test_occupancy_spills_into_the_class_the_pin_left_empty():
+    """The auction of 2026-09-03: two men pinned to C could also field as T,
+    and the board saw T as almost empty and asked for two more. Once C's own
+    ranks are taken, the pair belong to T -- one shirt each, counted once."""
+    squad = (OwnedPlayer(1, "C", 200.0, ("C", "T")),
+             OwnedPlayer(2, "C", 200.0, ("C", "T")),
+             OwnedPlayer(3, "C", 200.0, ("C", "T")))
+    covered = _occupancy(state(owned=squad))
+    assert covered["C"] + covered["T"] == 3, "each man covers exactly one shirt"
+    assert covered["T"] >= 1, "the overflow belongs to T, which the pin never counted"
+    assert all(covered[c] == 0 for c in covered if c not in ("C", "T"))
+
+
+def test_occupancy_never_counts_one_player_in_two_classes():
+    """A player fills one shirt. Holding three roles must not fill three."""
+    squad = (OwnedPlayer(1, "Dc", 200.0, ("Dc", "E", "M")),)
+    board = price_board(state(owned=squad), CFG)
+    covered = [c for c in ("Dc", "E", "M") if board.composition.get(c, 0) == 0]
+    assert len(covered) < 3, "one player cannot saturate three classes at once"

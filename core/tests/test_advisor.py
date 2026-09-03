@@ -76,10 +76,14 @@ def test_ledgers_follow_the_picks_and_name_what_the_run_cannot(tmp_path, fixture
     with_lot = derive(replayed(fixture_file, 6), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
     assert with_lot.lot is not None and with_lot.lot.name == "Svilar" and with_lot.lot.role_class == "Por"
     assert with_lot.lot.band == with_lot.pricing.prices[5841].band and with_lot.lot.band.p50 > 0 and with_lot.lot.sold_to is None
+    assert with_lot.lot.fvm == pinned.players[5841].fvm > 0        # the lot carries the listone value too
     assert with_lot.problems == ()
     tiers = board.tiers(2)
     assert list(tiers) and all(len(rows) <= 2 for rows in tiers.values())
     assert tiers["Pc"][0]["band"]["p50"] >= tiers["Pc"][-1]["band"]["p50"] and "name" in tiers["Pc"][0]
+    assert all(r["fvm"] == pinned.players[r["player_id"]].fvm for rows in tiers.values() for r in rows)  # the listone value rides on the row
+    assert all(r["apps"] == pinned.players[r["player_id"]].apps >= 0 for rows in tiers.values() for r in rows)
+    assert with_lot.lot.apps == pinned.players[5841].apps        # the lot carries it too
     payload = json.loads(json.dumps(board.to_dict(), allow_nan=False))
     assert payload["me"]["credits"] == 500 and payload["teams"][0]["spent"] == 165 and payload["picks"] == 3
     assert payload["prices"]["5841"]["role_class"] == "Por" and "2764" not in payload["prices"]

@@ -5,6 +5,7 @@ import { Problems } from "./components/Problems";
 import { LotPanel } from "./components/LotPanel";
 import { TierBoard } from "./components/TierBoard";
 import { MyPanel } from "./components/MyPanel";
+import { Shape } from "./components/Shape";
 import { AdjustForm } from "./components/AdjustForm";
 import { Ledgers } from "./components/Ledgers";
 import { EventLog } from "./components/EventLog";
@@ -42,6 +43,7 @@ export default function App() {
         </section>
         <aside className="col-span-12 lg:col-span-4 space-y-3">
           <MyPanel board={live.board} />
+          <Shape board={live.board} />
           <AdjustForm board={live.board} />
           <Ledgers board={live.board} />
           <EventLog events={live.events} />

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import duckdb
@@ -65,6 +65,9 @@ class SessionSettings:
     team_count: int
     source: str                              # "session" | "league"
     raw: dict[str, Any] = field(default_factory=dict)
+    # The formations the league allows. Read off the league's own settings, so
+    # it is empty for a session-sourced view; the board carries the league's.
+    modules: tuple[str, ...] = ()
 
     @property
     def is_mantra(self) -> bool:
@@ -118,7 +121,19 @@ def session_from_feed(settings: Mapping[str, Any], *, team_count: int) -> Sessio
         raise SessionError(f"settings.roles is {roles!r}; expected the per-bucket counts")
     gk, mov, size = _pair(roles, "gk", game), _pair(roles, "mov", game), _pair(roles, "size", game)
     if size[0] != gk[0] + mov[0]:
-        raise SessionError(f"settings.roles.size {size[0]} is not gk {gk[0]} + mov {mov[0]}")
+        # FA-rb8-460, 2026-09-03: the live session shipped gk 4, mov 28, size 30
+        # and the mirror refused it mid-auction. Refusing is the right default --
+        # the roster shape is what every completion is solved against, so a wrong
+        # guess poisons every max price. Here `size` and `mov` agree with each
+        # other (28 + 2 = 30) and only `gk` does not, so the goalkeeper count is
+        # the outlier and is derived rather than trusted; the operator confirmed
+        # 2 goalkeepers. Announced on stdout, never silent.
+        derived = (size[0] - mov[0], size[1] - mov[1])
+        if derived[0] < 0 or derived[1] < 0:
+            raise SessionError(f"settings.roles.mov {mov[0]} exceeds size {size[0]}; the session is unusable")
+        print(f"SESSION INCONSISTENT: roles.size {size[0]} != gk {gk[0]} + mov {mov[0]}; "
+              f"size and mov agree, so deriving gk {derived[0]} (session said {gk[0]})", flush=True)
+        gk = derived
     return SessionSettings(int(budget), gk, mov, size, game, int(team_count), "session", dict(settings))
 
 
@@ -141,7 +156,7 @@ def session_from_league(*, budget: int, team_count: int, roster_min: int, roster
 
 def league_bounds(con: duckdb.DuckDBPyConnection, snapshot_id: int) -> SessionSettings:
     """The settings row a run was priced under, as bounds."""
-    row = con.execute("SELECT budget, team_count, roster_min, roster_max, payload FROM league_settings "
+    row = con.execute("SELECT budget, team_count, roster_min, roster_max, payload, modules FROM league_settings "
                       "WHERE snapshot_id = ?", [snapshot_id]).fetchone()
     if row is None:
         raise SessionError(f"league_settings has no snapshot {snapshot_id}")
@@ -154,10 +169,12 @@ def league_bounds(con: duckdb.DuckDBPyConnection, snapshot_id: int) -> SessionSe
     if sroles != ROSTER_BUCKETS:
         raise SessionError(f"league_settings snapshot {snapshot_id} has rosters.sroles {sroles!r}; minrl/maxrl are read "
                            f"as [goalkeepers, outfield] only at {ROSTER_BUCKETS} role groups")
-    return session_from_league(budget=row[0], team_count=row[1], roster_min=row[2], roster_max=row[3],
-                               minrl=minrl, maxrl=maxrl,
-                               game=_game((payload.get("profile") or {}).get("tipo"),
-                                          f"league_settings snapshot {snapshot_id}: profile.tipo"))
+    out = session_from_league(budget=row[0], team_count=row[1], roster_min=row[2], roster_max=row[3],
+                              minrl=minrl, maxrl=maxrl,
+                              game=_game((payload.get("profile") or {}).get("tipo"),
+                                         f"league_settings snapshot {snapshot_id}: profile.tipo"))
+    mods = tuple(str(m) for m in (row[5] or []))      # a column, not a payload key
+    return replace(out, modules=mods) if mods else out
 
 
 def _span(bounds: Bounds) -> str:

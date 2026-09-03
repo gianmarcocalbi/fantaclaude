@@ -89,6 +89,8 @@ class LotOut(_Model):
     band: BandOut | None
     expected_price: int | None
     sold_to: int | None
+    fvm: int = 0
+    apps: int = 0
 
 
 class LayerOut(_Model):
@@ -111,6 +113,8 @@ class PriceRowOut(_Model):
     band: BandOut
     expected_price: int
     value_p50: float
+    fvm: int = 0
+    apps: int = 0
     pressure: PressureOut | None = None
 
     @model_serializer(mode="wrap")
@@ -134,6 +138,14 @@ class PriceRowOut(_Model):
         return data
 
 
+class SquadMemberOut(_Model):
+    player_id: int
+    name: str
+    team_short: str
+    roles: list[str]
+    role_class: str
+
+
 class BoardPayload(_Model):
     run_id: str
     scenario: str
@@ -149,6 +161,11 @@ class BoardPayload(_Model):
     inflation: float
     composition: dict[str, int]
     credits_by_class: dict[str, int]
+    modules: list[str] = []
+    role_demand: dict[str, list[float]] = {}
+    my_coverage: dict[str, int] = {}
+    module_demand: dict[str, dict[str, float]] = {}
+    my_squad: list[SquadMemberOut] = []
     reserve: int
     budget: int
     slot_price: float

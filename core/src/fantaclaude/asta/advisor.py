@@ -143,11 +143,15 @@ class Lot:
     band: Band | None            # None when he is sold or excluded
     expected_price: int | None
     sold_to: int | None
+    # From the player, not the price: a sold or excluded lot has no band and no
+    # expected price, but the listone's value for him is a fact either way.
+    fvm: int = 0
+    apps: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {"player_id": self.player_id, "name": self.name, "team_short": self.team_short, "role_class": self.role_class,
                 "roles": list(self.roles), "tier": self.tier, "band": None if self.band is None else self.band.to_dict(),
-                "expected_price": self.expected_price, "sold_to": self.sold_to}
+                "expected_price": self.expected_price, "sold_to": self.sold_to, "fvm": self.fvm, "apps": self.apps}
 
 
 @dataclass(frozen=True)
@@ -168,6 +172,14 @@ class Board:
     players: dict[int, Any] = field(default_factory=dict)          # the run's PinnedPlayers, for the renderings
     club_names: dict[str, str] = field(default_factory=dict)       # team_short -> club name, for the dossiers
     pressure: dict[int, Any] = field(default_factory=dict)         # player_id -> pressure.Pressure (Task 8)
+    # The league's formations. They come from the league's own settings, never
+    # from the session feed, which does not carry them -- but they are what the
+    # demand weights were built from, so the board shows the two together.
+    league_modules: tuple[str, ...] = ()
+    # modules.yml's per-module demand, as the run priced against it: how many
+    # of each class a formation puts on the pitch. `role_demand` is this
+    # aggregated across the league's modules; this is the breakdown.
+    module_demand: dict[str, dict[str, float]] = field(default_factory=dict)
 
     @property
     def me(self) -> Ledger:
@@ -190,11 +202,21 @@ class Board:
                 out[cls] = [self._row(p) for p in rows[:n]]
         return out
 
+    def my_coverage(self) -> dict[str, int]:
+        """Per class, how many of my players hold that role at all."""
+        out: dict[str, int] = {cls: 0 for cls in self.pool_state.weights}
+        for pick in self.me.picks:
+            player = self.players.get(pick.player_id)
+            for role in (getattr(player, "roles", ()) if player else ()):
+                if role in out:
+                    out[role] += 1
+        return out
+
     def _row(self, p: Any) -> dict[str, Any]:
         price = self.pricing.prices[p.player_id]
         row = {"player_id": p.player_id, "name": p.name, "team_short": p.team_short, "role_class": p.role_class,
                "roles": list(p.roles), "tier": p.tier, "band": price.band.to_dict(), "expected_price": price.expected_price,
-               "value_p50": p.value_p50}
+               "value_p50": p.value_p50, "fvm": p.fvm, "apps": p.apps}
         if p.player_id in self.pressure:
             row["pressure"] = self.pressure[p.player_id].to_dict()
         return row
@@ -206,6 +228,21 @@ class Board:
             "status": self.state.status, "locked": self.state.locked, "picks": len(self.state.picks),
             "me": self.me.to_dict(self.settings),
             "teams": [ledger.to_dict(self.settings) for _, ledger in sorted(self.ledgers.items())],
+            "modules": list(self.league_modules),
+            "module_demand": {m: dict(by) for m, by in self.module_demand.items()},
+            # My squad with its role *sets* -- what a lineup draws from. The
+            # price rows only carry the unsold, and a ledger only carries ids.
+            "my_squad": [{"player_id": p.player_id, "name": p.name, "team_short": p.team_short,
+                          "roles": list(p.roles), "role_class": p.role_class}
+                         for p in (self.players.get(k.player_id) for k in self.me.picks) if p is not None],
+            # What the league's formations ask of each class, rank by rank (the
+            # k-th player of a class starts in this share of them), and how many
+            # players I own who can *field* in it -- by role set, not by the one
+            # class the pricer pinned them to. The two together are the question
+            # "do I still need one of these?", which the composition alone
+            # cannot answer for a multi-role squad.
+            "role_demand": {cls: list(w) for cls, w in self.pool_state.weights.items()},
+            "my_coverage": self.my_coverage(),
             "market_credits": self.market_credits, "inflation": self.pricing.inflation,
             "composition": self.pricing.composition, "credits_by_class": self.pricing.credits_by_class,
             "reserve": self.pricing.reserve, "budget": self.pricing.budget, "slot_price": self.pricing.slot_price,
@@ -279,7 +316,8 @@ def build_pool_state(state: AuctionState, settings: SessionSettings, run: Pinned
     pool = apply_layer(tuple(p.pool_player() for pid, p in sorted(run.players.items()) if pid not in sold), layer)
     me = ledgers[mine]
     owned = tuple(OwnedPlayer(p.player_id, run.players[p.player_id].role_class,
-                              run.players[p.player_id].value_p50 * layer.factor(p.player_id))
+                              run.players[p.player_id].value_p50 * layer.factor(p.player_id),
+                              tuple(run.players[p.player_id].roles))
                   for p in me.picks if p.player_id in run.players)
     targets = {**scenario.target_composition, **layer.targets}
     class_min = {"Por": settings.goalkeepers[0]}
@@ -313,13 +351,15 @@ def derive(state: AuctionState, *, run: PinnedRun, settings: SessionSettings, la
             pick = state.picks.get(state.selected)
             lot = Lot(player.player_id, player.name, player.team_short, player.role_class, player.roles, player.tier,
                       None if price is None else price.band, None if price is None else price.expected_price,
-                      None if pick is None else pick.team_id)
+                      None if pick is None else pick.team_id, player.fvm, player.apps)
     problems.extend(layer.problems)
     conflicts = tuple(compare(settings, run.league)) if settings.source == "session" else ()
     if run.superseded:
         problems.append(f"run {run.run_id} is superseded by a rules change; it was pinned by id")
     board = Board(run.run_id, scenario_obj.name, state, settings, conflicts, ledgers, mapping.mine, pool_state, pricing,
-                  state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names)
+                  state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names,
+                  league_modules=tuple(getattr(run.league, "modules", ()) or ()),
+                  module_demand={m: dict(by) for m, by in (run.demand or {}).items()})
     if participants is not None:
         # advisor -> pressure -> advisor (pressure.py imports Board and Ledger from
         # here), so the import has to live inside the function, not at module scope.
