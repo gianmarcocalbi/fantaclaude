@@ -1,0 +1,5627 @@
+{
+ "adjustments_sha256": "573205ff1a855d0054357f9bccc163999b58d27a791bc4794898ec46909c19ed",
+ "feed": {
+  "locked": false,
+  "picks": [
+   {
+    "cost": 48,
+    "index": 0,
+    "playerId": 4964,
+    "teamId": 2,
+    "timestamp": 1788459728379
+   },
+   {
+    "cost": 1,
+    "index": 1,
+    "playerId": 7603,
+    "teamId": 2,
+    "timestamp": 1788459755133
+   },
+   {
+    "cost": 47,
+    "index": 2,
+    "playerId": 4431,
+    "teamId": 5,
+    "timestamp": 1788459828385
+   },
+   {
+    "cost": 51,
+    "index": 3,
+    "playerId": 5841,
+    "teamId": 4,
+    "timestamp": 1788459882005
+   },
+   {
+    "cost": 1,
+    "index": 4,
+    "playerId": 610,
+    "teamId": 4,
+    "timestamp": 1788459896265
+   },
+   {
+    "cost": 36,
+    "index": 5,
+    "playerId": 4312,
+    "teamId": 1,
+    "timestamp": 1788459973267
+   },
+   {
+    "cost": 1,
+    "index": 6,
+    "playerId": 2815,
+    "teamId": 1,
+    "timestamp": 1788459991823
+   },
+   {
+    "cost": 11,
+    "index": 7,
+    "playerId": 133,
+    "teamId": 6,
+    "timestamp": 1788460090602
+   },
+   {
+    "cost": 7,
+    "index": 8,
+    "playerId": 4236,
+    "teamId": 0,
+    "timestamp": 1788460164821
+   },
+   {
+    "cost": 32,
+    "index": 9,
+    "playerId": 572,
+    "teamId": 6,
+    "timestamp": 1788460229745
+   },
+   {
+    "cost": 1,
+    "index": 10,
+    "playerId": 2170,
+    "teamId": 6,
+    "timestamp": 1788460247829
+   },
+   {
+    "cost": 36,
+    "index": 11,
+    "playerId": 5116,
+    "teamId": 8,
+    "timestamp": 1788460321989
+   },
+   {
+    "cost": 1,
+    "index": 12,
+    "playerId": 2814,
+    "teamId": 8,
+    "timestamp": 1788460339362
+   },
+   {
+    "cost": 12,
+    "index": 13,
+    "playerId": 6482,
+    "teamId": 9,
+    "timestamp": 1788460404229
+   },
+   {
+    "cost": 1,
+    "index": 14,
+    "playerId": 7337,
+    "teamId": 9,
+    "timestamp": 1788460421891
+   },
+   {
+    "cost": 39,
+    "index": 15,
+    "playerId": 6966,
+    "teamId": 0,
+    "timestamp": 1788460523075
+   },
+   {
+    "cost": 1,
+    "index": 16,
+    "playerId": 6344,
+    "teamId": 0,
+    "timestamp": 1788460542398
+   },
+   {
+    "cost": 19,
+    "index": 17,
+    "playerId": 2521,
+    "teamId": 3,
+    "timestamp": 1788460635328
+   },
+   {
+    "cost": 2,
+    "index": 18,
+    "playerId": 6662,
+    "teamId": 9,
+    "timestamp": 1788460673397
+   },
+   {
+    "cost": 1,
+    "index": 19,
+    "playerId": 7411,
+    "teamId": 9,
+    "timestamp": 1788460690828
+   },
+   {
+    "cost": 1,
+    "index": 20,
+    "playerId": 4957,
+    "teamId": 3,
+    "timestamp": 1788460734960
+   },
+   {
+    "cost": 6,
+    "index": 21,
+    "playerId": 2134,
+    "teamId": 7,
+    "timestamp": 1788460827088
+   },
+   {
+    "cost": 1,
+    "index": 22,
+    "playerId": 4468,
+    "teamId": 7,
+    "timestamp": 1788460866736
+   },
+   {
+    "cost": 9,
+    "index": 23,
+    "playerId": 6462,
+    "teamId": 5,
+    "timestamp": 1788460940521
+   },
+   {
+    "cost": 4,
+    "index": 24,
+    "playerId": 6534,
+    "teamId": 7,
+    "timestamp": 1788460980838
+   },
+   {
+    "cost": 1,
+    "index": 25,
+    "playerId": 7457,
+    "teamId": 7,
+    "timestamp": 1788461028589
+   },
+   {
+    "cost": 2,
+    "index": 26,
+    "playerId": 7332,
+    "teamId": 4,
+    "timestamp": 1788461359430
+   },
+   {
+    "cost": 2,
+    "index": 27,
+    "playerId": 4360,
+    "teamId": 3,
+    "timestamp": 1788461404970
+   },
+   {
+    "cost": 1,
+    "index": 28,
+    "playerId": 6248,
+    "teamId": 2,
+    "timestamp": 1788461435655
+   },
+   {
+    "cost": 1,
+    "index": 29,
+    "playerId": 6415,
+    "teamId": 4,
+    "timestamp": 1788461483690
+   },
+   {
+    "cost": 1,
+    "index": 30,
+    "playerId": 7301,
+    "teamId": 8,
+    "timestamp": 1788461530836
+   },
+   {
+    "cost": 1,
+    "index": 31,
+    "playerId": 6813,
+    "teamId": 1,
+    "timestamp": 1788461550966
+   },
+   {
+    "cost": 24,
+    "index": 32,
+    "playerId": 5022,
+    "teamId": 5,
+    "timestamp": 1788461662371
+   },
+   {
+    "cost": 28,
+    "index": 33,
+    "playerId": 4409,
+    "teamId": 2,
+    "timestamp": 1788461709819
+   },
+   {
+    "cost": 18,
+    "index": 34,
+    "playerId": 5514,
+    "teamId": 3,
+    "timestamp": 1788461772773
+   },
+   {
+    "cost": 36,
+    "index": 35,
+    "playerId": 2120,
+    "teamId": 2,
+    "timestamp": 1788461912276
+   },
+   {
+    "cost": 11,
+    "index": 36,
+    "playerId": 6672,
+    "teamId": 3,
+    "timestamp": 1788461993100
+   },
+   {
+    "cost": 7,
+    "index": 37,
+    "playerId": 4137,
+    "teamId": 6,
+    "timestamp": 1788462050100
+   },
+   {
+    "cost": 25,
+    "index": 38,
+    "playerId": 6956,
+    "teamId": 8,
+    "timestamp": 1788462112356
+   },
+   {
+    "cost": 25,
+    "index": 39,
+    "playerId": 5833,
+    "teamId": 8,
+    "timestamp": 1788462169287
+   },
+   {
+    "cost": 7,
+    "index": 40,
+    "playerId": 6660,
+    "teamId": 9,
+    "timestamp": 1788462209279
+   },
+   {
+    "cost": 15,
+    "index": 41,
+    "playerId": 2514,
+    "teamId": 7,
+    "timestamp": 1788462285499
+   },
+   {
+    "cost": 23,
+    "index": 42,
+    "playerId": 4317,
+    "teamId": 1,
+    "timestamp": 1788462338617
+   },
+   {
+    "cost": 38,
+    "index": 43,
+    "playerId": 2296,
+    "teamId": 3,
+    "timestamp": 1788462399450
+   },
+   {
+    "cost": 40,
+    "index": 44,
+    "playerId": 2788,
+    "teamId": 0,
+    "timestamp": 1788462490360
+   },
+   {
+    "cost": 12,
+    "index": 45,
+    "playerId": 6664,
+    "teamId": 4,
+    "timestamp": 1788462555640
+   },
+   {
+    "cost": 24,
+    "index": 46,
+    "playerId": 6869,
+    "teamId": 8,
+    "timestamp": 1788462627545
+   },
+   {
+    "cost": 18,
+    "index": 47,
+    "playerId": 5526,
+    "teamId": 0,
+    "timestamp": 1788462708756
+   },
+   {
+    "cost": 18,
+    "index": 48,
+    "playerId": 5750,
+    "teamId": 4,
+    "timestamp": 1788462768156
+   },
+   {
+    "cost": 15,
+    "index": 49,
+    "playerId": 6042,
+    "teamId": 4,
+    "timestamp": 1788462820545
+   },
+   {
+    "cost": 6,
+    "index": 50,
+    "playerId": 5739,
+    "teamId": 8,
+    "timestamp": 1788462872770
+   },
+   {
+    "cost": 15,
+    "index": 51,
+    "playerId": 4807,
+    "teamId": 7,
+    "timestamp": 1788462910667
+   },
+   {
+    "cost": 27,
+    "index": 52,
+    "playerId": 2816,
+    "teamId": 1,
+    "timestamp": 1788462989056
+   },
+   {
+    "cost": 34,
+    "index": 53,
+    "playerId": 4159,
+    "teamId": 7,
+    "timestamp": 1788463092980
+   },
+   {
+    "cost": 20,
+    "index": 54,
+    "playerId": 6217,
+    "teamId": 1,
+    "timestamp": 1788463171892
+   },
+   {
+    "cost": 13,
+    "index": 55,
+    "playerId": 2188,
+    "teamId": 3,
+    "timestamp": 1788463268102
+   },
+   {
+    "cost": 11,
+    "index": 56,
+    "playerId": 6495,
+    "teamId": 6,
+    "timestamp": 1788463395323
+   },
+   {
+    "cost": 39,
+    "index": 57,
+    "playerId": 4976,
+    "teamId": 9,
+    "timestamp": 1788463586149
+   },
+   {
+    "cost": 13,
+    "index": 58,
+    "playerId": 5675,
+    "teamId": 7,
+    "timestamp": 1788463670349
+   },
+   {
+    "cost": 7,
+    "index": 59,
+    "playerId": 5877,
+    "teamId": 4,
+    "timestamp": 1788463753181
+   },
+   {
+    "cost": 5,
+    "index": 60,
+    "playerId": 4887,
+    "teamId": 9,
+    "timestamp": 1788463812770
+   },
+   {
+    "cost": 7,
+    "index": 61,
+    "playerId": 6496,
+    "teamId": 4,
+    "timestamp": 1788463865304
+   },
+   {
+    "cost": 19,
+    "index": 62,
+    "playerId": 1852,
+    "teamId": 1,
+    "timestamp": 1788463949338
+   },
+   {
+    "cost": 11,
+    "index": 63,
+    "playerId": 5620,
+    "teamId": 9,
+    "timestamp": 1788464015305
+   },
+   {
+    "cost": 1,
+    "index": 64,
+    "playerId": 7478,
+    "teamId": 3,
+    "timestamp": 1788464045826
+   },
+   {
+    "cost": 1,
+    "index": 65,
+    "playerId": 5838,
+    "teamId": 4,
+    "timestamp": 1788464093994
+   },
+   {
+    "cost": 33,
+    "index": 67,
+    "playerId": 5641,
+    "teamId": 6,
+    "timestamp": 1788464179460
+   },
+   {
+    "cost": 2,
+    "index": 68,
+    "playerId": 6531,
+    "teamId": 2,
+    "timestamp": 1788464207830
+   },
+   {
+    "cost": 15,
+    "index": 69,
+    "playerId": 4657,
+    "teamId": 6,
+    "timestamp": 1788464251732
+   },
+   {
+    "cost": 4,
+    "index": 70,
+    "playerId": 7268,
+    "teamId": 6,
+    "timestamp": 1788464327328
+   },
+   {
+    "cost": 6,
+    "index": 71,
+    "playerId": 4210,
+    "teamId": 7,
+    "timestamp": 1788464375704
+   },
+   {
+    "cost": 16,
+    "index": 72,
+    "playerId": 6485,
+    "teamId": 6,
+    "timestamp": 1788464436353
+   },
+   {
+    "cost": 4,
+    "index": 73,
+    "playerId": 5365,
+    "teamId": 5,
+    "timestamp": 1788464466567
+   },
+   {
+    "cost": 2,
+    "index": 74,
+    "playerId": 6642,
+    "teamId": 5,
+    "timestamp": 1788464507620
+   },
+   {
+    "cost": 3,
+    "index": 75,
+    "playerId": 7253,
+    "teamId": 4,
+    "timestamp": 1788464550308
+   },
+   {
+    "cost": 10,
+    "index": 76,
+    "playerId": 7294,
+    "teamId": 0,
+    "timestamp": 1788464636859
+   },
+   {
+    "cost": 2,
+    "index": 77,
+    "playerId": 7212,
+    "teamId": 0,
+    "timestamp": 1788464676988
+   },
+   {
+    "cost": 10,
+    "index": 78,
+    "playerId": 6727,
+    "teamId": 0,
+    "timestamp": 1788464724675
+   },
+   {
+    "cost": 7,
+    "index": 79,
+    "playerId": 6989,
+    "teamId": 2,
+    "timestamp": 1788464777826
+   },
+   {
+    "cost": 7,
+    "index": 80,
+    "playerId": 4994,
+    "teamId": 7,
+    "timestamp": 1788464839924
+   },
+   {
+    "cost": 10,
+    "index": 81,
+    "playerId": 5520,
+    "teamId": 3,
+    "timestamp": 1788464894926
+   },
+   {
+    "cost": 1,
+    "index": 82,
+    "playerId": 7529,
+    "teamId": 1,
+    "timestamp": 1788464917345
+   },
+   {
+    "cost": 9,
+    "index": 83,
+    "playerId": 4664,
+    "teamId": 2,
+    "timestamp": 1788464976945
+   },
+   {
+    "cost": 3,
+    "index": 84,
+    "playerId": 4502,
+    "teamId": 3,
+    "timestamp": 1788465050095
+   },
+   {
+    "cost": 2,
+    "index": 85,
+    "playerId": 554,
+    "teamId": 5,
+    "timestamp": 1788465090161
+   },
+   {
+    "cost": 12,
+    "index": 86,
+    "playerId": 6320,
+    "teamId": 9,
+    "timestamp": 1788465168353
+   },
+   {
+    "cost": 4,
+    "index": 87,
+    "playerId": 7274,
+    "teamId": 6,
+    "timestamp": 1788465197603
+   },
+   {
+    "cost": 8,
+    "index": 88,
+    "playerId": 5555,
+    "teamId": 5,
+    "timestamp": 1788465243380
+   },
+   {
+    "cost": 9,
+    "index": 89,
+    "playerId": 4401,
+    "teamId": 8,
+    "timestamp": 1788465296099
+   },
+   {
+    "cost": 12,
+    "index": 90,
+    "playerId": 6867,
+    "teamId": 9,
+    "timestamp": 1788465372249
+   },
+   {
+    "cost": 2,
+    "index": 91,
+    "playerId": 256,
+    "teamId": 7,
+    "timestamp": 1788465420006
+   },
+   {
+    "cost": 1,
+    "index": 92,
+    "playerId": 7580,
+    "teamId": 1,
+    "timestamp": 1788465439207
+   },
+   {
+    "cost": 3,
+    "index": 93,
+    "playerId": 5701,
+    "teamId": 8,
+    "timestamp": 1788465477161
+   },
+   {
+    "cost": 2,
+    "index": 94,
+    "playerId": 5578,
+    "teamId": 6,
+    "timestamp": 1788465552037
+   },
+   {
+    "cost": 1,
+    "index": 95,
+    "playerId": 4734,
+    "teamId": 5,
+    "timestamp": 1788465584457
+   },
+   {
+    "cost": 1,
+    "index": 96,
+    "playerId": 5481,
+    "teamId": 7,
+    "timestamp": 1788465617061
+   },
+   {
+    "cost": 8,
+    "index": 97,
+    "playerId": 6893,
+    "teamId": 9,
+    "timestamp": 1788465651530
+   },
+   {
+    "cost": 1,
+    "index": 98,
+    "playerId": 5527,
+    "teamId": 9,
+    "timestamp": 1788465680541
+   },
+   {
+    "cost": 2,
+    "index": 99,
+    "playerId": 7235,
+    "teamId": 5,
+    "timestamp": 1788465732062
+   },
+   {
+    "cost": 3,
+    "index": 100,
+    "playerId": 4177,
+    "teamId": 2,
+    "timestamp": 1788465760641
+   },
+   {
+    "cost": 2,
+    "index": 101,
+    "playerId": 7469,
+    "teamId": 0,
+    "timestamp": 1788465785493
+   },
+   {
+    "cost": 1,
+    "index": 102,
+    "playerId": 4845,
+    "teamId": 4,
+    "timestamp": 1788465869060
+   },
+   {
+    "cost": 7,
+    "index": 103,
+    "playerId": 7012,
+    "teamId": 5,
+    "timestamp": 1788465934911
+   },
+   {
+    "cost": 2,
+    "index": 104,
+    "playerId": 7410,
+    "teamId": 9,
+    "timestamp": 1788465976027
+   },
+   {
+    "cost": 1,
+    "index": 105,
+    "playerId": 4147,
+    "teamId": 8,
+    "timestamp": 1788465989011
+   },
+   {
+    "cost": 1,
+    "index": 106,
+    "playerId": 4817,
+    "teamId": 9,
+    "timestamp": 1788466026245
+   },
+   {
+    "cost": 1,
+    "index": 107,
+    "playerId": 4263,
+    "teamId": 0,
+    "timestamp": 1788466053516
+   },
+   {
+    "cost": 14,
+    "index": 108,
+    "playerId": 7219,
+    "teamId": 0,
+    "timestamp": 1788466111900
+   },
+   {
+    "cost": 1,
+    "index": 109,
+    "playerId": 6986,
+    "teamId": 2,
+    "timestamp": 1788466130484
+   },
+   {
+    "cost": 2,
+    "index": 110,
+    "playerId": 7564,
+    "teamId": 8,
+    "timestamp": 1788466184065
+   },
+   {
+    "cost": 1,
+    "index": 111,
+    "playerId": 7326,
+    "teamId": 5,
+    "timestamp": 1788466220381
+   },
+   {
+    "cost": 1,
+    "index": 112,
+    "playerId": 6766,
+    "teamId": 0,
+    "timestamp": 1788466280669
+   },
+   {
+    "cost": 4,
+    "index": 113,
+    "playerId": 5862,
+    "teamId": 1,
+    "timestamp": 1788466309101
+   },
+   {
+    "cost": 1,
+    "index": 114,
+    "playerId": 2724,
+    "teamId": 2,
+    "timestamp": 1788466323017
+   },
+   {
+    "cost": 1,
+    "index": 115,
+    "playerId": 4374,
+    "teamId": 3,
+    "timestamp": 1788466390050
+   },
+   {
+    "cost": 1,
+    "index": 116,
+    "playerId": 7414,
+    "teamId": 4,
+    "timestamp": 1788466416385
+   },
+   {
+    "cost": 1,
+    "index": 117,
+    "playerId": 7621,
+    "teamId": 5,
+    "timestamp": 1788466450401
+   },
+   {
+    "cost": 2,
+    "index": 118,
+    "playerId": 6925,
+    "teamId": 2,
+    "timestamp": 1788466499451
+   },
+   {
+    "cost": 1,
+    "index": 119,
+    "playerId": 4433,
+    "teamId": 1,
+    "timestamp": 1788466540721
+   },
+   {
+    "cost": 1,
+    "index": 120,
+    "playerId": 7485,
+    "teamId": 2,
+    "timestamp": 1788466552956
+   },
+   {
+    "cost": 1,
+    "index": 121,
+    "playerId": 4705,
+    "teamId": 1,
+    "timestamp": 1788466605192
+   },
+   {
+    "cost": 1,
+    "index": 122,
+    "playerId": 4952,
+    "teamId": 1,
+    "timestamp": 1788466797423
+   },
+   {
+    "cost": 44,
+    "index": 123,
+    "playerId": 7181,
+    "teamId": 8,
+    "timestamp": 1788467059908
+   },
+   {
+    "cost": 1,
+    "index": 124,
+    "playerId": 5791,
+    "teamId": 3,
+    "timestamp": 1788467086165
+   },
+   {
+    "cost": 1,
+    "index": 125,
+    "playerId": 6151,
+    "teamId": 4,
+    "timestamp": 1788467141530
+   },
+   {
+    "cost": 6,
+    "index": 126,
+    "playerId": 7412,
+    "teamId": 2,
+    "timestamp": 1788467452661
+   },
+   {
+    "cost": 100,
+    "index": 127,
+    "playerId": 2194,
+    "teamId": 9,
+    "timestamp": 1788467506047
+   },
+   {
+    "cost": 87,
+    "index": 128,
+    "playerId": 254,
+    "teamId": 5,
+    "timestamp": 1788467615068
+   },
+   {
+    "cost": 26,
+    "index": 129,
+    "playerId": 4892,
+    "teamId": 8,
+    "timestamp": 1788467689167
+   },
+   {
+    "cost": 40,
+    "index": 130,
+    "playerId": 2848,
+    "teamId": 4,
+    "timestamp": 1788467758935
+   },
+   {
+    "cost": 16,
+    "index": 131,
+    "playerId": 779,
+    "teamId": 1,
+    "timestamp": 1788467849068
+   },
+   {
+    "cost": 91,
+    "index": 132,
+    "playerId": 4777,
+    "teamId": 7,
+    "timestamp": 1788467941671
+   },
+   {
+    "cost": 30,
+    "index": 133,
+    "playerId": 4856,
+    "teamId": 8,
+    "timestamp": 1788468020671
+   },
+   {
+    "cost": 54,
+    "index": 134,
+    "playerId": 5559,
+    "teamId": 3,
+    "timestamp": 1788468145735
+   },
+   {
+    "cost": 68,
+    "index": 135,
+    "playerId": 2379,
+    "teamId": 1,
+    "timestamp": 1788468249919
+   },
+   {
+    "cost": 9,
+    "index": 136,
+    "playerId": 7472,
+    "teamId": 5,
+    "timestamp": 1788468305607
+   },
+   {
+    "cost": 57,
+    "index": 137,
+    "playerId": 5589,
+    "teamId": 9,
+    "timestamp": 1788468364870
+   },
+   {
+    "cost": 27,
+    "index": 138,
+    "playerId": 6908,
+    "teamId": 0,
+    "timestamp": 1788468431458
+   },
+   {
+    "cost": 61,
+    "index": 139,
+    "playerId": 1870,
+    "teamId": 7,
+    "timestamp": 1788468490070
+   },
+   {
+    "cost": 22,
+    "index": 140,
+    "playerId": 6372,
+    "teamId": 8,
+    "timestamp": 1788468573143
+   },
+   {
+    "cost": 6,
+    "index": 141,
+    "playerId": 4459,
+    "teamId": 9,
+    "timestamp": 1788468612326
+   },
+   {
+    "cost": 69,
+    "index": 142,
+    "playerId": 2606,
+    "teamId": 7,
+    "timestamp": 1788468720318
+   },
+   {
+    "cost": 31,
+    "index": 143,
+    "playerId": 4998,
+    "teamId": 7,
+    "timestamp": 1788468849011
+   },
+   {
+    "cost": 3,
+    "index": 144,
+    "playerId": 6020,
+    "teamId": 3,
+    "timestamp": 1788468884948
+   },
+   {
+    "cost": 27,
+    "index": 145,
+    "playerId": 6274,
+    "teamId": 6,
+    "timestamp": 1788468954511
+   },
+   {
+    "cost": 35,
+    "index": 146,
+    "playerId": 5792,
+    "teamId": 6,
+    "timestamp": 1788469087979
+   },
+   {
+    "cost": 22,
+    "index": 147,
+    "playerId": 6684,
+    "teamId": 9,
+    "timestamp": 1788469165059
+   },
+   {
+    "cost": 27,
+    "index": 148,
+    "playerId": 4973,
+    "teamId": 5,
+    "timestamp": 1788469236713
+   },
+   {
+    "cost": 17,
+    "index": 149,
+    "playerId": 827,
+    "teamId": 8,
+    "timestamp": 1788469276559
+   },
+   {
+    "cost": 1,
+    "index": 150,
+    "playerId": 5273,
+    "teamId": 9,
+    "timestamp": 1788469392263
+   },
+   {
+    "cost": 26,
+    "index": 151,
+    "playerId": 4364,
+    "teamId": 0,
+    "timestamp": 1788469453395
+   },
+   {
+    "cost": 18,
+    "index": 152,
+    "playerId": 1850,
+    "teamId": 4,
+    "timestamp": 1788469518194
+   },
+   {
+    "cost": 23,
+    "index": 153,
+    "playerId": 4287,
+    "teamId": 5,
+    "timestamp": 1788469576778
+   },
+   {
+    "cost": 11,
+    "index": 154,
+    "playerId": 6680,
+    "teamId": 3,
+    "timestamp": 1788469647517
+   },
+   {
+    "cost": 20,
+    "index": 155,
+    "playerId": 7070,
+    "teamId": 1,
+    "timestamp": 1788469714616
+   },
+   {
+    "cost": 7,
+    "index": 156,
+    "playerId": 5858,
+    "teamId": 0,
+    "timestamp": 1788469794801
+   },
+   {
+    "cost": 13,
+    "index": 157,
+    "playerId": 5844,
+    "teamId": 3,
+    "timestamp": 1788469845970
+   },
+   {
+    "cost": 25,
+    "index": 158,
+    "playerId": 5982,
+    "teamId": 6,
+    "timestamp": 1788469930946
+   },
+   {
+    "cost": 10,
+    "index": 159,
+    "playerId": 7311,
+    "teamId": 2,
+    "timestamp": 1788469968295
+   },
+   {
+    "cost": 13,
+    "index": 160,
+    "playerId": 7599,
+    "teamId": 9,
+    "timestamp": 1788470020617
+   },
+   {
+    "cost": 16,
+    "index": 161,
+    "playerId": 4220,
+    "teamId": 2,
+    "timestamp": 1788470113347
+   },
+   {
+    "cost": 4,
+    "index": 162,
+    "playerId": 1933,
+    "teamId": 8,
+    "timestamp": 1788470142384
+   },
+   {
+    "cost": 18,
+    "index": 163,
+    "playerId": 152,
+    "teamId": 9,
+    "timestamp": 1788470194986
+   },
+   {
+    "cost": 9,
+    "index": 164,
+    "playerId": 2077,
+    "teamId": 5,
+    "timestamp": 1788470303332
+   },
+   {
+    "cost": 1,
+    "index": 165,
+    "playerId": 7528,
+    "teamId": 5,
+    "timestamp": 1788470342381
+   },
+   {
+    "cost": 21,
+    "index": 166,
+    "playerId": 7314,
+    "teamId": 9,
+    "timestamp": 1788470395783
+   },
+   {
+    "cost": 3,
+    "index": 167,
+    "playerId": 5504,
+    "teamId": 7,
+    "timestamp": 1788470425183
+   },
+   {
+    "cost": 10,
+    "index": 168,
+    "playerId": 5680,
+    "teamId": 8,
+    "timestamp": 1788470479972
+   },
+   {
+    "cost": 3,
+    "index": 169,
+    "playerId": 7131,
+    "teamId": 9,
+    "timestamp": 1788470526770
+   },
+   {
+    "cost": 3,
+    "index": 170,
+    "playerId": 7198,
+    "teamId": 0,
+    "timestamp": 1788470571895
+   },
+   {
+    "cost": 5,
+    "index": 171,
+    "playerId": 4465,
+    "teamId": 1,
+    "timestamp": 1788470595849
+   },
+   {
+    "cost": 8,
+    "index": 172,
+    "playerId": 7060,
+    "teamId": 7,
+    "timestamp": 1788470652590
+   },
+   {
+    "cost": 40,
+    "index": 173,
+    "playerId": 5172,
+    "teamId": 1,
+    "timestamp": 1788470811298
+   },
+   {
+    "cost": 12,
+    "index": 174,
+    "playerId": 5888,
+    "teamId": 9,
+    "timestamp": 1788470960818
+   },
+   {
+    "cost": 3,
+    "index": 175,
+    "playerId": 7146,
+    "teamId": 7,
+    "timestamp": 1788470992621
+   },
+   {
+    "cost": 13,
+    "index": 176,
+    "playerId": 5119,
+    "teamId": 4,
+    "timestamp": 1788471037406
+   },
+   {
+    "cost": 1,
+    "index": 177,
+    "playerId": 5885,
+    "teamId": 9,
+    "timestamp": 1788471105247
+   },
+   {
+    "cost": 6,
+    "index": 178,
+    "playerId": 4911,
+    "teamId": 6,
+    "timestamp": 1788471176338
+   },
+   {
+    "cost": 2,
+    "index": 179,
+    "playerId": 22,
+    "teamId": 5,
+    "timestamp": 1788471206718
+   },
+   {
+    "cost": 1,
+    "index": 180,
+    "playerId": 7464,
+    "teamId": 2,
+    "timestamp": 1788471223069
+   },
+   {
+    "cost": 1,
+    "index": 181,
+    "playerId": 5820,
+    "teamId": 3,
+    "timestamp": 1788471237123
+   },
+   {
+    "cost": 12,
+    "index": 182,
+    "playerId": 6666,
+    "teamId": 6,
+    "timestamp": 1788471286287
+   },
+   {
+    "cost": 5,
+    "index": 183,
+    "playerId": 6677,
+    "teamId": 4,
+    "timestamp": 1788471337706
+   },
+   {
+    "cost": 1,
+    "index": 184,
+    "playerId": 5674,
+    "teamId": 6,
+    "timestamp": 1788471356987
+   },
+   {
+    "cost": 5,
+    "index": 185,
+    "playerId": 5685,
+    "teamId": 8,
+    "timestamp": 1788471395261
+   },
+   {
+    "cost": 1,
+    "index": 186,
+    "playerId": 7535,
+    "teamId": 1,
+    "timestamp": 1788471425676
+   },
+   {
+    "cost": 1,
+    "index": 187,
+    "playerId": 7036,
+    "teamId": 2,
+    "timestamp": 1788471438036
+   },
+   {
+    "cost": 1,
+    "index": 188,
+    "playerId": 6015,
+    "teamId": 4,
+    "timestamp": 1788471466989
+   },
+   {
+    "cost": 1,
+    "index": 189,
+    "playerId": 6903,
+    "teamId": 5,
+    "timestamp": 1788471500986
+   },
+   {
+    "cost": 1,
+    "index": 190,
+    "playerId": 5507,
+    "teamId": 6,
+    "timestamp": 1788471518324
+   },
+   {
+    "cost": 1,
+    "index": 191,
+    "playerId": 6190,
+    "teamId": 8,
+    "timestamp": 1788471535852
+   },
+   {
+    "cost": 3,
+    "index": 192,
+    "playerId": 6010,
+    "teamId": 8,
+    "timestamp": 1788471575052
+   },
+   {
+    "cost": 1,
+    "index": 193,
+    "playerId": 4870,
+    "teamId": 4,
+    "timestamp": 1788471659693
+   },
+   {
+    "cost": 14,
+    "index": 194,
+    "playerId": 5687,
+    "teamId": 3,
+    "timestamp": 1788471790273
+   },
+   {
+    "cost": 64,
+    "index": 195,
+    "playerId": 2423,
+    "teamId": 1,
+    "timestamp": 1788471878339
+   },
+   {
+    "cost": 261,
+    "index": 196,
+    "playerId": 5585,
+    "teamId": 2,
+    "timestamp": 1788472106226
+   },
+   {
+    "cost": 63,
+    "index": 197,
+    "playerId": 2517,
+    "teamId": 6,
+    "timestamp": 1788472157204
+   },
+   {
+    "cost": 191,
+    "index": 198,
+    "playerId": 2764,
+    "teamId": 4,
+    "timestamp": 1788472223206
+   },
+   {
+    "cost": 108,
+    "index": 199,
+    "playerId": 6875,
+    "teamId": 5,
+    "timestamp": 1788472275639
+   },
+   {
+    "cost": 82,
+    "index": 200,
+    "playerId": 7017,
+    "teamId": 3,
+    "timestamp": 1788472362149
+   },
+   {
+    "cost": 49,
+    "index": 201,
+    "playerId": 7625,
+    "teamId": 0,
+    "timestamp": 1788472465010
+   },
+   {
+    "cost": 96,
+    "index": 202,
+    "playerId": 6397,
+    "teamId": 0,
+    "timestamp": 1788472524024
+   },
+   {
+    "cost": 61,
+    "index": 203,
+    "playerId": 531,
+    "teamId": 7,
+    "timestamp": 1788472674769
+   },
+   {
+    "cost": 32,
+    "index": 204,
+    "playerId": 6844,
+    "teamId": 3,
+    "timestamp": 1788472726445
+   },
+   {
+    "cost": 75,
+    "index": 205,
+    "playerId": 4871,
+    "teamId": 1,
+    "timestamp": 1788472808463
+   },
+   {
+    "cost": 137,
+    "index": 206,
+    "playerId": 6052,
+    "teamId": 8,
+    "timestamp": 1788473094900
+   },
+   {
+    "cost": 70,
+    "index": 207,
+    "playerId": 2097,
+    "teamId": 3,
+    "timestamp": 1788473159174
+   },
+   {
+    "cost": 48,
+    "index": 208,
+    "playerId": 2167,
+    "teamId": 3,
+    "timestamp": 1788473239160
+   },
+   {
+    "cost": 40,
+    "index": 209,
+    "playerId": 6060,
+    "teamId": 0,
+    "timestamp": 1788473339096
+   },
+   {
+    "cost": 58,
+    "index": 210,
+    "playerId": 5637,
+    "teamId": 5,
+    "timestamp": 1788473437646
+   },
+   {
+    "cost": 83,
+    "index": 211,
+    "playerId": 309,
+    "teamId": 6,
+    "timestamp": 1788473546959
+   },
+   {
+    "cost": 31,
+    "index": 212,
+    "playerId": 6884,
+    "teamId": 0,
+    "timestamp": 1788473685013
+   },
+   {
+    "cost": 54,
+    "index": 213,
+    "playerId": 5951,
+    "teamId": 7,
+    "timestamp": 1788473757464
+   },
+   {
+    "cost": 38,
+    "index": 214,
+    "playerId": 5995,
+    "teamId": 8,
+    "timestamp": 1788473849965
+   },
+   {
+    "cost": 46,
+    "index": 215,
+    "playerId": 2038,
+    "teamId": 9,
+    "timestamp": 1788473908411
+   },
+   {
+    "cost": 76,
+    "index": 216,
+    "playerId": 7071,
+    "teamId": 4,
+    "timestamp": 1788473977724
+   },
+   {
+    "cost": 21,
+    "index": 217,
+    "playerId": 2061,
+    "teamId": 9,
+    "timestamp": 1788474026294
+   },
+   {
+    "cost": 56,
+    "index": 218,
+    "playerId": 6752,
+    "teamId": 0,
+    "timestamp": 1788474133527
+   },
+   {
+    "cost": 32,
+    "index": 219,
+    "playerId": 6434,
+    "teamId": 5,
+    "timestamp": 1788474252631
+   },
+   {
+    "cost": 34,
+    "index": 220,
+    "playerId": 6967,
+    "teamId": 2,
+    "timestamp": 1788474323009
+   },
+   {
+    "cost": 20,
+    "index": 221,
+    "playerId": 7556,
+    "teamId": 5,
+    "timestamp": 1788474406044
+   },
+   {
+    "cost": 47,
+    "index": 222,
+    "playerId": 2137,
+    "teamId": 6,
+    "timestamp": 1788474436795
+   },
+   {
+    "cost": 3,
+    "index": 223,
+    "playerId": 6675,
+    "teamId": 6,
+    "timestamp": 1788474501266
+   },
+   {
+    "cost": 40,
+    "index": 224,
+    "playerId": 6435,
+    "teamId": 6,
+    "timestamp": 1788474575978
+   },
+   {
+    "cost": 18,
+    "index": 225,
+    "playerId": 2766,
+    "teamId": 1,
+    "timestamp": 1788474634915
+   },
+   {
+    "cost": 25,
+    "index": 226,
+    "playerId": 7126,
+    "teamId": 1,
+    "timestamp": 1788474716312
+   },
+   {
+    "cost": 9,
+    "index": 227,
+    "playerId": 7351,
+    "teamId": 2,
+    "timestamp": 1788474842012
+   },
+   {
+    "cost": 7,
+    "index": 228,
+    "playerId": 5694,
+    "teamId": 2,
+    "timestamp": 1788474889861
+   },
+   {
+    "cost": 1,
+    "index": 229,
+    "playerId": 6549,
+    "teamId": 3,
+    "timestamp": 1788474913863
+   },
+   {
+    "cost": 7,
+    "index": 230,
+    "playerId": 4463,
+    "teamId": 4,
+    "timestamp": 1788474952228
+   },
+   {
+    "cost": 8,
+    "index": 231,
+    "playerId": 5800,
+    "teamId": 9,
+    "timestamp": 1788475007666
+   },
+   {
+    "cost": 1,
+    "index": 232,
+    "playerId": 7551,
+    "teamId": 6,
+    "timestamp": 1788475029478
+   },
+   {
+    "cost": 10,
+    "index": 233,
+    "playerId": 7078,
+    "teamId": 5,
+    "timestamp": 1788475067016
+   },
+   {
+    "cost": 8,
+    "index": 234,
+    "playerId": 4371,
+    "teamId": 2,
+    "timestamp": 1788475105295
+   },
+   {
+    "cost": 1,
+    "index": 235,
+    "playerId": 7129,
+    "teamId": 9,
+    "timestamp": 1788475141766
+   },
+   {
+    "cost": 1,
+    "index": 236,
+    "playerId": 5878,
+    "teamId": 0,
+    "timestamp": 1788475177535
+   },
+   {
+    "cost": 6,
+    "index": 237,
+    "playerId": 536,
+    "teamId": 7,
+    "timestamp": 1788475214967
+   },
+   {
+    "cost": 3,
+    "index": 238,
+    "playerId": 795,
+    "teamId": 6,
+    "timestamp": 1788475244278
+   },
+   {
+    "cost": 26,
+    "index": 239,
+    "playerId": 632,
+    "teamId": 3,
+    "timestamp": 1788475355412
+   },
+   {
+    "cost": 6,
+    "index": 240,
+    "playerId": 6572,
+    "teamId": 9,
+    "timestamp": 1788475422279
+   },
+   {
+    "cost": 2,
+    "index": 241,
+    "playerId": 7023,
+    "teamId": 4,
+    "timestamp": 1788475467104
+   },
+   {
+    "cost": 1,
+    "index": 242,
+    "playerId": 4436,
+    "teamId": 6,
+    "timestamp": 1788475550133
+   },
+   {
+    "cost": 1,
+    "index": 243,
+    "playerId": 6519,
+    "teamId": 7,
+    "timestamp": 1788475574769
+   },
+   {
+    "cost": 21,
+    "index": 244,
+    "playerId": 5734,
+    "teamId": 8,
+    "timestamp": 1788475617847
+   },
+   {
+    "cost": 1,
+    "index": 245,
+    "playerId": 7014,
+    "teamId": 0,
+    "timestamp": 1788475630647
+   },
+   {
+    "cost": 15,
+    "index": 246,
+    "playerId": 4179,
+    "teamId": 1,
+    "timestamp": 1788475676297
+   },
+   {
+    "cost": 3,
+    "index": 247,
+    "playerId": 7436,
+    "teamId": 1,
+    "timestamp": 1788475700468
+   },
+   {
+    "cost": 1,
+    "index": 248,
+    "playerId": 2528,
+    "teamId": 3,
+    "timestamp": 1788475747021
+   },
+   {
+    "cost": 7,
+    "index": 249,
+    "playerId": 184,
+    "teamId": 6,
+    "timestamp": 1788475797847
+   },
+   {
+    "cost": 2,
+    "index": 250,
+    "playerId": 6229,
+    "teamId": 4,
+    "timestamp": 1788475830214
+   },
+   {
+    "cost": 1,
+    "index": 251,
+    "playerId": 6833,
+    "teamId": 6,
+    "timestamp": 1788475860163
+   },
+   {
+    "cost": 4,
+    "index": 252,
+    "playerId": 6831,
+    "teamId": 4,
+    "timestamp": 1788475887564
+   },
+   {
+    "cost": 1,
+    "index": 253,
+    "playerId": 6398,
+    "teamId": 8,
+    "timestamp": 1788475908650
+   },
+   {
+    "cost": 1,
+    "index": 254,
+    "playerId": 6990,
+    "teamId": 0,
+    "timestamp": 1788475942580
+   },
+   {
+    "cost": 7,
+    "index": 255,
+    "playerId": 6669,
+    "teamId": 1,
+    "timestamp": 1788476006002
+   },
+   {
+    "cost": 2,
+    "index": 256,
+    "playerId": 6646,
+    "teamId": 3,
+    "timestamp": 1788476027951
+   },
+   {
+    "cost": 1,
+    "index": 257,
+    "playerId": 5851,
+    "teamId": 3,
+    "timestamp": 1788476061718
+   },
+   {
+    "cost": 1,
+    "index": 258,
+    "playerId": 6530,
+    "teamId": 4,
+    "timestamp": 1788476111181
+   },
+   {
+    "cost": 2,
+    "index": 259,
+    "playerId": 7523,
+    "teamId": 2,
+    "timestamp": 1788476148396
+   },
+   {
+    "cost": 3,
+    "index": 260,
+    "playerId": 4896,
+    "teamId": 6,
+    "timestamp": 1788476187869
+   },
+   {
+    "cost": 3,
+    "index": 261,
+    "playerId": 2832,
+    "teamId": 7,
+    "timestamp": 1788476217784
+   },
+   {
+    "cost": 1,
+    "index": 262,
+    "playerId": 5500,
+    "teamId": 8,
+    "timestamp": 1788476236236
+   },
+   {
+    "cost": 1,
+    "index": 263,
+    "playerId": 6827,
+    "teamId": 0,
+    "timestamp": 1788476260231
+   },
+   {
+    "cost": 2,
+    "index": 264,
+    "playerId": 4923,
+    "teamId": 4,
+    "timestamp": 1788476276832
+   },
+   {
+    "cost": 1,
+    "index": 265,
+    "playerId": 7223,
+    "teamId": 2,
+    "timestamp": 1788476296147
+   },
+   {
+    "cost": 1,
+    "index": 266,
+    "playerId": 6898,
+    "teamId": 3,
+    "timestamp": 1788476323965
+   },
+   {
+    "cost": 3,
+    "index": 267,
+    "playerId": 7554,
+    "teamId": 4,
+    "timestamp": 1788476407699
+   },
+   {
+    "cost": 2,
+    "index": 268,
+    "playerId": 7547,
+    "teamId": 1,
+    "timestamp": 1788476440536
+   },
+   {
+    "cost": 1,
+    "index": 269,
+    "playerId": 4359,
+    "teamId": 6,
+    "timestamp": 1788476480036
+   },
+   {
+    "cost": 2,
+    "index": 270,
+    "playerId": 7347,
+    "teamId": 5,
+    "timestamp": 1788476497748
+   },
+   {
+    "cost": 1,
+    "index": 271,
+    "playerId": 6215,
+    "teamId": 8,
+    "timestamp": 1788476510118
+   },
+   {
+    "cost": 3,
+    "index": 272,
+    "playerId": 5436,
+    "teamId": 0,
+    "timestamp": 1788476530786
+   },
+   {
+    "cost": 1,
+    "index": 273,
+    "playerId": 5840,
+    "teamId": 1,
+    "timestamp": 1788476546799
+   },
+   {
+    "cost": 1,
+    "index": 274,
+    "playerId": 5735,
+    "teamId": 2,
+    "timestamp": 1788476560763
+   },
+   {
+    "cost": 1,
+    "index": 275,
+    "playerId": 6821,
+    "teamId": 3,
+    "timestamp": 1788476586195
+   },
+   {
+    "cost": 1,
+    "index": 276,
+    "playerId": 4751,
+    "teamId": 4,
+    "timestamp": 1788476649599
+   },
+   {
+    "cost": 1,
+    "index": 277,
+    "playerId": 7484,
+    "teamId": 5,
+    "timestamp": 1788476706965
+   },
+   {
+    "cost": 1,
+    "index": 278,
+    "playerId": 608,
+    "teamId": 7,
+    "timestamp": 1788476727315
+   },
+   {
+    "cost": 2,
+    "index": 279,
+    "playerId": 7618,
+    "teamId": 0,
+    "timestamp": 1788476748648
+   },
+   {
+    "cost": 1,
+    "index": 280,
+    "playerId": 4260,
+    "teamId": 0,
+    "timestamp": 1788476768067
+   },
+   {
+    "cost": 1,
+    "index": 281,
+    "playerId": 7220,
+    "teamId": 2,
+    "timestamp": 1788476786533
+   },
+   {
+    "cost": 1,
+    "index": 282,
+    "playerId": 6503,
+    "teamId": 3,
+    "timestamp": 1788476803100
+   },
+   {
+    "cost": 1,
+    "index": 283,
+    "playerId": 6204,
+    "teamId": 5,
+    "timestamp": 1788476868400
+   },
+   {
+    "cost": 1,
+    "index": 284,
+    "playerId": 7449,
+    "teamId": 7,
+    "timestamp": 1788476881484
+   },
+   {
+    "cost": 5,
+    "index": 285,
+    "playerId": 6618,
+    "teamId": 8,
+    "timestamp": 1788476912465
+   },
+   {
+    "cost": 1,
+    "index": 286,
+    "playerId": 5823,
+    "teamId": 0,
+    "timestamp": 1788476947787
+   },
+   {
+    "cost": 1,
+    "index": 287,
+    "playerId": 7120,
+    "teamId": 2,
+    "timestamp": 1788476979032
+   },
+   {
+    "cost": 1,
+    "index": 288,
+    "playerId": 5301,
+    "teamId": 5,
+    "timestamp": 1788477080754
+   },
+   {
+    "cost": 1,
+    "index": 289,
+    "playerId": 5010,
+    "teamId": 7,
+    "timestamp": 1788477114777
+   }
+  ],
+  "playerListHash": "9da873c6",
+  "selectedPlayerId": null,
+  "settings": {
+   "PlayerStack": "default",
+   "beatRaise": 1,
+   "budget": 500,
+   "buzzAction": "raise",
+   "buzzer": false,
+   "buzzerKit": "blue",
+   "concurrencyTimeLimit": 100,
+   "countdownInterval": 2000,
+   "countdownSeconds": 10,
+   "countdownType": "auction",
+   "game": 2,
+   "gameIndex": 1,
+   "listType": "default",
+   "marketType": 0,
+   "minimumBid": {
+    "type": "fixed",
+    "value": 1
+   },
+   "participants": 10,
+   "playerValueType": "fmv",
+   "playersCallConfig": {
+    "type": "default"
+   },
+   "roles": {
+    "atk": [
+     6,
+     6
+    ],
+    "def": [
+     8,
+     8
+    ],
+    "gk": [
+     2,
+     4
+    ],
+    "mid": [
+     8,
+     8
+    ],
+    "mov": [
+     23,
+     28
+    ],
+    "size": [
+     25,
+     30
+    ]
+   },
+   "selfRaise": true,
+   "style": "live",
+   "type": "default"
+  },
+  "status": "1",
+  "teams": [
+   {
+    "connection": {
+     "label": "host"
+    },
+    "id": 0
+   },
+   {
+    "connection": {
+     "label": "Patri"
+    },
+    "id": 1
+   },
+   {
+    "connection": {
+     "label": "Sanzimippi"
+    },
+    "id": 2
+   },
+   {
+    "connection": {
+     "label": "Claudio"
+    },
+    "id": 3
+   },
+   {
+    "connection": {
+     "label": "Pier"
+    },
+    "id": 4
+   },
+   {
+    "connection": {
+     "label": "CavA Goat"
+    },
+    "id": 5
+   },
+   {
+    "connection": {
+     "label": "Gene"
+    },
+    "id": 6
+   },
+   {
+    "connection": {
+     "label": "radyandre"
+    },
+    "id": 7
+   },
+   {
+    "connection": {
+     "label": "gio"
+    },
+    "id": 8
+   },
+   {
+    "connection": {
+     "label": "Congo"
+    },
+    "id": 9
+   }
+  ],
+  "turnTeamId": 7
+ },
+ "league_conflicts": [],
+ "me": 3,
+ "problems": [
+  "Gene bought player 795 for 3, which run 20260902T213819Z-8210bd6a does not have: his credits count, his roles do not -- check the listone the run was priced on"
+ ],
+ "run_id": "20260902T213819Z-8210bd6a",
+ "scenario": "balanced",
+ "selected": null,
+ "session": {
+  "code": "FA-rb8-460",
+  "locked": false,
+  "settings": {
+   "budget": 500,
+   "game": 2,
+   "goalkeepers": [
+    2,
+    2
+   ],
+   "outfield": [
+    28,
+    28
+   ],
+   "size": [
+    30,
+    30
+   ],
+   "source": "session",
+   "team_count": 10
+  },
+  "status": "1"
+ },
+ "teams": [
+  {
+   "budget": 500,
+   "credits": 9,
+   "id": 0,
+   "label": "host",
+   "nick": "KingNazzario",
+   "picks": [
+    {
+     "cost": 7,
+     "index": 8,
+     "name": "Muric",
+     "player_id": 4236,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788460164821
+    },
+    {
+     "cost": 39,
+     "index": 15,
+     "name": "Butez",
+     "player_id": 6966,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788460523075
+    },
+    {
+     "cost": 1,
+     "index": 16,
+     "name": "Sanchez Ro.",
+     "player_id": 6344,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788460542398
+    },
+    {
+     "cost": 40,
+     "index": 44,
+     "name": "Bremer",
+     "player_id": 2788,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788462490360
+    },
+    {
+     "cost": 18,
+     "index": 47,
+     "name": "Scalvini",
+     "player_id": 5526,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788462708756
+    },
+    {
+     "cost": 10,
+     "index": 76,
+     "name": "Valdepenas",
+     "player_id": 7294,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788464636859
+    },
+    {
+     "cost": 2,
+     "index": 77,
+     "name": "Heggem",
+     "player_id": 7212,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788464676988
+    },
+    {
+     "cost": 10,
+     "index": 78,
+     "name": "Couto",
+     "player_id": 6727,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788464724675
+    },
+    {
+     "cost": 2,
+     "index": 101,
+     "name": "Bracaglia",
+     "player_id": 7469,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788465785493
+    },
+    {
+     "cost": 1,
+     "index": 107,
+     "name": "Kabasele",
+     "player_id": 4263,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788466053516
+    },
+    {
+     "cost": 14,
+     "index": 108,
+     "name": "Bernasconi",
+     "player_id": 7219,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788466111900
+    },
+    {
+     "cost": 1,
+     "index": 112,
+     "name": "Kelly L.",
+     "player_id": 6766,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788466280669
+    },
+    {
+     "cost": 27,
+     "index": 138,
+     "name": "Atta",
+     "player_id": 6908,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788468431458
+    },
+    {
+     "cost": 26,
+     "index": 151,
+     "name": "Gaetano",
+     "player_id": 4364,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788469453395
+    },
+    {
+     "cost": 7,
+     "index": 156,
+     "name": "Ferguson",
+     "player_id": 5858,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788469794801
+    },
+    {
+     "cost": 3,
+     "index": 170,
+     "name": "Piotrowski",
+     "player_id": 7198,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788470571895
+    },
+    {
+     "cost": 49,
+     "index": 201,
+     "name": "Goncalves P.",
+     "player_id": 7625,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788472465010
+    },
+    {
+     "cost": 96,
+     "index": 202,
+     "name": "Ramos G.",
+     "player_id": 6397,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788472524024
+    },
+    {
+     "cost": 40,
+     "index": 209,
+     "name": "Laurientè",
+     "player_id": 6060,
+     "roles": [
+      "A"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788473339096
+    },
+    {
+     "cost": 31,
+     "index": 212,
+     "name": "Conceicao",
+     "player_id": 6884,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788473685013
+    },
+    {
+     "cost": 56,
+     "index": 218,
+     "name": "Woltemade",
+     "player_id": 6752,
+     "roles": [
+      "A"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788474133527
+    },
+    {
+     "cost": 1,
+     "index": 236,
+     "name": "Colpani",
+     "player_id": 5878,
+     "roles": [
+      "T"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788475177535
+    },
+    {
+     "cost": 1,
+     "index": 245,
+     "name": "Smolcic I.",
+     "player_id": 7014,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788475630647
+    },
+    {
+     "cost": 1,
+     "index": 254,
+     "name": "Veiga D.",
+     "player_id": 6990,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788475942580
+    },
+    {
+     "cost": 1,
+     "index": 263,
+     "name": "Njie",
+     "player_id": 6827,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788476260231
+    },
+    {
+     "cost": 3,
+     "index": 272,
+     "name": "Raimondo",
+     "player_id": 5436,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788476530786
+    },
+    {
+     "cost": 2,
+     "index": 279,
+     "name": "Hutchinson",
+     "player_id": 7618,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788476748648
+    },
+    {
+     "cost": 1,
+     "index": 280,
+     "name": "Winks",
+     "player_id": 4260,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788476768067
+    },
+    {
+     "cost": 1,
+     "index": 286,
+     "name": "Baldanzi",
+     "player_id": 5823,
+     "roles": [
+      "T"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788476947787
+    }
+   ],
+   "spent": 491
+  },
+  {
+   "budget": 500,
+   "credits": 4,
+   "id": 1,
+   "label": "Patri",
+   "nick": null,
+   "picks": [
+    {
+     "cost": 36,
+     "index": 5,
+     "name": "Maignan",
+     "player_id": 4312,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788459973267
+    },
+    {
+     "cost": 1,
+     "index": 6,
+     "name": "Terracciano",
+     "player_id": 2815,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788459991823
+    },
+    {
+     "cost": 1,
+     "index": 31,
+     "name": "Torriani",
+     "player_id": 6813,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788461550966
+    },
+    {
+     "cost": 23,
+     "index": 42,
+     "name": "N'Dicka",
+     "player_id": 4317,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788462338617
+    },
+    {
+     "cost": 27,
+     "index": 52,
+     "name": "Di Lorenzo",
+     "player_id": 2816,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788462989056
+    },
+    {
+     "cost": 20,
+     "index": 54,
+     "name": "Bisseck",
+     "player_id": 6217,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788463171892
+    },
+    {
+     "cost": 19,
+     "index": 62,
+     "name": "Spinazzola",
+     "player_id": 1852,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788463949338
+    },
+    {
+     "cost": 1,
+     "index": 82,
+     "name": "Koulierakis",
+     "player_id": 7529,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788464917345
+    },
+    {
+     "cost": 1,
+     "index": 92,
+     "name": "Sutalo J.",
+     "player_id": 7580,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788465439207
+    },
+    {
+     "cost": 4,
+     "index": 113,
+     "name": "Valeri",
+     "player_id": 5862,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788466309101
+    },
+    {
+     "cost": 1,
+     "index": 119,
+     "name": "Zortea",
+     "player_id": 4433,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788466540721
+    },
+    {
+     "cost": 1,
+     "index": 121,
+     "name": "Balerdi",
+     "player_id": 4705,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788466605192
+    },
+    {
+     "cost": 1,
+     "index": 122,
+     "name": "Monterisi",
+     "player_id": 4952,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788466797423
+    },
+    {
+     "cost": 16,
+     "index": 131,
+     "name": "Cristante",
+     "player_id": 779,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788467849068
+    },
+    {
+     "cost": 68,
+     "index": 135,
+     "name": "Rabiot",
+     "player_id": 2379,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788468249919
+    },
+    {
+     "cost": 20,
+     "index": 155,
+     "name": "Sucic P.",
+     "player_id": 7070,
+     "roles": [
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788469714616
+    },
+    {
+     "cost": 5,
+     "index": 171,
+     "name": "Fagioli",
+     "player_id": 4465,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788470595849
+    },
+    {
+     "cost": 40,
+     "index": 173,
+     "name": "Jones C.",
+     "player_id": 5172,
+     "roles": [
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788470811298
+    },
+    {
+     "cost": 1,
+     "index": 186,
+     "name": "Fitz-Jim",
+     "player_id": 7535,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788471425676
+    },
+    {
+     "cost": 64,
+     "index": 195,
+     "name": "Pulisic",
+     "player_id": 2423,
+     "roles": [
+      "T",
+      "A"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788471878339
+    },
+    {
+     "cost": 75,
+     "index": 205,
+     "name": "Thuram",
+     "player_id": 4871,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788472808463
+    },
+    {
+     "cost": 18,
+     "index": 225,
+     "name": "Zaniolo",
+     "player_id": 2766,
+     "roles": [
+      "T",
+      "A"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788474634915
+    },
+    {
+     "cost": 25,
+     "index": 226,
+     "name": "Baturina",
+     "player_id": 7126,
+     "roles": [
+      "T"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788474716312
+    },
+    {
+     "cost": 15,
+     "index": 246,
+     "name": "Gonzalez N.",
+     "player_id": 4179,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788475676297
+    },
+    {
+     "cost": 3,
+     "index": 247,
+     "name": "Alajbegovic",
+     "player_id": 7436,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788475700468
+    },
+    {
+     "cost": 7,
+     "index": 255,
+     "name": "Bonny",
+     "player_id": 6669,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788476006002
+    },
+    {
+     "cost": 2,
+     "index": 268,
+     "name": "Kevin Carlos",
+     "player_id": 7547,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788476440536
+    },
+    {
+     "cost": 1,
+     "index": 273,
+     "name": "Olivera",
+     "player_id": 5840,
+     "roles": [
+      "Ds",
+      "B",
+      "E"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788476546799
+    }
+   ],
+   "spent": 496
+  },
+  {
+   "budget": 500,
+   "credits": 1,
+   "id": 2,
+   "label": "Sanzimippi",
+   "nick": "Edo",
+   "picks": [
+    {
+     "cost": 48,
+     "index": 0,
+     "name": "Vicario",
+     "player_id": 4964,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788459728379
+    },
+    {
+     "cost": 1,
+     "index": 1,
+     "name": "Grabara",
+     "player_id": 7603,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788459755133
+    },
+    {
+     "cost": 1,
+     "index": 28,
+     "name": "Stankovic F.",
+     "player_id": 6248,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788461435655
+    },
+    {
+     "cost": 28,
+     "index": 33,
+     "name": "Rrahmani",
+     "player_id": 4409,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788461709819
+    },
+    {
+     "cost": 36,
+     "index": 35,
+     "name": "Bastoni",
+     "player_id": 2120,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788461912276
+    },
+    {
+     "cost": 2,
+     "index": 68,
+     "name": "Jimenez A.",
+     "player_id": 6531,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788464207830
+    },
+    {
+     "cost": 7,
+     "index": 79,
+     "name": "Tiago Gabriel",
+     "player_id": 6989,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788464777826
+    },
+    {
+     "cost": 9,
+     "index": 83,
+     "name": "Badiashile",
+     "player_id": 4664,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788464976945
+    },
+    {
+     "cost": 3,
+     "index": 100,
+     "name": "Pavard",
+     "player_id": 4177,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788465760641
+    },
+    {
+     "cost": 1,
+     "index": 109,
+     "name": "Rensch",
+     "player_id": 6986,
+     "roles": [
+      "Dd",
+      "B",
+      "E"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788466130484
+    },
+    {
+     "cost": 1,
+     "index": 114,
+     "name": "Buongiorno",
+     "player_id": 2724,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788466323017
+    },
+    {
+     "cost": 2,
+     "index": 118,
+     "name": "Palma",
+     "player_id": 6925,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788466499451
+    },
+    {
+     "cost": 1,
+     "index": 120,
+     "name": "Mangas",
+     "player_id": 7485,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788466552956
+    },
+    {
+     "cost": 6,
+     "index": 126,
+     "name": "Milla",
+     "player_id": 7412,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788467452661
+    },
+    {
+     "cost": 10,
+     "index": 159,
+     "name": "Romano",
+     "player_id": 7311,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788469968295
+    },
+    {
+     "cost": 16,
+     "index": 161,
+     "name": "Zambo Anguissa",
+     "player_id": 4220,
+     "roles": [
+      "C"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788470113347
+    },
+    {
+     "cost": 1,
+     "index": 180,
+     "name": "Oulai",
+     "player_id": 7464,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788471223069
+    },
+    {
+     "cost": 1,
+     "index": 187,
+     "name": "Bakola",
+     "player_id": 7036,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788471438036
+    },
+    {
+     "cost": 261,
+     "index": 196,
+     "name": "Malen",
+     "player_id": 5585,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788472106226
+    },
+    {
+     "cost": 34,
+     "index": 220,
+     "name": "Diao",
+     "player_id": 6967,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788474323009
+    },
+    {
+     "cost": 9,
+     "index": 227,
+     "name": "Santos A.",
+     "player_id": 7351,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788474842012
+    },
+    {
+     "cost": 7,
+     "index": 228,
+     "name": "Beto",
+     "player_id": 5694,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788474889861
+    },
+    {
+     "cost": 8,
+     "index": 234,
+     "name": "Raspadori",
+     "player_id": 4371,
+     "roles": [
+      "A"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788475105295
+    },
+    {
+     "cost": 2,
+     "index": 259,
+     "name": "Varela G.",
+     "player_id": 7523,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788476148396
+    },
+    {
+     "cost": 1,
+     "index": 265,
+     "name": "Vergara",
+     "player_id": 7223,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788476296147
+    },
+    {
+     "cost": 1,
+     "index": 274,
+     "name": "Volpato",
+     "player_id": 5735,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788476560763
+    },
+    {
+     "cost": 1,
+     "index": 281,
+     "name": "Belghali",
+     "player_id": 7220,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788476786533
+    },
+    {
+     "cost": 1,
+     "index": 287,
+     "name": "Lang",
+     "player_id": 7120,
+     "roles": [
+      "A"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788476979032
+    }
+   ],
+   "spent": 499
+  },
+  {
+   "budget": 500,
+   "credits": 20,
+   "id": 3,
+   "label": "Claudio",
+   "nick": null,
+   "picks": [
+    {
+     "cost": 19,
+     "index": 17,
+     "name": "De Gea",
+     "player_id": 2521,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788460635328
+    },
+    {
+     "cost": 1,
+     "index": 20,
+     "name": "Montipò",
+     "player_id": 4957,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788460734960
+    },
+    {
+     "cost": 2,
+     "index": 27,
+     "name": "Caprile",
+     "player_id": 4360,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788461404970
+    },
+    {
+     "cost": 18,
+     "index": 34,
+     "name": "Vasquez",
+     "player_id": 5514,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788461772773
+    },
+    {
+     "cost": 11,
+     "index": 36,
+     "name": "Idzes",
+     "player_id": 6672,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788461993100
+    },
+    {
+     "cost": 38,
+     "index": 43,
+     "name": "Mancini",
+     "player_id": 2296,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788462399450
+    },
+    {
+     "cost": 13,
+     "index": 55,
+     "name": "Marusic",
+     "player_id": 2188,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788463268102
+    },
+    {
+     "cost": 1,
+     "index": 64,
+     "name": "Franjic",
+     "player_id": 7478,
+     "roles": [
+      "Ds",
+      "B",
+      "E"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788464045826
+    },
+    {
+     "cost": 10,
+     "index": 81,
+     "name": "Cambiaso",
+     "player_id": 5520,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788464894926
+    },
+    {
+     "cost": 3,
+     "index": 84,
+     "name": "Gallo",
+     "player_id": 4502,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788465050095
+    },
+    {
+     "cost": 1,
+     "index": 115,
+     "name": "Walukiewicz",
+     "player_id": 4374,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788466390050
+    },
+    {
+     "cost": 1,
+     "index": 124,
+     "name": "Frendrup",
+     "player_id": 5791,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788467086165
+    },
+    {
+     "cost": 54,
+     "index": 134,
+     "name": "Da Cunha",
+     "player_id": 5559,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788468145735
+    },
+    {
+     "cost": 3,
+     "index": 144,
+     "name": "Ellertsson",
+     "player_id": 6020,
+     "roles": [
+      "E",
+      "C"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788468884948
+    },
+    {
+     "cost": 11,
+     "index": 154,
+     "name": "Karlstrom",
+     "player_id": 6680,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788469647517
+    },
+    {
+     "cost": 13,
+     "index": 157,
+     "name": "Thorstvedt",
+     "player_id": 5844,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788469845970
+    },
+    {
+     "cost": 1,
+     "index": 181,
+     "name": "Bertola",
+     "player_id": 5820,
+     "roles": [
+      "Dd",
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788471237123
+    },
+    {
+     "cost": 14,
+     "index": 194,
+     "name": "Vlasic",
+     "player_id": 5687,
+     "roles": [
+      "T"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788471790273
+    },
+    {
+     "cost": 82,
+     "index": 200,
+     "name": "Douvikas",
+     "player_id": 7017,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788472362149
+    },
+    {
+     "cost": 32,
+     "index": 204,
+     "name": "Rowe",
+     "player_id": 6844,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788472726445
+    },
+    {
+     "cost": 70,
+     "index": 207,
+     "name": "Kean",
+     "player_id": 2097,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788473159174
+    },
+    {
+     "cost": 48,
+     "index": 208,
+     "name": "Orsolini",
+     "player_id": 2167,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788473239160
+    },
+    {
+     "cost": 1,
+     "index": 229,
+     "name": "Pierotti",
+     "player_id": 6549,
+     "roles": [
+      "W"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788474913863
+    },
+    {
+     "cost": 26,
+     "index": 239,
+     "name": "Zaccagni",
+     "player_id": 632,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788475355412
+    },
+    {
+     "cost": 1,
+     "index": 248,
+     "name": "Matic",
+     "player_id": 2528,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788475747021
+    },
+    {
+     "cost": 2,
+     "index": 256,
+     "name": "Adams C.",
+     "player_id": 6646,
+     "roles": [
+      "A"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788476027951
+    },
+    {
+     "cost": 1,
+     "index": 257,
+     "name": "Doig",
+     "player_id": 5851,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788476061718
+    },
+    {
+     "cost": 1,
+     "index": 266,
+     "name": "Keita M.",
+     "player_id": 6898,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788476323965
+    },
+    {
+     "cost": 1,
+     "index": 275,
+     "name": "Hainaut",
+     "player_id": 6821,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788476586195
+    },
+    {
+     "cost": 1,
+     "index": 282,
+     "name": "Stankovic A.",
+     "player_id": 6503,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788476803100
+    }
+   ],
+   "spent": 480
+  },
+  {
+   "budget": 500,
+   "credits": 12,
+   "id": 4,
+   "label": "Pier",
+   "nick": null,
+   "picks": [
+    {
+     "cost": 51,
+     "index": 3,
+     "name": "Svilar",
+     "player_id": 5841,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788459882005
+    },
+    {
+     "cost": 1,
+     "index": 4,
+     "name": "Gollini",
+     "player_id": 610,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788459896265
+    },
+    {
+     "cost": 2,
+     "index": 26,
+     "name": "Bijlow",
+     "player_id": 7332,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788461359430
+    },
+    {
+     "cost": 1,
+     "index": 29,
+     "name": "Palmisani",
+     "player_id": 6415,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788461483690
+    },
+    {
+     "cost": 12,
+     "index": 45,
+     "name": "Delprato",
+     "player_id": 6664,
+     "roles": [
+      "Dd",
+      "B",
+      "E"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788462555640
+    },
+    {
+     "cost": 18,
+     "index": 48,
+     "name": "Ostigard",
+     "player_id": 5750,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788462768156
+    },
+    {
+     "cost": 15,
+     "index": 49,
+     "name": "Lucumì",
+     "player_id": 6042,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788462820545
+    },
+    {
+     "cost": 7,
+     "index": 59,
+     "name": "Carlos Augusto",
+     "player_id": 5877,
+     "roles": [
+      "Ds",
+      "B",
+      "E"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788463753181
+    },
+    {
+     "cost": 7,
+     "index": 61,
+     "name": "Bartesaghi",
+     "player_id": 6496,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788463865304
+    },
+    {
+     "cost": 1,
+     "index": 65,
+     "name": "Birindelli",
+     "player_id": 5838,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788464093994
+    },
+    {
+     "cost": 3,
+     "index": 75,
+     "name": "Bella-Kotchap",
+     "player_id": 7253,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788464550308
+    },
+    {
+     "cost": 1,
+     "index": 102,
+     "name": "Correia T.",
+     "player_id": 4845,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788465869060
+    },
+    {
+     "cost": 1,
+     "index": 116,
+     "name": "Kaiki",
+     "player_id": 7414,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788466416385
+    },
+    {
+     "cost": 1,
+     "index": 125,
+     "name": "Perrone",
+     "player_id": 6151,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788467141530
+    },
+    {
+     "cost": 40,
+     "index": 130,
+     "name": "Frattesi",
+     "player_id": 2848,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788467758935
+    },
+    {
+     "cost": 18,
+     "index": 152,
+     "name": "Kessiè",
+     "player_id": 1850,
+     "roles": [
+      "C"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788469518194
+    },
+    {
+     "cost": 13,
+     "index": 176,
+     "name": "Samardzic",
+     "player_id": 5119,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788471037406
+    },
+    {
+     "cost": 5,
+     "index": 183,
+     "name": "Adzic",
+     "player_id": 6677,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788471337706
+    },
+    {
+     "cost": 1,
+     "index": 188,
+     "name": "Berisha M.",
+     "player_id": 6015,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788471466989
+    },
+    {
+     "cost": 1,
+     "index": 193,
+     "name": "Adopo",
+     "player_id": 4870,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788471659693
+    },
+    {
+     "cost": 191,
+     "index": 198,
+     "name": "Martinez L.",
+     "player_id": 2764,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788472223206
+    },
+    {
+     "cost": 76,
+     "index": 216,
+     "name": "Esposito F.P.",
+     "player_id": 7071,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788473977724
+    },
+    {
+     "cost": 7,
+     "index": 230,
+     "name": "Esposito Se.",
+     "player_id": 4463,
+     "roles": [
+      "A"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788474952228
+    },
+    {
+     "cost": 2,
+     "index": 241,
+     "name": "Pellegrino M.",
+     "player_id": 7023,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788475467104
+    },
+    {
+     "cost": 2,
+     "index": 250,
+     "name": "Tourè E.",
+     "player_id": 6229,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788475830214
+    },
+    {
+     "cost": 4,
+     "index": 252,
+     "name": "Neres",
+     "player_id": 6831,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788475887564
+    },
+    {
+     "cost": 1,
+     "index": 258,
+     "name": "Ghedjemis",
+     "player_id": 6530,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788476111181
+    },
+    {
+     "cost": 2,
+     "index": 264,
+     "name": "Colombo",
+     "player_id": 4923,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788476276832
+    },
+    {
+     "cost": 3,
+     "index": 267,
+     "name": "Romero D.",
+     "player_id": 7554,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788476407699
+    },
+    {
+     "cost": 1,
+     "index": 276,
+     "name": "Tomori",
+     "player_id": 4751,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788476649599
+    }
+   ],
+   "spent": 488
+  },
+  {
+   "budget": 500,
+   "credits": 0,
+   "id": 5,
+   "label": "CavA Goat",
+   "nick": "CavA",
+   "picks": [
+    {
+     "cost": 47,
+     "index": 2,
+     "name": "Carnesecchi",
+     "player_id": 4431,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788459828385
+    },
+    {
+     "cost": 9,
+     "index": 23,
+     "name": "Okoye",
+     "player_id": 6462,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788460940521
+    },
+    {
+     "cost": 24,
+     "index": 32,
+     "name": "Pavlovic",
+     "player_id": 5022,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788461662371
+    },
+    {
+     "cost": 4,
+     "index": 73,
+     "name": "Dragusin",
+     "player_id": 5365,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788464466567
+    },
+    {
+     "cost": 2,
+     "index": 74,
+     "name": "Coco",
+     "player_id": 6642,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788464507620
+    },
+    {
+     "cost": 2,
+     "index": 85,
+     "name": "Zappacosta",
+     "player_id": 554,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788465090161
+    },
+    {
+     "cost": 8,
+     "index": 88,
+     "name": "Kamara H.",
+     "player_id": 5555,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788465243380
+    },
+    {
+     "cost": 1,
+     "index": 95,
+     "name": "Miranda J.",
+     "player_id": 4734,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788465584457
+    },
+    {
+     "cost": 2,
+     "index": 99,
+     "name": "Troilo",
+     "player_id": 7235,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788465732062
+    },
+    {
+     "cost": 7,
+     "index": 103,
+     "name": "Provstgaard",
+     "player_id": 7012,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788465934911
+    },
+    {
+     "cost": 1,
+     "index": 111,
+     "name": "Helland",
+     "player_id": 7326,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788466220381
+    },
+    {
+     "cost": 1,
+     "index": 117,
+     "name": "Sugawara",
+     "player_id": 7621,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788466450401
+    },
+    {
+     "cost": 87,
+     "index": 128,
+     "name": "Dimarco",
+     "player_id": 254,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788467615068
+    },
+    {
+     "cost": 9,
+     "index": 136,
+     "name": "Calò",
+     "player_id": 7472,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788468305607
+    },
+    {
+     "cost": 27,
+     "index": 148,
+     "name": "McKennie",
+     "player_id": 4973,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788469236713
+    },
+    {
+     "cost": 23,
+     "index": 153,
+     "name": "Lobotka",
+     "player_id": 4287,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788469576778
+    },
+    {
+     "cost": 9,
+     "index": 164,
+     "name": "Pasalic",
+     "player_id": 2077,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788470303332
+    },
+    {
+     "cost": 1,
+     "index": 165,
+     "name": "Amondarain",
+     "player_id": 7528,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788470342381
+    },
+    {
+     "cost": 2,
+     "index": 179,
+     "name": "De Roon",
+     "player_id": 22,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788471206718
+    },
+    {
+     "cost": 1,
+     "index": 189,
+     "name": "Hasa",
+     "player_id": 6903,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788471500986
+    },
+    {
+     "cost": 108,
+     "index": 199,
+     "name": "Paz N.",
+     "player_id": 6875,
+     "roles": [
+      "T",
+      "A"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788472275639
+    },
+    {
+     "cost": 58,
+     "index": 210,
+     "name": "Davis K.",
+     "player_id": 5637,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788473437646
+    },
+    {
+     "cost": 32,
+     "index": 219,
+     "name": "Yildiz",
+     "player_id": 6434,
+     "roles": [
+      "A"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788474252631
+    },
+    {
+     "cost": 20,
+     "index": 221,
+     "name": "Mora",
+     "player_id": 7556,
+     "roles": [
+      "T"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788474406044
+    },
+    {
+     "cost": 10,
+     "index": 233,
+     "name": "Mastantuono",
+     "player_id": 7078,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788475067016
+    },
+    {
+     "cost": 2,
+     "index": 270,
+     "name": "Bowie",
+     "player_id": 7347,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788476497748
+    },
+    {
+     "cost": 1,
+     "index": 277,
+     "name": "Adams A.",
+     "player_id": 7484,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788476706965
+    },
+    {
+     "cost": 1,
+     "index": 283,
+     "name": "Kvernadze",
+     "player_id": 6204,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788476868400
+    },
+    {
+     "cost": 1,
+     "index": 288,
+     "name": "Luis Henrique",
+     "player_id": 5301,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788477080754
+    }
+   ],
+   "spent": 500
+  },
+  {
+   "budget": 500,
+   "credits": 4,
+   "id": 6,
+   "label": "Gene",
+   "nick": "Gene",
+   "picks": [
+    {
+     "cost": 11,
+     "index": 7,
+     "name": "Skorupski",
+     "player_id": 133,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788460090602
+    },
+    {
+     "cost": 32,
+     "index": 9,
+     "name": "Meret",
+     "player_id": 572,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788460229745
+    },
+    {
+     "cost": 1,
+     "index": 10,
+     "name": "Milinkovic-Savic V.",
+     "player_id": 2170,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788460247829
+    },
+    {
+     "cost": 7,
+     "index": 37,
+     "name": "Diego Carlos",
+     "player_id": 4137,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788462050100
+    },
+    {
+     "cost": 11,
+     "index": 56,
+     "name": "Comuzzo",
+     "player_id": 6495,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788463395323
+    },
+    {
+     "cost": 33,
+     "index": 67,
+     "name": "Chalobah T.",
+     "player_id": 5641,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788464179460
+    },
+    {
+     "cost": 15,
+     "index": 69,
+     "name": "Celik",
+     "player_id": 4657,
+     "roles": [
+      "Dd",
+      "B",
+      "E"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788464251732
+    },
+    {
+     "cost": 4,
+     "index": 70,
+     "name": "Rodriguez Ju.",
+     "player_id": 7268,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788464327328
+    },
+    {
+     "cost": 16,
+     "index": 72,
+     "name": "Kristensen T.",
+     "player_id": 6485,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788464436353
+    },
+    {
+     "cost": 4,
+     "index": 87,
+     "name": "Zè Pedro",
+     "player_id": 7274,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788465197603
+    },
+    {
+     "cost": 2,
+     "index": 94,
+     "name": "Kossounou",
+     "player_id": 5578,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788465552037
+    },
+    {
+     "cost": 27,
+     "index": 145,
+     "name": "Diouf",
+     "player_id": 6274,
+     "roles": [
+      "E",
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788468954511
+    },
+    {
+     "cost": 35,
+     "index": 146,
+     "name": "Ederson D.S.",
+     "player_id": 5792,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788469087979
+    },
+    {
+     "cost": 25,
+     "index": 158,
+     "name": "Spence",
+     "player_id": 5982,
+     "roles": [
+      "E"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788469930946
+    },
+    {
+     "cost": 6,
+     "index": 178,
+     "name": "Douglas Luiz",
+     "player_id": 4911,
+     "roles": [
+      "C"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788471176338
+    },
+    {
+     "cost": 12,
+     "index": 182,
+     "name": "Bernabè",
+     "player_id": 6666,
+     "roles": [
+      "C"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788471286287
+    },
+    {
+     "cost": 1,
+     "index": 184,
+     "name": "Basic",
+     "player_id": 5674,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788471356987
+    },
+    {
+     "cost": 1,
+     "index": 190,
+     "name": "Busio",
+     "player_id": 5507,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788471518324
+    },
+    {
+     "cost": 63,
+     "index": 197,
+     "name": "De Bruyne",
+     "player_id": 2517,
+     "roles": [
+      "T"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788472157204
+    },
+    {
+     "cost": 83,
+     "index": 211,
+     "name": "Dybala",
+     "player_id": 309,
+     "roles": [
+      "A"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788473546959
+    },
+    {
+     "cost": 47,
+     "index": 222,
+     "name": "Scamacca",
+     "player_id": 2137,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788474436795
+    },
+    {
+     "cost": 3,
+     "index": 223,
+     "name": "Dovbyk",
+     "player_id": 6675,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788474501266
+    },
+    {
+     "cost": 40,
+     "index": 224,
+     "name": "Krstovic",
+     "player_id": 6435,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788474575978
+    },
+    {
+     "cost": 1,
+     "index": 232,
+     "name": "Schmid",
+     "player_id": 7551,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "FRO",
+     "timestamp": 1788475029478
+    },
+    {
+     "cost": 3,
+     "index": 238,
+     "name": null,
+     "player_id": 795,
+     "roles": [],
+     "team_short": null,
+     "timestamp": 1788475244278
+    },
+    {
+     "cost": 1,
+     "index": 242,
+     "name": "Cambiaghi",
+     "player_id": 4436,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788475550133
+    },
+    {
+     "cost": 7,
+     "index": 249,
+     "name": "Bernardeschi",
+     "player_id": 184,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788475797847
+    },
+    {
+     "cost": 1,
+     "index": 251,
+     "name": "Mbangula",
+     "player_id": 6833,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788475860163
+    },
+    {
+     "cost": 3,
+     "index": 260,
+     "name": "Maldini",
+     "player_id": 4896,
+     "roles": [
+      "T",
+      "A"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788476187869
+    },
+    {
+     "cost": 1,
+     "index": 269,
+     "name": "Piccoli",
+     "player_id": 4359,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788476480036
+    }
+   ],
+   "spent": 496
+  },
+  {
+   "budget": 500,
+   "credits": 1,
+   "id": 7,
+   "label": "radyandre",
+   "nick": "radyandre",
+   "picks": [
+    {
+     "cost": 6,
+     "index": 21,
+     "name": "Falcone",
+     "player_id": 2134,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788460827088
+    },
+    {
+     "cost": 1,
+     "index": 22,
+     "name": "Bleve",
+     "player_id": 4468,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788460866736
+    },
+    {
+     "cost": 4,
+     "index": 24,
+     "name": "Perri",
+     "player_id": 6534,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788460980838
+    },
+    {
+     "cost": 1,
+     "index": 25,
+     "name": "Mascardi",
+     "player_id": 7457,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788461028589
+    },
+    {
+     "cost": 15,
+     "index": 41,
+     "name": "Stones",
+     "player_id": 2514,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788462285499
+    },
+    {
+     "cost": 15,
+     "index": 51,
+     "name": "Hermoso",
+     "player_id": 4807,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788462910667
+    },
+    {
+     "cost": 34,
+     "index": 53,
+     "name": "Akanji",
+     "player_id": 4159,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788463092980
+    },
+    {
+     "cost": 13,
+     "index": 58,
+     "name": "Theate",
+     "player_id": 5675,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "BOL",
+     "timestamp": 1788463670349
+    },
+    {
+     "cost": 6,
+     "index": 71,
+     "name": "Mina",
+     "player_id": 4210,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788464375704
+    },
+    {
+     "cost": 7,
+     "index": 80,
+     "name": "Vojvoda",
+     "player_id": 4994,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788464839924
+    },
+    {
+     "cost": 2,
+     "index": 91,
+     "name": "Juan Jesus",
+     "player_id": 256,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788465420006
+    },
+    {
+     "cost": 1,
+     "index": 96,
+     "name": "Mazzocchi",
+     "player_id": 5481,
+     "roles": [
+      "Dd",
+      "Ds",
+      "E"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788465617061
+    },
+    {
+     "cost": 91,
+     "index": 132,
+     "name": "McTominay",
+     "player_id": 4777,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788467941671
+    },
+    {
+     "cost": 61,
+     "index": 139,
+     "name": "Barella",
+     "player_id": 1870,
+     "roles": [
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788468490070
+    },
+    {
+     "cost": 69,
+     "index": 142,
+     "name": "Modric",
+     "player_id": 2606,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788468720318
+    },
+    {
+     "cost": 31,
+     "index": 143,
+     "name": "Molina N.",
+     "player_id": 4998,
+     "roles": [
+      "E"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788468849011
+    },
+    {
+     "cost": 3,
+     "index": 167,
+     "name": "Coulibaly L.",
+     "player_id": 5504,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "LEC",
+     "timestamp": 1788470425183
+    },
+    {
+     "cost": 8,
+     "index": 172,
+     "name": "Cacciamani",
+     "player_id": 7060,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788470652590
+    },
+    {
+     "cost": 3,
+     "index": 175,
+     "name": "Tourè I.",
+     "player_id": 7146,
+     "roles": [
+      "E",
+      "M"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788470992621
+    },
+    {
+     "cost": 61,
+     "index": 203,
+     "name": "Berardi",
+     "player_id": 531,
+     "roles": [
+      "A"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788472674769
+    },
+    {
+     "cost": 54,
+     "index": 213,
+     "name": "Kolo Muani",
+     "player_id": 5951,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788473757464
+    },
+    {
+     "cost": 6,
+     "index": 237,
+     "name": "Politano",
+     "player_id": 536,
+     "roles": [
+      "W"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788475214967
+    },
+    {
+     "cost": 1,
+     "index": 243,
+     "name": "Camarda",
+     "player_id": 6519,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788475574769
+    },
+    {
+     "cost": 3,
+     "index": 261,
+     "name": "Boga",
+     "player_id": 2832,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788476217784
+    },
+    {
+     "cost": 1,
+     "index": 278,
+     "name": "Zapata D.",
+     "player_id": 608,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788476727315
+    },
+    {
+     "cost": 1,
+     "index": 284,
+     "name": "Rrahmani Al.",
+     "player_id": 7449,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "VEN",
+     "timestamp": 1788476881484
+    },
+    {
+     "cost": 1,
+     "index": 289,
+     "name": "Ismajli",
+     "player_id": 5010,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788477114777
+    }
+   ],
+   "spent": 499
+  },
+  {
+   "budget": 500,
+   "credits": 1,
+   "id": 8,
+   "label": "gio",
+   "nick": null,
+   "picks": [
+    {
+     "cost": 36,
+     "index": 11,
+     "name": "Martinez Jo.",
+     "player_id": 5116,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788460321989
+    },
+    {
+     "cost": 1,
+     "index": 12,
+     "name": "Provedel",
+     "player_id": 2814,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788460339362
+    },
+    {
+     "cost": 1,
+     "index": 30,
+     "name": "Tornqvist",
+     "player_id": 7301,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "MON",
+     "timestamp": 1788461530836
+    },
+    {
+     "cost": 25,
+     "index": 38,
+     "name": "Solet",
+     "player_id": 6956,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788462112356
+    },
+    {
+     "cost": 25,
+     "index": 39,
+     "name": "Gila",
+     "player_id": 5833,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788462169287
+    },
+    {
+     "cost": 24,
+     "index": 46,
+     "name": "Ramon",
+     "player_id": 6869,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788462627545
+    },
+    {
+     "cost": 6,
+     "index": 50,
+     "name": "De Winter",
+     "player_id": 5739,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788462872770
+    },
+    {
+     "cost": 9,
+     "index": 89,
+     "name": "Gabbia",
+     "player_id": 4401,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788465296099
+    },
+    {
+     "cost": 3,
+     "index": 93,
+     "name": "Obert",
+     "player_id": 5701,
+     "roles": [
+      "Ds",
+      "B",
+      "E"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788465477161
+    },
+    {
+     "cost": 1,
+     "index": 105,
+     "name": "Caleta-Car",
+     "player_id": 4147,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788465989011
+    },
+    {
+     "cost": 2,
+     "index": 110,
+     "name": "Leysen F.",
+     "player_id": 7564,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "SAS",
+     "timestamp": 1788466184065
+    },
+    {
+     "cost": 44,
+     "index": 123,
+     "name": "Wesley",
+     "player_id": 7181,
+     "roles": [
+      "E"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788467059908
+    },
+    {
+     "cost": 26,
+     "index": 129,
+     "name": "Saelemaekers",
+     "player_id": 4892,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788467689167
+    },
+    {
+     "cost": 30,
+     "index": 133,
+     "name": "Chukwueze",
+     "player_id": 4856,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788468020671
+    },
+    {
+     "cost": 22,
+     "index": 140,
+     "name": "Moreira",
+     "player_id": 6372,
+     "roles": [
+      "E",
+      "W"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788468573143
+    },
+    {
+     "cost": 17,
+     "index": 149,
+     "name": "Locatelli",
+     "player_id": 827,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788469276559
+    },
+    {
+     "cost": 4,
+     "index": 162,
+     "name": "Mandragora",
+     "player_id": 1933,
+     "roles": [
+      "C"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788470142384
+    },
+    {
+     "cost": 10,
+     "index": 168,
+     "name": "Sarr P.",
+     "player_id": 5680,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788470479972
+    },
+    {
+     "cost": 5,
+     "index": 185,
+     "name": "Koopmeiners",
+     "player_id": 5685,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788471395261
+    },
+    {
+     "cost": 1,
+     "index": 191,
+     "name": "Pisilli",
+     "player_id": 6190,
+     "roles": [
+      "C"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788471535852
+    },
+    {
+     "cost": 3,
+     "index": 192,
+     "name": "Fazzini",
+     "player_id": 6010,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "CAG",
+     "timestamp": 1788471575052
+    },
+    {
+     "cost": 137,
+     "index": 206,
+     "name": "Hojlund",
+     "player_id": 6052,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788473094900
+    },
+    {
+     "cost": 38,
+     "index": 214,
+     "name": "De Ketelaere",
+     "player_id": 5995,
+     "roles": [
+      "A"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788473849965
+    },
+    {
+     "cost": 21,
+     "index": 244,
+     "name": "Soulè",
+     "player_id": 5734,
+     "roles": [
+      "A"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788475617847
+    },
+    {
+     "cost": 1,
+     "index": 253,
+     "name": "Isaksen",
+     "player_id": 6398,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788475908650
+    },
+    {
+     "cost": 1,
+     "index": 262,
+     "name": "Cancellieri",
+     "player_id": 5500,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788476236236
+    },
+    {
+     "cost": 1,
+     "index": 271,
+     "name": "Lucca",
+     "player_id": 6215,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "NAP",
+     "timestamp": 1788476510118
+    },
+    {
+     "cost": 5,
+     "index": 285,
+     "name": "Cissè A.",
+     "player_id": 6618,
+     "roles": [
+      "T",
+      "W"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788476912465
+    }
+   ],
+   "spent": 499
+  },
+  {
+   "budget": 500,
+   "credits": 50,
+   "id": 9,
+   "label": "Congo",
+   "nick": "Abderrazak Hamdallah",
+   "picks": [
+    {
+     "cost": 12,
+     "index": 13,
+     "name": "Mandas",
+     "player_id": 6482,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788460404229
+    },
+    {
+     "cost": 1,
+     "index": 14,
+     "name": "Motta",
+     "player_id": 7337,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788460421891
+    },
+    {
+     "cost": 2,
+     "index": 18,
+     "name": "Corvi",
+     "player_id": 6662,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788460673397
+    },
+    {
+     "cost": 1,
+     "index": 19,
+     "name": "Daffara",
+     "player_id": 7411,
+     "roles": [
+      "Por"
+     ],
+     "team_short": "PAR",
+     "timestamp": 1788460690828
+    },
+    {
+     "cost": 7,
+     "index": 40,
+     "name": "Marcandalli",
+     "player_id": 6660,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "GEN",
+     "timestamp": 1788462209279
+    },
+    {
+     "cost": 39,
+     "index": 57,
+     "name": "Kalulu",
+     "player_id": 4976,
+     "roles": [
+      "Dd",
+      "Dc"
+     ],
+     "team_short": "JUV",
+     "timestamp": 1788463586149
+    },
+    {
+     "cost": 5,
+     "index": 60,
+     "name": "Bellanova",
+     "player_id": 4887,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "ATA",
+     "timestamp": 1788463812770
+    },
+    {
+     "cost": 11,
+     "index": 63,
+     "name": "Tavares N.",
+     "player_id": 5620,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788464015305
+    },
+    {
+     "cost": 12,
+     "index": 86,
+     "name": "Doekhi",
+     "player_id": 6320,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788465168353
+    },
+    {
+     "cost": 12,
+     "index": 90,
+     "name": "Valle",
+     "player_id": 6867,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788465372249
+    },
+    {
+     "cost": 8,
+     "index": 97,
+     "name": "Kempf",
+     "player_id": 6893,
+     "roles": [
+      "Dc"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788465651530
+    },
+    {
+     "cost": 1,
+     "index": 98,
+     "name": "Zanoli",
+     "player_id": 5527,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788465680541
+    },
+    {
+     "cost": 2,
+     "index": 104,
+     "name": "Viery",
+     "player_id": 7410,
+     "roles": [
+      "Ds",
+      "Dc"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788465976027
+    },
+    {
+     "cost": 1,
+     "index": 106,
+     "name": "Pedraza",
+     "player_id": 4817,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788466026245
+    },
+    {
+     "cost": 100,
+     "index": 127,
+     "name": "Calhanoglu",
+     "player_id": 2194,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788467506047
+    },
+    {
+     "cost": 57,
+     "index": 137,
+     "name": "Konè M.",
+     "player_id": 5589,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788468364870
+    },
+    {
+     "cost": 6,
+     "index": 141,
+     "name": "Rovella",
+     "player_id": 4459,
+     "roles": [
+      "M",
+      "C"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788468612326
+    },
+    {
+     "cost": 22,
+     "index": 147,
+     "name": "Ekkelenkamp",
+     "player_id": 6684,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "UDI",
+     "timestamp": 1788469165059
+    },
+    {
+     "cost": 1,
+     "index": 150,
+     "name": "Estupinan",
+     "player_id": 5273,
+     "roles": [
+      "Ds",
+      "E"
+     ],
+     "team_short": "MIL",
+     "timestamp": 1788469392263
+    },
+    {
+     "cost": 13,
+     "index": 160,
+     "name": "Lulli",
+     "player_id": 7599,
+     "roles": [
+      "E"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788470020617
+    },
+    {
+     "cost": 18,
+     "index": 163,
+     "name": "Zielinski",
+     "player_id": 152,
+     "roles": [
+      "C"
+     ],
+     "team_short": "INT",
+     "timestamp": 1788470194986
+    },
+    {
+     "cost": 21,
+     "index": 166,
+     "name": "Taylor K.",
+     "player_id": 7314,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788470395783
+    },
+    {
+     "cost": 3,
+     "index": 169,
+     "name": "Floriani Mussolini",
+     "player_id": 7131,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788470526770
+    },
+    {
+     "cost": 12,
+     "index": 174,
+     "name": "Casadei",
+     "player_id": 5888,
+     "roles": [
+      "C",
+      "T"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788470960818
+    },
+    {
+     "cost": 1,
+     "index": 177,
+     "name": "Dodò",
+     "player_id": 5885,
+     "roles": [
+      "Dd",
+      "E"
+     ],
+     "team_short": "FIO",
+     "timestamp": 1788471105247
+    },
+    {
+     "cost": 46,
+     "index": 215,
+     "name": "Pinamonti",
+     "player_id": 2038,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788473908411
+    },
+    {
+     "cost": 21,
+     "index": 217,
+     "name": "Simeone",
+     "player_id": 2061,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "TOR",
+     "timestamp": 1788474026294
+    },
+    {
+     "cost": 8,
+     "index": 231,
+     "name": "Gudmundsson A.",
+     "player_id": 5800,
+     "roles": [
+      "T",
+      "A"
+     ],
+     "team_short": "LAZ",
+     "timestamp": 1788475007666
+    },
+    {
+     "cost": 1,
+     "index": 235,
+     "name": "Rodriguez Je.",
+     "player_id": 7129,
+     "roles": [
+      "W",
+      "A"
+     ],
+     "team_short": "COM",
+     "timestamp": 1788475141766
+    },
+    {
+     "cost": 6,
+     "index": 240,
+     "name": "Castro S.",
+     "player_id": 6572,
+     "roles": [
+      "Pc"
+     ],
+     "team_short": "ROM",
+     "timestamp": 1788475422279
+    }
+   ],
+   "spent": 450
+  }
+ ],
+ "version": 1,
+ "written_at": "2026-09-03T23:20:31.649787+00:00"
+}
