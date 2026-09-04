@@ -516,6 +516,53 @@ def ingest_probabili_cmd(
     emit(result.to_dict(), json_=json_, render=_render_probabili)
 
 
+def _render_rosters(payload: dict) -> str:
+    head = f"rosters league {payload['league_id']}"
+    if payload["skipped_duplicate"]:
+        line = f"{head}: duplicate of snapshot {payload['snapshot_id']} -- nothing new"
+    else:
+        line = (f"{head}: snapshot {payload['snapshot_id']}, {payload['inserted']} players over {payload['teams']} teams"
+                f" · matchday {payload['matchday']} starts {payload['matchday_start']} UTC")
+    return "\n".join([line + f" ({payload['raw_path']})", *(f"warning: {w}" for w in payload["warnings"])])
+
+
+@ingest_app.command("rosters")
+def ingest_rosters_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Every lega team's roster and what it paid (cal/cs on the team objects), with the status read's matchday. Two reads against the real account -- run when the rosters changed, never to check."""
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.ingest import (
+        NotReady,
+        current_league_id,
+        ensure_schema,
+        fetch_rosters,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.ingest.rosters_api import record_rosters
+    from fantaclaude.paths import raw_dir
+
+    ensure_schema()
+    try:
+        league_id = current_league_id()
+    except NotReady as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    store = RawStore(raw_dir())
+    raw, payload = run_with_api(lambda api: fetch_rosters(api, store, league=league))
+    with _source_errors():                      # RosterShapeError is a ValueError: exit 1
+        con = connect()
+        try:
+            apply_schema(con)
+            result = record_rosters(con, payload, raw, league_id=league_id)
+        finally:
+            con.close()
+    emit(result.to_dict(), json_=json_, render=_render_rosters)
+
+
 def _ranges(values: list[int]) -> str:
     """[1, 2, 3, 7] -> '1-3, 7'"""
     parts: list[tuple[int, int]] = []

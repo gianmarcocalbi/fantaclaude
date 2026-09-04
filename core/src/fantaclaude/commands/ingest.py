@@ -50,6 +50,7 @@ from fantaclaude.ingest.stats_web import (
     record_voti,
 )
 from fantaclaude.model.seasons import SERIE_A_GIORNATE, back_seasons
+from fantaclaude.paths import db_path
 
 
 async def ingest_listone(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection, store: RawStore, *,
@@ -200,6 +201,36 @@ def rematch_advanced_seasons(con: duckdb.DuckDBPyConnection, store: RawStore, se
                                        aliases=aliases, aliases_sha256=aliases_sha256,
                                        listone_snapshot_id=listone_snapshot_id, force=True))
     return results
+
+
+async def fetch_rosters(api: FantacalcioAPI, store: RawStore, *, league: str | None = None) -> tuple[RawFile, dict[str, Any]]:
+    """The team list (every page, via sync_league.fetch_teams) and the status
+    read, scrubbed of emails and written as one raw file. Two reads against a
+    real account: run when the rosters are needed, never to check."""
+    from fantaclaude.commands.sync_league import fetch_teams
+    from fantaclaude.league.settings import without_emails
+
+    teams, warnings = await fetch_teams(api, league=league)
+    status = await api.league_status(league=league)
+    payload = {"teams": without_emails(teams), "status": without_emails(status), "fetch_warnings": list(warnings)}
+    return store.write("rosters", payload), payload
+
+
+def current_league_id(path: Path | None = None) -> int:
+    """The league the settings snapshot names, read-only; NotReady before the first sync."""
+    try:
+        con = connect(path or db_path(), read_only=True)
+    except DatabaseMissing:
+        raise NotReady("no database yet -- run `fantaclaude sync-league` first") from None
+    try:
+        row = con.execute("SELECT league_id FROM v_league_settings_current").fetchone()
+    except duckdb.Error:
+        row = None
+    finally:
+        con.close()
+    if row is None:
+        raise NotReady("no league_settings snapshot -- run `fantaclaude sync-league` first")
+    return int(row[0])
 
 
 async def fetch_calendar(http: httpx.AsyncClient, store: RawStore, season_id: int,
