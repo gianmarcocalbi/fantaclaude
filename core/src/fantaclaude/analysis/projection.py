@@ -10,9 +10,21 @@ the recent heavier, presenza for presenza; goals and assists are pulled
 toward non-penalty xG and xA where Understat covers the season.
 
 Expected presenze = giornate remaining x rate. The rate is the weighted
-historical presenze rate, or the note's depth when there is one -- an
-absolute statement about now, which last season's minutes cannot make --
-shifted by the club's rotation and then scaled by the note's availability.
+historical presenze rate shrunk toward the role's own rate with the same
+`prior_presenze` weight the fantamedia shrinks with -- or the note's depth
+when there is one, an absolute statement about now, which last season's
+minutes cannot make -- shifted by the club's rotation and then scaled by
+the note's availability. The shrinkage was missing until the auction of
+2026-09-03: `presenze / giornate` was a raw quotient, so two of two read
+exactly as thirty-eight of thirty-eight, and the presenze band had only
+the outcome variance of a coin of *known* bias, identically zero at rate
+1.0 whatever the sample. Five two-appearance players topped the whole
+board and a three-credit quote priced as a 107 max. The rate is now a
+Beta-style posterior mean, and the band carries the estimation variance
+of an unknown coin -- `rate (1 - rate) / (n + k)` per match, in
+quadrature with the outcome variance -- which is large on two matches and
+vanishes with the sample. A note's depth carries neither: it is a
+statement, not a sample.
 
 Rotation is *not* a club-level multiplier (spec, "European competition and
 rotation"): it is a depth-chart effect, applied per player through his
@@ -279,12 +291,15 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
         sd_match = prior.fantavoto_sd if prior else cfg.fallback_sd
     sigma_fm = sd_match / math.sqrt(n_eff + k)
 
-    # Expected presenze: the note's depth is an absolute statement; else the weighted history; else a newcomer.
+    # Expected presenze: the note's depth is an absolute statement; else the
+    # weighted history shrunk toward the role's rate (the same k as the
+    # fantamedia: a thin history is mostly prior); else a newcomer.
     base_rate = rate_num / rate_den if rate_den else None
+    rate_prior = prior.presenze_rate if prior is not None and prior.presenze_rate > 0 else cfg.newcomer_rate
     if note is not None and note.depth is not None:
         rate0, source = cfg.depth_rate(note.depth), "note"
     elif base_rate is not None:
-        rate0, source = base_rate, "history"
+        rate0, source = (rate_num + k * rate_prior) / (rate_den + k), "history"
     else:
         rate0, source = cfg.newcomer_rate, "newcomer"
     availability = note.availability if note is not None else 1.0
@@ -294,6 +309,11 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     rate = min(1.0, max(0.0, (rate0 + shift) * availability))
     g = giornate_remaining
     exp_presenze = g * rate
+    # How well the rate itself is known: the posterior's own spread, nil for a
+    # note (a statement has no sample) and for a newcomer (his dispersion
+    # already says so). Read off the final rate, so rotation and availability
+    # move the uncertainty with the mean.
+    sigma_rate = math.sqrt(rate * (1 - rate) / (rate_den + k)) if source == "history" else 0.0
     # The matches rotation moves are uncertain whichever way they went, so the
     # churn widens the band for the man who inherits them as much as for the
     # man who cedes them -- and it is scaled to the matches that actually moved
@@ -304,7 +324,8 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     # man who inherits them.
     churn = g * abs(shift) * availability
     dispersion = cfg.newcomer_dispersion if source == "newcomer" else 1.0
-    sigma_pres = math.sqrt(g * rate * (1 - rate) * dispersion ** 2 + (churn * cfg.rotation_uncertainty) ** 2)
+    sigma_pres = math.sqrt(g * rate * (1 - rate) * dispersion ** 2 + (churn * cfg.rotation_uncertainty) ** 2
+                           + (g * sigma_rate) ** 2)
 
     # The distribution of the remaining season's fantapunti.
     v50 = exp_presenze * exp_fm
@@ -341,7 +362,8 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
 
     explain = {"n_eff": n_eff, "shrink_weight": shrink, "shrink_target": target, "fantamedia_raw": fm_raw,
                "voto_raw": voto_raw, "sigma_fantamedia": sigma_fm, "sd_match": sd_match,
-               "base_rate": base_rate, "rate_source": source, "rate": rate, "depth": note.depth if note else None,
+               "base_rate": base_rate, "rate_prior": rate_prior, "rate_n": rate_den, "sigma_rate": sigma_rate,
+               "rate_source": source, "rate": rate, "depth": note.depth if note else None,
                "availability": availability, "rotation_factor": inp.rotation_factor, "rotation_shift": shift,
                "sigma_presenze": sigma_pres,
                "d_factor_uplift": uplift, "flex_bonus": flex, "giornate_remaining": g, **per_presenza}

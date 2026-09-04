@@ -1,3 +1,4 @@
+import math
 from dataclasses import replace
 from datetime import date
 
@@ -67,8 +68,8 @@ def project(inp, **kw):
 def test_a_projection_is_a_distribution_over_remaining_fantapunti(bm):
     p = project(inputs(), bm=bm)
     assert isinstance(p, Projection) and p.player_id == 2764 and p.role_class == "Pc" and p.roles == ("Pc",)
-    # 30 presenze in 38 giornate -> rate 0.789 -> 36 x 0.789 = 28.4 expected presenze
-    assert p.exp_presenze == pytest.approx(36 * 30 / 38, rel=1e-6)
+    # 30 presenze in 38 giornate, shrunk toward the role's 0.5 with k = 8 -> rate 34/46 = 0.739 -> 36 x 0.739 = 26.6
+    assert p.exp_presenze == pytest.approx(36 * (30 + 8 * 0.5) / (38 + 8), rel=1e-6)
     # per-presenza events: 0.5 goals, 0.067 penalties, 0.2 assists -> 6.4 + 1.5 + 0.2 + 0.2 = 8.3, shrunk toward 6.5 with k = 8
     raw = 6.4 + 3 * 0.5 + 3 * 2 / 30 + 1 * 0.2
     assert p.explain["fantamedia_raw"] == pytest.approx(raw)
@@ -104,7 +105,8 @@ ROTATION_NEUTRAL = {
     "cover/av0.8": (10.079999999999998, 2.6939933184772373, 65.32465685110937, 79.84421052631578, 94.36376420152219),
     "out/av1.0": (0.0, 0.0, 0.0, 0.0, 0.0),
     "out/av0.8": (0.0, 0.0, 0.0, 0.0, 0.0),
-    "history": (28.42105263157895, 2.4460947449731054, 210.98931804519356, 225.1246537396122, 239.25998943403084),
+    # the history line's rate is 34/46 since the prior (2026-09-04); the estimation term is in sigma_presenze
+    "history": (26.60869565217391, 3.5176409677705296, 191.31020648983383, 210.76887871853546, 230.2275509472371),
     "newcomer": (18.0, 4.5, 95.65159550301533, 117.0, 138.34840449698467),
 }
 
@@ -255,7 +257,7 @@ def test_a_note_depth_replaces_the_base_rate_and_availability_multiplies(bm):
     cover = project(inputs(note=note(depth="cover")), bm=bm)
     assert cover.explain["rate_source"] == "note" and cover.exp_presenze == pytest.approx(36 * 0.35)
     injured = project(inputs(note=note(availability=0.5)), bm=bm)
-    assert injured.exp_presenze == pytest.approx(36 * 30 / 38 * 0.5)
+    assert injured.exp_presenze == pytest.approx(36 * (30 + 8 * 0.5) / (38 + 8) * 0.5)
     out = project(inputs(note=note(depth="out")), bm=bm)
     assert out.exp_presenze == 0.0 and out.value_p50 == 0.0 and out.value_p75 == 0.0
     assert CFG.depth_rate("starter") == 0.9 and CFG.depth_rate("contested") == 0.65
@@ -392,3 +394,44 @@ def test_project_all_uses_each_players_role_prior(bm):
     assert [p.player_id for p in rows] == [2764, 2120]
     assert rows[1].exp_fantamedia == pytest.approx(PRIOR_D.fantavoto_mean)
     assert CFG.to_dict()["season_weights"] == [1.0, 0.6, 0.35, 0.2]
+
+
+def test_the_appearance_rate_carries_a_prior_and_its_estimation_variance(bm):
+    """Found during the auction of 2026-09-03: `base_rate` was a raw quotient
+    while the fantamedia beside it shrank toward the role mean with k = 8, so
+    2 of 2 and 38 of 38 both read 1.0 -- and `sigma_presenze` had only the
+    outcome variance of a coin of known bias, so at rate 1.0 it was
+    identically zero whatever the sample. Five two-appearance players topped
+    the board with a 3-credit quote priced as a 107 max. The rate now shrinks
+    toward the role's presenze rate with the same k, and the band carries the
+    estimation variance of an unknown coin, which vanishes with the sample."""
+    k, r0, g = CFG.prior_presenze, PRIOR_A.presenze_rate, 36
+    thin = project(inputs(lines=(line(20, 2, giornate=2),)), bm=bm)
+    assert thin.explain["base_rate"] == pytest.approx(1.0)                            # the raw quotient, for the reader
+    assert thin.explain["rate"] == pytest.approx((2 + k * r0) / (2 + k))                # 0.6 with k = 8, r0 = 0.5
+    assert thin.explain["rate_prior"] == pytest.approx(r0) and thin.explain["rate_n"] == pytest.approx(2.0)
+    assert thin.exp_presenze == pytest.approx(g * (2 + k * r0) / (2 + k))
+    full = project(inputs(lines=(line(20, 38),)), bm=bm)
+    assert full.explain["rate"] == pytest.approx((38 + k * r0) / (38 + k)) and full.explain["rate"] < 1.0
+    # the estimation term: g * sqrt(r (1 - r) / (n + k)), added in quadrature to the outcome variance
+    for p, n in ((thin, 2.0), (full, 38.0)):
+        r = p.explain["rate"]
+        outcome = g * r * (1 - r)
+        estimation = (g ** 2) * r * (1 - r) / (n + k)
+        assert p.explain["sigma_presenze"] == pytest.approx(math.sqrt(outcome + estimation))
+        assert p.explain["sigma_rate"] == pytest.approx(math.sqrt(r * (1 - r) / (n + k)))
+    assert thin.explain["sigma_presenze"] > full.explain["sigma_presenze"] > 0
+    assert thin.value_p75 - thin.value_p25 > 0                                         # never a zero-width band any more
+    # season weights count for the sample too: a back season weighs its share of matches
+    weighted = project(inputs(lines=(line(20, 2, giornate=2), line(19, 38))), bm=bm, current_season=20)
+    w = CFG.season_weights[1]
+    assert weighted.explain["rate_n"] == pytest.approx(2 + w * 38)
+    assert weighted.explain["rate"] == pytest.approx((2 + w * 38 + k * r0) / (2 + w * 38 + k))
+    # a note's depth is an absolute statement, not a sample: no prior, no estimation term
+    noted = project(inputs(lines=(line(20, 2, giornate=2),), note=note(depth="starter")), bm=bm)
+    assert noted.explain["rate"] == pytest.approx(CFG.depth_rate("starter")) and noted.explain["rate_source"] == "note"
+    assert noted.explain["sigma_rate"] == 0.0
+    assert noted.explain["sigma_presenze"] == pytest.approx(math.sqrt(g * 0.9 * 0.1))
+    # with no role prior at all the newcomer rate stands in for the role's
+    bare = project(inputs(lines=(line(20, 2, giornate=2),)), bm=bm, prior=None)
+    assert bare.explain["rate_prior"] == pytest.approx(CFG.newcomer_rate)
