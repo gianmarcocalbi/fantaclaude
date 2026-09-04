@@ -11,9 +11,11 @@ be resolvable from here even if `data/` is lost:
   the auction closed, copied by `fantaclaude asta close` (`<session>` is the
   code passed as `--session`, and the literal `session` when none was; the
   stamp is the state file's own `written_at`, so closing twice over an
-  unchanged file writes one record rather than two identical ones); it and
-  `data/asta-state.json` are deleted only once `verify-transfer` (a
-  post-auction task, open question 9) confirms the lega matches the room.
+  unchanged file writes one record rather than two identical ones). The copy
+  is permanent: `fantaclaude asta verify-transfer` checks the lega against it
+  once the admin has transferred the auction, and `--prune` then removes
+  `data/asta-state.json` alone, never this file (open question 9, resolved
+  2026-09-04).
 - `asta/<session>-<date>-bids.json` — the bid ladder of an A RILANCI night:
   every distinct `currentBid` the session published, per lot, with who won
   it and for how much, plus the status transitions. Extracted from the raw

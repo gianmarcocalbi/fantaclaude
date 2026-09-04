@@ -90,8 +90,9 @@ so closing twice over an unchanged state file writes one record and not two
 identical ones under two names. Nothing offline knows the session code, so
 pass `--session`: without it the copy is named `session-<UTC stamp>.json`,
 which is a record nobody can tie to a night (and it names one file, so it may
-not contain `/`). The file is deleted only once `verify-transfer` (a
-post-auction task, open question 9) confirms the lega.
+not contain `/`). The copy is permanent; once the admin has transferred the
+auction, `fantaclaude asta verify-transfer` checks the lega against it and
+`--prune` removes `data/asta-state.json` alone (Phase 3a).
 
 ### `serve`
 
