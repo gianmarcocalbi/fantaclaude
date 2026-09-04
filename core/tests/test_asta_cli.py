@@ -634,20 +634,27 @@ def _lega_from_state(state_file, *, added=None, price=None):
 
 def test_verify_transfer_reports_names_my_team_and_prunes_only_on_a_clean_diff(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
-    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    # --me "0": the fixture's "host" actually bought players (2764, 2120). Team "1" ("Claude")
+    # bought nothing and is deliberately excluded here -- reconcile no longer infers `my_team`
+    # for a team with zero room overlap (review finding 1, 2026-09-04): naming the wrong lega
+    # team on a report marked clean is worse than naming none, so the leaf has to be exercised
+    # through a genuine overlap match.
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "0", "--write-state"]).exit_code == ExitCode.OK
     state_file = tmp_path / "data" / "asta-state.json"
     nothing = runner.invoke(app, ["asta", "verify-transfer"])
     assert nothing.exit_code == ExitCode.NOT_READY and "ingest rosters" in nothing.stderr
     con = connect(tmp_path / "data" / "fanta.duckdb")
-    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, added=(1001, 424242, 1)))
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, added=(1000, 424242, 1)))
     con.close()
     result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
     assert result.exit_code == ExitCode.OK, result.output
     payload = json.loads(result.stdout)
-    assert payload["clean"] is True and payload["my_team"]["lega_team_id"] == 1001
-    assert "value: 1001" in payload["my_team"]["leaf"] and "source: verify-transfer" in payload["my_team"]["leaf"]
+    assert payload["clean"] is True and payload["my_team"]["lega_team_id"] == 1000
+    assert "value: 1000" in payload["my_team"]["leaf"] and "source: verify-transfer" in payload["my_team"]["leaf"]
     assert any(t["added_after_room"] == [[424242, 1]] for t in payload["teams"])
-    assert payload["lega_not_in_room"] == [[1999, "eleventh", 0]] and payload["pruned"] is False
+    # team "1" ("Claude") bought nothing and has no lega counterpart of its own to infer --
+    # its empty lega team (1001) is simply not in the room, same as the always-empty eleventh
+    assert payload["lega_not_in_room"] == [[1001, "lega 1", 0], [1999, "eleventh", 0]] and payload["pruned"] is False
     plain = runner.invoke(app, ["asta", "verify-transfer"])
     assert "my_team:" in plain.stdout and "clean" in plain.stdout
 
@@ -672,6 +679,53 @@ def test_verify_transfer_reports_names_my_team_and_prunes_only_on_a_clean_diff(m
     # --prune never applies to an explicit --state file
     kept = runner.invoke(app, ["asta", "verify-transfer", "--state", str(records[0]), "--prune"])
     assert kept.exit_code == ExitCode.USAGE and records[0].is_file()
+
+
+def test_verify_transfer_honours_the_nested_minimum_bid_shape_the_live_feed_sends(monkeypatch, tmp_path, fixture_json,
+                                                                                   mcp_fixture_json):
+    """settings.minimumBid arrives as {"type": "fixed", "value": N} (see
+    asta_session_sample.jsonl), not a bare int -- an isinstance(..., int)
+    test against the raw value is always False for that shape and silently
+    falls back to 1 with no error (review finding 2, 2026-09-04), which is
+    only coincidentally right for a league whose minimum happens to be 1.
+    Here the minimum is 5: an lega extra at exactly 5 is tolerated as bought
+    after the room, one at 6 is not."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "0", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    payload["feed"]["settings"]["minimumBid"] = {"type": "fixed", "value": 5}
+    state_file.write_text(json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    lega = _lega_from_state(state_file, added=(1000, 500001, 5))
+    lega[1000][1][500002] = 6
+    seed_rosters(con, 2578630, 21, lega)
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    team = next(t for t in json.loads(result.stdout)["teams"] if t["lega_team_id"] == 1000)
+    assert team["added_after_room"] == [[500001, 5]] and team["extra_in_lega"] == [[500002, 6]] and not team["clean"]
+
+
+def test_a_me_that_bought_nothing_gets_a_plain_hint_instead_of_a_guessed_my_team(monkeypatch, tmp_path, fixture_json,
+                                                                                  mcp_fixture_json):
+    """--me "1" is the fixture's "Claude", who bought nothing: reconcile can
+    no longer infer `my_team` for a zero-overlap team (review finding 1,
+    2026-09-04), so the report has to say plainly why, rather than silently
+    saying nothing at all."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file))
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["my_team"] is None
+    assert payload["my_team_hint"] is not None and "bought nothing" in payload["my_team_hint"]
+    plain = runner.invoke(app, ["asta", "verify-transfer"])
+    assert plain.exit_code == ExitCode.OK and "bought nothing" in plain.stdout
 
 
 def test_market_prices_reports_paid_over_expected_per_class_for_the_run_the_night_was_priced_against(

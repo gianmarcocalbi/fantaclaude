@@ -48,25 +48,31 @@ def test_me_unmatched_gives_no_my_team():
     assert result.my_team is None and result.mirror_unmatched == ((1, "G8 E CLAUDIO"),) and not result.clean
 
 
-def test_my_team_with_no_room_picks_still_reconciles_when_it_is_the_only_lega_team_left():
-    """A team that bought nothing in the room has no overlap to match by, so
-    overlap alone would leave it -- and the transfer -- unnamed forever. The
-    mirror's `me` is the one team the check must always be able to name
-    (spec, open question 17): when every other team has matched and exactly
-    one lega team with players remains, that is `me`'s, whatever it holds --
-    the whole roster reads as bought after the room."""
+def test_zero_overlap_me_is_never_inferred_even_with_a_single_orphan_left():
+    """A team that bought nothing in the room has no overlap to match by --
+    every pairing with it scores 0, indistinguishable from any other team
+    the room never touched. An earlier version of this function filled the
+    gap by elimination (the sole leftover lega team with players must be
+    mine); review found that unsound (2026-09-04, finding 1): it cannot tell
+    my own genuinely-empty team from a stranger's, so it can silently name
+    the WRONG team on a report marked clean -- and a wrong `my_team` feeds
+    `fantaclaude lineup`, which would then solve the XI over another
+    manager's roster with nothing downstream to catch it. So there is no
+    fallback: `my_team` stays `None` whenever `me` has no overlap, no matter
+    how many -- or how exactly one -- lega teams are left over."""
     mirror = {0: {1: 50, 2: 10, 3: 1}, 1: {}, 2: {6: 7, 7: 1}}
-    lega = {100: {6: 7, 7: 1}, 101: {1: 50, 2: 10, 3: 1}, 200: {}, 201: {8: 1}}
-    result = reconcile(mirror, lega, me=1, labels=LABELS, names=NAMES, min_bid=1)
-    assert result.my_team == (201, "201")
-    team = next(t for t in result.teams if t.mirror_team_id == 1)
-    assert team.lega_team_id == 201 and team.mirror_size == 0 and team.added_after_room == ((8, 1),) and team.clean
-    assert result.lega_not_in_room == ((200, "200", 0),) and result.clean
+    # exactly one lega team with players is left over -- still not a guess
+    one_left = {100: {6: 7, 7: 1}, 101: {1: 50, 2: 10, 3: 1}, 200: {}, 201: {8: 1}}
+    result = reconcile(mirror, one_left, me=1, labels=LABELS, names=NAMES, min_bid=1)
+    assert result.my_team is None and all(t.mirror_team_id != 1 for t in result.teams)
 
-    # more than one team-with-players remains: which is genuinely ambiguous, so no guess
-    ambiguous_lega = {100: {6: 7, 7: 1}, 101: {1: 50, 2: 10, 3: 1}, 200: {8: 1}, 201: {9: 1}}
-    unresolved = reconcile(mirror, ambiguous_lega, me=1, labels=LABELS, names=NAMES, min_bid=1)
-    assert unresolved.my_team is None
+    # the reviewer's adversarial case: my true (empty) team and a stranger's
+    # nonempty team are both left over, indistinguishable by overlap alone --
+    # the old fallback named the stranger's team and reported it clean
+    reviewers_case = reconcile({0: {10: 50}, 1: {}, 2: {20: 30}},
+                               {100: {10: 50}, 101: {}, 102: {20: 30}, 103: {999: 1}},
+                               me=1, labels=LABELS, names=NAMES, min_bid=1)
+    assert reviewers_case.my_team is None
 
 
 def test_a_room_team_that_bought_nothing_is_not_reported_unmatched():

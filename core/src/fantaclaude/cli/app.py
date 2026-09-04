@@ -1325,6 +1325,8 @@ def _render_verify(payload: dict) -> str:
     if payload["my_team"]:
         lines.append(f"my team in the lega: {payload['my_team']['name']} ({payload['my_team']['lega_team_id']}) -- add to league.yml:")
         lines.append(payload["my_team"]["leaf"])
+    elif payload.get("my_team_hint"):
+        lines.append(payload["my_team_hint"])
     lines.append("clean: the lega matches the room" if payload["clean"] else "NOT CLEAN: see above")
     if payload["pruned"]:
         lines.append("pruned data/asta-state.json; records/ untouched")

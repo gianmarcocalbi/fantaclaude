@@ -7,13 +7,14 @@ roster is "not in the room" (the eleventh registered team) and fine when
 empty; a player the lega added after the close at the session's minimum bid
 is "added after the room"; an id the listone lacks reconciles by id. A cost
 that differs, a mirror pick the lega lacks, or a dear extra fails the check.
-The mirror's `me` reconciles with exactly one lega team: that is the
-`my_team` leaf `league.yml` needs (open question 17). A team that bought
-nothing in the room has no overlap to match by -- so when `me` is the one
-still unmatched after every other pairing, and exactly one lega team with
-players is left over, that is mine by elimination, its whole roster read as
-bought after the room. Two teams left over is genuinely ambiguous and stays
-unnamed.
+The mirror's `me` reconciles with exactly one lega team when it overlaps
+one -- that is the `my_team` leaf `league.yml` needs (open question 17).
+Deliberately not guessed: a `me` that bought nothing in the room has no
+overlap to match by, and elimination cannot stand in for it, because the
+algorithm is forbidden to read names -- it cannot tell "my own empty team"
+from "a stranger's empty team", nor, worse, from a stranger's team it simply
+has not matched for some other reason. `my_team` stays `None` in that case;
+naming it is left to the one party who actually knows which team is his.
 """
 
 from __future__ import annotations
@@ -84,19 +85,14 @@ def reconcile(mirror: dict[int, dict[int, int]], lega: dict[int, dict[int, int]]
         chosen[mid] = lid
         used_mirror.add(mid)
         used_lega.add(lid)
-    if me in mirror and me not in chosen:
-        # Overlap cannot match a team that bought nothing in the room -- every
-        # pairing with it scores 0, indistinguishable from any other team the
-        # room never touched. But `me` is not just any team: the mirror's own
-        # side is always mine, and once every other team has claimed its lega
-        # match, at most one lega team with players can be left over for it.
-        # Two or more, and there is no way to tell which is mine -- that stays
-        # unnamed, honestly, rather than guessed.
-        leftover = [lid for lid, lp in lega.items() if lid not in used_lega and lp]
-        if len(leftover) == 1:
-            chosen[me] = leftover[0]
-            used_mirror.add(me)
-            used_lega.add(leftover[0])
+    # No elimination fallback for `me`: a mirror team that bought nothing has
+    # zero overlap with everything, exactly like a stranger's empty team --
+    # the two are structurally indistinguishable without reading names, which
+    # this function is deliberately forbidden to do for matching. Naming the
+    # wrong lega team as `my_team` is worse than naming none (open question
+    # 17 / review finding 1, 2026-09-04): downstream, `fantaclaude lineup`
+    # would compute the XI over another manager's roster with nothing to
+    # catch it. `my_team` below is `None` whenever `me` has no overlap match.
     teams: list[TeamDiff] = []
     for mid, lid in sorted(chosen.items()):
         mp, lp = mirror[mid], lega[lid]

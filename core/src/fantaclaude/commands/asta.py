@@ -590,6 +590,25 @@ class TransferMismatch(RuntimeError):
     """--prune asked for on a diff that is not clean."""
 
 
+def _min_bid(settings: dict[str, Any]) -> int:
+    """The session's minimum bid, read off `settings.minimumBid` -- which the
+    live feed sends as a bare int in some sessions and, confirmed by
+    `asta_session_sample.jsonl`, as `{"type": "fixed", "value": N}` in
+    others. An `isinstance(..., int)` test against the raw value is always
+    False for the second shape and silently falls back to 1 with no error
+    (review finding 2, 2026-09-04) -- reading a league with a different
+    minimum bid right, by coincidence, only for leagues where it happens to
+    be 1. Neither shape present defaults to 1, same as before."""
+    raw = settings.get("minimumBid")
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return 1
+
+
 def _diff_summary(result: Reconciliation) -> str:
     """What is not clean, named -- so a --prune refusal says *why*, not just
     that it refused. `verify_transfer` without --prune prints the same facts
@@ -617,6 +636,7 @@ class VerifyReport:
     result: Reconciliation
     names: dict[int, str]
     my_team_leaf: str | None
+    my_team_hint: str | None
     pruned: bool
 
     def to_dict(self) -> dict[str, Any]:
@@ -628,6 +648,7 @@ class VerifyReport:
                 "mirror_unmatched": [list(x) for x in r.mirror_unmatched], "ambiguous": list(r.ambiguous),
                 "my_team": None if r.my_team is None else {"lega_team_id": r.my_team[0], "name": r.my_team[1],
                                                              "leaf": self.my_team_leaf},
+                "my_team_hint": self.my_team_hint,
                 "player_names": {str(k): v for k, v in self.names.items()},
                 "clean": r.clean, "pruned": self.pruned}
 
@@ -662,7 +683,7 @@ def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_f
     if not any(lega.values()):
         raise NotReady("the lega's rosters are all empty -- the admin has not transferred the auction yet")
     settings = stored.snapshot.settings or {}
-    min_bid = settings.get("minimumBid") if isinstance(settings.get("minimumBid"), int) else 1
+    min_bid = _min_bid(settings)
     result = reconcile(mirror, lega, me=stored.mapping.mine, labels=labels, names=names, min_bid=min_bid)
     player_names = {int(pid): str(name) for pid, name in con.execute(
         "SELECT player_id, name FROM v_players_current").fetchall()}
@@ -677,6 +698,16 @@ def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_f
         quoted_note = "'" + note.replace("'", "''") + "'"
         leaf = (f"my_team:\n  value: {result.my_team[0]}\n  source: verify-transfer\n"
                 f"  verified_on: {utc_now():%Y-%m-%d}\n  note: {quoted_note}")
+    hint = None
+    if result.my_team is None and not mirror.get(stored.mapping.mine):
+        # The one case worth explaining plainly, distinct from a genuine
+        # UNMATCHED room team (already reported): `me` bought nothing, so it
+        # has zero overlap with everything and cannot be told apart from a
+        # stranger's empty team by roster alone (review finding 1,
+        # 2026-09-04) -- no fallback infers it, so the maintainer has to say
+        # which lega team is his.
+        hint = ("my room team ('me') bought nothing in the room, so it has no overlap to match by; "
+               "paste the lega team id into league.yml's my_team leaf by hand")
     pruned = False
     if prune:
         if not result.clean:
@@ -684,7 +715,7 @@ def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_f
                                    f"see `asta verify-transfer` without --prune for the detail")
         path.unlink()
         pruned = True
-    return VerifyReport(path, int(snapshot_id), fetched_at, result, player_names, leaf, pruned)
+    return VerifyReport(path, int(snapshot_id), fetched_at, result, player_names, leaf, hint, pruned)
 
 
 @dataclass(frozen=True)
