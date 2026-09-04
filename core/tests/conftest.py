@@ -140,3 +140,16 @@ def seed_advanced(con, season_id: int, rows) -> int:
             "0.0, 0.0, 'F', '{}')",
             [snapshot_id, season_id, f"u{player_id}", f"p{player_id}", ["X"], player_id, player_id, games, minutes, xg, xa, xg])
     return snapshot_id
+
+
+def seed_probabili(con, season_id: int, giornata: int, rows) -> int:
+    """One synthetic probabili file. `rows` are (player_id, name, club_slug, p_start)."""
+    from uuid import uuid4
+    file_id = con.execute(
+        "INSERT INTO probabili_files (season_id, giornata, fetched_at, source, raw_path, sha256, row_count, matches, uncompiled) "
+        "VALUES (?, ?, now(), 'seed', ?, ?, ?, 1, 0) RETURNING file_id",
+        [season_id, giornata, f"seed/prob-{season_id}-{giornata}", f"seed-prob-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    for player_id, name, club, p_start in rows:
+        con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, false, NULL, '{}')",
+                    [file_id, season_id, giornata, player_id, name, club, p_start])
+    return file_id
