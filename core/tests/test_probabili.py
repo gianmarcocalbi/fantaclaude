@@ -44,6 +44,68 @@ def test_parse_carries_each_clubs_formation_as_context():
     assert by_club == {"genoa": "352", "como": "4231", "fiorentina": "4321", "torino": "3421"}
 
 
+def test_stripping_the_first_card_does_not_shift_formations_onto_the_second():
+    # club_queue used to be page-global: a card whose two clubs have no data-formation
+    # widget (the placeholder shape this adapter claims to support) left them queued
+    # forever and shifted every later club's formation onto the previous match. Strip
+    # Genoa-Como -- the FIRST card, the order the earlier regression test didn't cover --
+    # of its players AND both data-formation widgets, and confirm Fiorentina/Torino keep
+    # their OWN formations, "4321"/"3421", pinned by test_parse_carries_each_clubs_formation_as_context
+    # against the clean fixture -- not None, and not the other club's number.
+    text = SAMPLE
+    for slug in ("genoa", "como"):
+        text = re.sub(rf'<li[^>]*player-item[^>]*>(?:(?!</li>).)*?/serie-a/squadre/{slug}/(?:(?!</li>).)*?</li>',
+                      "", text, flags=re.DOTALL)
+    text = re.sub(r'(<ul class="team-lineup") data-formation="352"', r"\1", text, count=1)
+    text = re.sub(r'(<ul class="team-lineup") data-formation="4231"', r"\1", text, count=1)
+    stripped = parse_probabili_page(text)
+    assert stripped.matches == 1 and stripped.uncompiled == 1
+    by_club = {r.club_slug: r.formation for r in stripped.rows}
+    assert by_club == {"fiorentina": "4321", "torino": "3421"}
+
+
+def test_a_stray_end_tag_does_not_drain_the_stack_and_flip_bench_to_starter():
+    # html.parser is lenient about unmatched end tags, and real pages carry them. A stray
+    # </table> with nothing open to close used to pop the whole stack, after which
+    # `marks_bench or any(...)` was evaluated over an empty stack for every later player --
+    # panchina recorded as starters, no error. Insert one right inside the reserves list.
+    clean = parse_probabili_page(SAMPLE)
+    clean_bench = {r.player_id: r.bench for r in clean.rows}
+    text = SAMPLE.replace('<ul class="player-list reserves">', '<ul class="player-list reserves"></table>', 1)
+    stray = parse_probabili_page(text)
+    assert {r.player_id: r.bench for r in stray.rows} == clean_bench
+    assert sum(clean_bench.values()) == 52 and len(clean_bench) - sum(clean_bench.values()) == 44  # pinned on this fixture
+
+
+def test_giornata_fallback_only_reads_text_inside_the_match_list():
+    # neutralise both the microdata and the one incidental "4a giornata" already in the
+    # fixture's prose (an injury note, "rientro dalla 4a giornata"), so the fallback has
+    # nothing to find until a test plants one.
+    base = re.sub(r"\d+&#xB0; giornata", "stagione", SAMPLE)
+    base = base.replace("4a giornata", "quarta giornata")
+    assert parse_probabili_page(base).giornata is None                       # sanity: nothing left to find
+
+    # a decoy in the nav strip -- ad copy or a sidebar teaser, in this adapter's terms --
+    # sits earlier in the document than anything inside the real cards and must not leak in
+    outside = base.replace('<ul id="match-menu" class="matches mt-1">',
+                           '<ul id="match-menu" class="matches mt-1">9ª giornata', 1)
+    assert parse_probabili_page(outside).giornata is None
+
+    # an ad <script> genuinely sits inside ul.match-list on this page (a googletag slot);
+    # its body is CDATA, never prose, and must not be read either
+    scripted = base.replace("googletag.cmd.push(function() {",
+                            "googletag.cmd.push(function() { /* 5a giornata */", 1)
+    assert parse_probabili_page(scripted).giornata is None
+
+    # but real visible text inside the match list is still worth falling back to --
+    # the resilience the docstring claims for this path
+    inside = base.replace('<ul class="match-list">', '<ul class="match-list">6ª giornata', 1)
+    assert parse_probabili_page(inside).giornata == 6
+
+    # the microdata path itself is untouched
+    assert parse_probabili_page(SAMPLE).giornata == 3
+
+
 def test_an_uncompiled_match_is_skipped_and_counted_not_fatal():
     # strip every player of the second match: the page still has two match headers
     page = parse_probabili_page(SAMPLE)

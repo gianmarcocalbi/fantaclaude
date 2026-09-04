@@ -3,16 +3,17 @@ playing, keyed by the listone id in his link (spec, "The news adapter").
 
 Captured 2026-09-04 (`captured/probabili-2026-27-giornata-3.html`, one
 anonymous request; the golden fixture `probabili_sample.html` is the
-Genoa-Como and Fiorentina-Torino cards trimmed from it). The page carries
-all ten matches of the next giornata twice over: a `<nav id="match-menu">`
-strip lists every match as a bare score/date teaser (no lineup), and the
-`<ul class="match-list">` below it holds the actual match cards -- but on
-this capture only two of those ten cards were compiled with a lineup; the
-other eight are placeholders. Only the `match-list` cards carry player
-data, so club/formation events are recognised only once the parser has
-entered that list -- the nav strip repeats every club's bare team link and
-would otherwise inflate `uncompiled` with matches this page never meant to
-report on.
+Genoa-Como and Fiorentina-Torino cards trimmed from it -- the fixture's two
+cards, not the capture's ten). The page carries all ten matches of the next
+giornata twice over: a `<nav id="match-menu">` strip lists every match as a
+bare score/date teaser (no lineup), and the `<ul class="match-list">` below
+it holds the actual match cards. On this capture all ten of those cards were
+already compiled with a lineup (`matches=10, uncompiled=0`); no placeholder
+card has been observed on this page, in any capture or fixture. Only the
+`match-list` cards carry player data, so club/formation events are
+recognised only once the parser has entered that list -- the nav strip
+repeats every club's bare team link and would otherwise inflate
+`uncompiled` with matches this page never meant to report on.
 
 Each player is an `li.player-item` whose `aria-valuenow` is the percentage
 (0-100, starters and bench alike); his link is an absolute
@@ -22,21 +23,35 @@ is the listone id. The panchina list is `ul.player-list.reserves` (not
 rides on a separate `ul.team-lineup[data-formation]` pitch-diagram widget
 that fires *before* any player in that match: both clubs' headers are seen,
 then both clubs' formations, in the same home/away order, so a formation
-is bound to the earliest club header not yet bound to one (a FIFO queue,
-not a single pending slot -- a single slot hands the away club's module to
-the home club). Each match's own `Ultimo aggiornamento dd/mm/yyyy - HH:MM`
-(Rome time) is one `<div class="last-update">` emitted *after* both clubs'
-starters+reserves lists, with the date itself in a child `<span>` -- so it
-arrives as a separate text node from the label, joined by a rolling text
-buffer. The giornata is never in the visible text on this layout; it is
-only in `<meta itemprop="name" content="... N° giornata ...">`, once per
-match card (nav and real alike).
+is bound to the earliest club header, in the same card, not yet bound to
+one (a FIFO queue scoped to the match card it opens in, reset at the next
+card's own `li.match-item` -- a page-global queue would let a card with
+headers but no formation widget shift every later club's formation onto
+the previous match). Each match's own `Ultimo aggiornamento dd/mm/yyyy -
+HH:MM` (Rome time) is one `<div class="last-update">` emitted *after* both
+clubs' starters+reserves lists, with the date itself in a child `<span>` --
+so it arrives as a separate text node from the label, joined by a rolling
+text buffer. The giornata is not declared as such in this layout's visible
+text; it is only in `<meta itemprop="name" content="... N° giornata
+...">`, once per match card (nav and real alike). A fallback regex over the
+visible text collected *inside* `match-list` (never the nav strip, never a
+script/style body) stands in if that microdata is ever absent or reworded
+-- deliberately scoped, since the cards' own prose can otherwise carry an
+unrelated giornata mention (an injury note's "rientro dalla 4a giornata"
+appears on this very capture) that must not be read as the page's own round.
 
 The constants below pin what the capture showed; a page that no longer
 matches fails loud (`ProbabiliShapeError`), never silently.
 
-A match that is not yet compiled -- a card with no player list -- is skipped
-and counted, not fatal: Tuesday's page is legitimately half empty.
+A match card that is not yet compiled -- headers for both clubs but no
+player list, no `data-formation` widget -- is skipped and counted, not
+fatal: Tuesday's page is legitimately half empty, before the paper's
+midweek updates land. That shape is *inferred*, not observed: this
+adapter has never seen one on the real site. `test_probabili.py`
+synthesises it by stripping a real card's players and both formation
+widgets, which is evidence about this parser's behaviour on that input,
+not an observation of the live page -- treat it as such until an
+early-week capture confirms the real shape.
 """
 
 from __future__ import annotations
@@ -137,6 +152,8 @@ class _Parser(HTMLParser):
         club = CLUB_HREF.match(href) if self._in_cards else None
         if club and self._player is None:
             self.events.append(("club", club.group("club")))
+        if self._in_cards and tag == "li" and "match-item" in classes:
+            self.events.append(("card", None))       # a new match card: formations bind only within it
         is_player = self._in_cards and PLAYER_CLASS in classes
         marks_bench = any(BENCH_CLASS_RE.search(c) for c in classes)
         is_name_anchor = False
@@ -154,6 +171,9 @@ class _Parser(HTMLParser):
             self._stack.append((tag, marks_bench, is_player, is_name_anchor))
 
     def handle_endtag(self, tag: str) -> None:
+        if not any(open_tag == tag for open_tag, *_ in self._stack):
+            return  # html.parser is lenient; a stray end tag with nothing to close is left alone,
+                    # never drained -- popping past it would forget every tag still legitimately open
         while self._stack:
             open_tag, _, was_player, was_name_anchor = self._stack.pop()
             if was_name_anchor:
@@ -165,7 +185,11 @@ class _Parser(HTMLParser):
                 break
 
     def handle_data(self, data: str) -> None:
-        self.text.append(data)
+        # kept only for the giornata fallback, and only from inside the real cards: the nav
+        # strip, ad copy and inline JSON elsewhere on the page must never be read as the page's
+        # own round, and script/style bodies (CDATA, reported here whole) are never prose either.
+        if self._in_cards and not any(t in ("script", "style") for t, *_ in self._stack):
+            self.text.append(data)
         if self._player is not None and self._name_depth > 0:
             self._player["name"] += data
         self._buffer = (self._buffer + " " + data)[-160:]
@@ -193,7 +217,9 @@ def parse_probabili_page(html_text: str) -> ProbabiliPage:
         return match
 
     for kind, payload in parser.events:
-        if kind == "club":
+        if kind == "card":
+            club_queue = []          # a match boundary: no club is still owed a formation from the last one
+        elif kind == "club":
             club_queue.append(payload)
         elif kind == "formation":
             if club_queue:
