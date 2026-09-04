@@ -452,6 +452,70 @@ def ingest_calendar_cmd(
     emit({"calendar": [r.to_dict() for r in results]}, json_=json_, render=_render_calendar)
 
 
+def _render_probabili(payload: dict) -> str:
+    head = f"probabili {payload['season_id']} giornata {payload['giornata']}"
+    if payload["skipped_duplicate"]:
+        return f"{head}: duplicate of file {payload['file_id']} -- nothing new ({payload['raw_path']})"
+    line = f"{head}: file {payload['file_id']}, {payload['inserted']} players over {payload['matches']} compiled match(es)"
+    if payload["uncompiled"]:
+        line += f", {payload['uncompiled']} not yet compiled"
+    if payload["unknown_players"]:
+        line += f"; {payload['unknown_players']} player ids not in the current listone"
+    if payload["duplicates"]:
+        line += f"; {payload['duplicates']} listed twice (first kept)"
+    return f"{line} ({payload['raw_path']})"
+
+
+GIORNATA_ONE_OPTION = typer.Option(None, "--giornata", help="The giornata (default: the next one on the calendar).")
+
+
+@ingest_app.command("probabili")
+def ingest_probabili_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+) -> None:
+    """The probabili formazioni page (fantacalcio.it, public): every player's published p_start for the next giornata. One request."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.commands.ingest import ensure_schema
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.probabili import (
+        fetch_probabili,
+        parse_probabili_page,
+        record_probabili,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+    from fantaclaude.timeutil import utc_now
+
+    ensure_schema()
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)                 # the round is a pre-read; the write lock must not span the request
+    try:
+        round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+    except ForecastError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    store = RawStore(raw_dir())
+    with _source_errors():
+        raw = run_web(lambda http: fetch_probabili(http, store, label=f"{season_id}-{round_.giornata:02d}"))
+        page = parse_probabili_page(raw.path.read_text(encoding="utf-8"))
+        if page.giornata is not None and page.giornata != round_.giornata:
+            typer.echo(f"the page is giornata {page.giornata}, not {round_.giornata} -- pass --giornata {page.giornata} "
+                       f"if that is the round you want recorded", err=True)
+            raise typer.Exit(code=ExitCode.CONFLICT)
+        con = connect()
+        try:
+            apply_schema(con)
+            result = record_probabili(con, season_id, round_.giornata, page, raw)
+        finally:
+            con.close()
+    emit(result.to_dict(), json_=json_, render=_render_probabili)
+
+
 def _ranges(values: list[int]) -> str:
     """[1, 2, 3, 7] -> '1-3, 7'"""
     parts: list[tuple[int, int]] = []
@@ -793,6 +857,73 @@ def rank_cmd(
     finally:
         con.close()
     emit(report.to_dict(), json_=json_, render=_render_rank)
+
+
+def _render_lineup(payload: dict) -> str:
+    r, page = payload["round"], payload["page"]
+    lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
+              f"({page['players']} players, {page['matches']} compiled)")]
+    if payload["late"]:
+        lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
+    for role, rows in payload["top"].items():
+        lines.append(f"  {role}: " + " · ".join(
+            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}={x['expected_points']:.2f}" for x in rows))
+    xi = payload.get("xi")
+    if xi is None:
+        lines.append(f"XI: none -- {payload['no_xi_reason']}")
+    else:
+        lines.append(f"XI: {xi['module']} · expected {xi['total']:.2f}")
+        lines += [f"  {s['slot']:<6} {s['name']} ({s['fit']}, {s['expected_points']:.2f})" for s in xi["slots"]]
+        others = " · ".join(f"{m} {v:.2f}" if v is not None else f"{m} -"
+                            for m, v in xi["module_scores"].items() if m != xi["module"])
+        lines.append(f"  other modules: {others}")
+    lines.append(f"written: lineup_run {payload['lineup_run_id']}, {payload['predictions']} predictions"
+                 + (" · " + ", ".join(payload["records"]) if payload["records"] else " · records already exist"))
+    lines += [f"warning: {w}" for w in payload["warnings"]]
+    return "\n".join(lines)
+
+
+LINEUP_RUN_OPTION = typer.Option(None, "--run", help="Read projections from this valuation run (default: the newest not superseded).")
+
+
+@app.command("lineup")
+def lineup_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    run: str | None = LINEUP_RUN_OPTION,
+    late: bool = typer.Option(False, "--late", help="Write even though the giornata has kicked off; the row is marked and calibration excludes it."),
+) -> None:
+    """Write the giornata's forecast -- p_start x expected fantavoto for every player the probabili page lists -- and, when league.yml names my team, the XI and module that maximise expected points. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.paths import records_dir
+    from fantaclaude.timeutil import utc_now
+
+    entries = _league_yml_or_exit()
+    my_team: int | None = None
+    if entries and "my_team" in entries:
+        try:
+            my_team = int(entries["my_team"].value)
+        except (TypeError, ValueError):
+            typer.echo("league.yml: my_team.value must be the lega team id (an integer)", err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            report = lineup(con, now=utc_now(), season_id=season_id, giornata=giornata, run_id=run, late=late,
+                            my_team=my_team, records_dir=records_dir())
+        except LateForecast as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.CONFLICT) from None
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_lineup)
 
 
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "

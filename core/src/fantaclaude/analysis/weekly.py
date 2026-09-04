@@ -21,6 +21,7 @@ from typing import Any
 import duckdb
 
 from fantaclaude.analysis.exports import write_parquet
+from fantaclaude.asta.pinned import newest_run_id
 from fantaclaude.timeutil import to_db
 
 
@@ -158,3 +159,73 @@ def export_lineup_records(con: duckdb.DuckDBPyConnection, lineup_run_id: int, re
                (records_dir / "predictions" / f"{stem}.parquet",
                 f"SELECT * FROM predictions WHERE lineup_run_id = {int(lineup_run_id)}")]
     return [path for path, query in targets if write_parquet(con, query, path)]
+
+
+TOP_PER_ROLE = 8
+
+
+@dataclass(frozen=True)
+class LineupReport:
+    round_: Round
+    run_id: str
+    model_hash: str
+    page: dict[str, Any]
+    late: bool
+    rows: list[ForecastRow]
+    xi: dict[str, Any] | None
+    no_xi_reason: str | None
+    my_team: int | None
+    lineup_run_id: int
+    records: list[Path]
+    warnings: list[str]
+
+    def top(self) -> dict[str, list[ForecastRow]]:
+        by_role: dict[str, list[ForecastRow]] = {}
+        for row in sorted(self.rows, key=lambda r: -r.expected_points):
+            by_role.setdefault(row.classic_role, [])
+            if len(by_role[row.classic_role]) < TOP_PER_ROLE:
+                by_role[row.classic_role].append(row)
+        return {role: by_role[role] for role in ("P", "D", "C", "A") if role in by_role}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"round": self.round_.to_dict(), "run_id": self.run_id, "model_hash": self.model_hash,
+                "page": self.page, "late": self.late,
+                "top": {role: [r.to_dict() for r in rows] for role, rows in self.top().items()},
+                "xi": self.xi, "no_xi_reason": self.no_xi_reason, "my_team": self.my_team,
+                "lineup_run_id": self.lineup_run_id, "predictions": len(self.rows),
+                "records": [str(p) for p in self.records], "warnings": list(self.warnings)}
+
+
+def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, giornata: int | None, run_id: str | None,
+           late: bool, my_team: int | None, records_dir: Path) -> LineupReport:
+    round_ = target_round(con, now, season_id=season_id, giornata=giornata)
+    run_id = run_id or newest_run_id(con)
+    if run_id is None:
+        raise ForecastError("no valuation run to read projections from -- run `fantaclaude rank`")
+    hashed = con.execute("SELECT model_hash FROM valuation_runs WHERE run_id = ?", [run_id]).fetchone()
+    if hashed is None:
+        raise ForecastError(f"run {run_id!r} is not in valuation_runs")
+    page = newest_probabili_file(con, season_id, round_.giornata)
+    if page is None:
+        raise ForecastError(f"no probabili page for giornata {round_.giornata} -- run `fantaclaude ingest probabili`")
+    file_id, fetched_at, players, matches = page
+    uncompiled = con.execute("SELECT uncompiled FROM probabili_files WHERE file_id = ?", [file_id]).fetchone()[0]
+    rows = forecast(con, run_id=run_id, probabili_file_id=file_id)
+    warnings: list[str] = []
+    if uncompiled:
+        warnings.append(f"{uncompiled} match(es) of giornata {round_.giornata} not yet compiled on the page fetched "
+                        f"{fetched_at:%Y-%m-%d %H:%M} UTC")
+    xi, no_xi_reason, module, xi_rows, scores = None, None, None, None, None
+    if my_team is None:
+        no_xi_reason = "league.yml has no my_team leaf (asta verify-transfer prints it)"
+    else:
+        no_xi_reason = "the XI lands with Task 8"          # replaced in Task 8
+    lineup_run_id = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
+                                     probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
+                                     module=module, xi=xi_rows, module_scores=scores)
+    is_late = bool(con.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [lineup_run_id]).fetchone()[0])
+    records = export_lineup_records(con, lineup_run_id, records_dir)
+    return LineupReport(round_, run_id, str(hashed[0]),
+                        {"file_id": file_id, "fetched_at": fetched_at.isoformat(sep=" ", timespec="minutes"),
+                         "players": players, "matches": matches, "uncompiled": int(uncompiled)},
+                        is_late, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings)
