@@ -1304,6 +1304,56 @@ def asta_close_cmd(
     emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
 
 
+PRUNE_OPTION = typer.Option(False, "--prune", help="On a clean diff, delete data/asta-state.json (never records/).")
+
+
+def _render_verify(payload: dict) -> str:
+    names = payload["player_names"]
+    who = lambda pid: names.get(str(pid), f"#{pid}")
+    lines = [f"state {payload['state']} · rosters snapshot {payload['roster_snapshot']} ({payload['rosters_fetched_at']} UTC)"]
+    for t in payload["teams"]:
+        status = "ok" if t["clean"] else "DIFFERS"
+        lines.append(f"{status:8} {t['mirror_label']} (room {t['mirror_team_id']}) = {t['lega_team_name']} (lega {t['lega_team_id']}) "
+                     f"· {t['overlap']} shared of {t['mirror_size']}/{t['lega_size']}")
+        lines += [f"         missing in the lega: {who(p)}" for p in t["missing_in_lega"]]
+        lines += [f"         cost differs: {who(p)} room {a} lega {b}" for p, a, b in t["cost_differences"]]
+        lines += [f"         added after the room: {who(p)} for {c}" for p, c in t["added_after_room"]]
+        lines += [f"         extra in the lega: {who(p)} for {c}" for p, c in t["extra_in_lega"]]
+    lines += [f"not in the room: {name} (lega {tid}, {size} players)" for tid, name, size in payload["lega_not_in_room"]]
+    lines += [f"UNMATCHED room team {tid} ({label})" for tid, label in payload["mirror_unmatched"]]
+    lines += [f"AMBIGUOUS {a}" for a in payload["ambiguous"]]
+    if payload["my_team"]:
+        lines.append(f"my team in the lega: {payload['my_team']['name']} ({payload['my_team']['lega_team_id']}) -- add to league.yml:")
+        lines.append(payload["my_team"]["leaf"])
+    lines.append("clean: the lega matches the room" if payload["clean"] else "NOT CLEAN: see above")
+    if payload["pruned"]:
+        lines.append("pruned data/asta-state.json; records/ untouched")
+    return "\n".join(lines)
+
+
+@asta_app.command("verify-transfer")
+def asta_verify_transfer_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    state: Path | None = STATE_OPTION,
+    prune: bool = PRUNE_OPTION,
+) -> None:
+    """Check the lega's rosters against the mirrored auction -- teams matched by roster overlap, never by name -- and name my lega team. Local; run `fantaclaude ingest rosters` first."""
+    from fantaclaude.commands.asta import TransferMismatch, verify_transfer
+
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            try:
+                report = verify_transfer(con, paths=paths, state_file=state, prune=prune)
+            except TransferMismatch as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=ExitCode.CONFLICT) from None
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_verify)
+
+
 @asta_app.command("refresh")
 def asta_refresh_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),

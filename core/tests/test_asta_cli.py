@@ -612,3 +612,63 @@ def test_refresh_needs_a_running_server(real_server_proxy, monkeypatch, tmp_path
             "problems": []})
         r2 = runner.invoke(app, ["asta", "refresh"])
     assert r2.exit_code == ExitCode.OK and "1 applied" in r2.output
+
+
+from conftest import seed_rosters
+
+
+def _lega_from_state(state_file, *, added=None, price=None):
+    """The lega rosters that would match the mirrored state exactly, plus optional perturbations."""
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    teams = {}
+    for t in payload["teams"]:
+        roster = {p["player_id"]: p["cost"] for p in t["picks"]}
+        teams[1000 + int(t["id"])] = (f"lega {t['id']}", roster)
+    if added:
+        teams[added[0]][1][added[1]] = added[2]
+    if price:
+        teams[price[0]][1][price[1]] = price[2]
+    teams[1999] = ("eleventh", {})
+    return teams
+
+
+def test_verify_transfer_reports_names_my_team_and_prunes_only_on_a_clean_diff(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    nothing = runner.invoke(app, ["asta", "verify-transfer"])
+    assert nothing.exit_code == ExitCode.NOT_READY and "ingest rosters" in nothing.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, added=(1001, 424242, 1)))
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["clean"] is True and payload["my_team"]["lega_team_id"] == 1001
+    assert "value: 1001" in payload["my_team"]["leaf"] and "source: verify-transfer" in payload["my_team"]["leaf"]
+    assert any(t["added_after_room"] == [[424242, 1]] for t in payload["teams"])
+    assert payload["lega_not_in_room"] == [[1999, "eleventh", 0]] and payload["pruned"] is False
+    plain = runner.invoke(app, ["asta", "verify-transfer"])
+    assert "my_team:" in plain.stdout and "clean" in plain.stdout
+
+    # a changed price: not clean, --prune refuses (exit 4) and the file stays
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    first_pick = json.loads(state_file.read_text())["teams"][0]["picks"][0]
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, price=(1000 + json.loads(state_file.read_text())["teams"][0]["id"], first_pick["player_id"], first_pick["cost"] + 1)))
+    con.close()
+    dirty = runner.invoke(app, ["asta", "verify-transfer", "--prune"])
+    assert dirty.exit_code == ExitCode.CONFLICT and state_file.is_file() and "cost" in dirty.stderr
+
+    # clean again: --prune deletes the working file and nothing under records/
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file))
+    con.close()
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    records = sorted((tmp_path / "records" / "asta").glob("*.json"))
+    pruned = runner.invoke(app, ["asta", "verify-transfer", "--prune", "--json"])
+    assert pruned.exit_code == ExitCode.OK, pruned.output
+    assert json.loads(pruned.stdout)["pruned"] is True and not state_file.is_file()
+    assert sorted((tmp_path / "records" / "asta").glob("*.json")) == records
+    # --prune never applies to an explicit --state file
+    kept = runner.invoke(app, ["asta", "verify-transfer", "--state", str(records[0]), "--prune"])
+    assert kept.exit_code == ExitCode.USAGE and records[0].is_file()

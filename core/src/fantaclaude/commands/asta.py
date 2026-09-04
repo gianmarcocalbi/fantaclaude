@@ -14,6 +14,7 @@ records/.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -64,7 +65,9 @@ from fantaclaude.asta.state import (
     Team,
     apply_snapshot,
     read_snapshots,
+    state_from_snapshot,
 )
+from fantaclaude.asta.transfer import Reconciliation, reconcile
 from fantaclaude.commands.ingest import NotReady
 from fantaclaude.ingest.names import match_listone
 from fantaclaude.kb.participants import Participant, ParticipantError, load_participants
@@ -580,3 +583,104 @@ def close_auction(paths: AstaPaths, *, session_code: str | None = None) -> Path:
                                written_at=written_at)
     except StateFileError as exc:
         raise NotReady(str(exc)) from None
+
+
+class TransferMismatch(RuntimeError):
+    """--prune asked for on a diff that is not clean."""
+
+
+def _diff_summary(result: Reconciliation) -> str:
+    """What is not clean, named -- so a --prune refusal says *why*, not just
+    that it refused. `verify_transfer` without --prune prints the same facts
+    at length; this is the one line that has to fit an error message."""
+    problems: list[str] = []
+    for t in result.teams:
+        if t.missing_in_lega:
+            problems.append(f"{t.lega_team_name}: {len(t.missing_in_lega)} missing in the lega")
+        if t.cost_differences:
+            problems.append(f"{t.lega_team_name}: {len(t.cost_differences)} cost differs")
+        if t.extra_in_lega:
+            problems.append(f"{t.lega_team_name}: {len(t.extra_in_lega)} dear extra")
+    problems += [f"{name}: not in the room ({size} players)" for _, name, size in result.lega_not_in_room if size]
+    if result.mirror_unmatched:
+        problems.append(f"{len(result.mirror_unmatched)} room team(s) unmatched")
+    problems += list(result.ambiguous)
+    return "; ".join(problems) if problems else "not clean"
+
+
+@dataclass(frozen=True)
+class VerifyReport:
+    state_path: Path
+    snapshot_id: int
+    fetched_at: datetime
+    result: Reconciliation
+    names: dict[int, str]
+    my_team_leaf: str | None
+    pruned: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        r = self.result
+        return {"state": str(self.state_path), "roster_snapshot": self.snapshot_id,
+                "rosters_fetched_at": self.fetched_at.isoformat(sep=" ", timespec="minutes"),
+                "teams": [t.to_dict() for t in r.teams],
+                "lega_not_in_room": [list(x) for x in r.lega_not_in_room],
+                "mirror_unmatched": [list(x) for x in r.mirror_unmatched], "ambiguous": list(r.ambiguous),
+                "my_team": None if r.my_team is None else {"lega_team_id": r.my_team[0], "name": r.my_team[1],
+                                                             "leaf": self.my_team_leaf},
+                "player_names": {str(k): v for k, v in self.names.items()},
+                "clean": r.clean, "pruned": self.pruned}
+
+
+def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_file: Path | None = None,
+                    prune: bool = False) -> VerifyReport:
+    """The lega's latest roster snapshot against the mirrored auction. Reports;
+    `--prune` deletes data/asta-state.json alone, on a clean diff, never a
+    `--state` file and never anything under records/."""
+    if prune and state_file is not None:
+        raise UsageError("--prune removes data/asta-state.json only; it does not apply to a --state file")
+    stored, path = _stored(paths, state_file, fresh=False)
+    if stored is None:
+        raise NotReady(f"no state file at {path} -- nothing mirrored to verify; pass --state records/asta/<file>.json")
+    state = state_from_snapshot(stored.snapshot)
+    mirror: dict[int, dict[int, int]] = {t.team_id: {} for t in stored.snapshot.teams}
+    for pick in state.picks.values():
+        mirror.setdefault(pick.team_id, {})[pick.player_id] = pick.cost
+    labels = {t.team_id: t.label for t in stored.snapshot.teams}
+    labels.update(stored.mapping.nicks)
+    snapshot = con.execute("SELECT snapshot_id, fetched_at, teams FROM roster_snapshots "
+                           "ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+    if snapshot is None:
+        raise NotReady("no roster snapshot -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
+    snapshot_id, fetched_at, teams_json = snapshot
+    teams = json.loads(teams_json) if isinstance(teams_json, str) else teams_json
+    lega: dict[int, dict[int, int]] = {int(t["id"]): {} for t in teams}      # every team, the empty ones included
+    names: dict[int, str] = {int(t["id"]): str(t["name"]) for t in teams}
+    for team_id, player_id, cost in con.execute(
+            "SELECT team_id, player_id, cost FROM v_rosters_current").fetchall():
+        lega.setdefault(int(team_id), {})[int(player_id)] = int(cost)
+    if not any(lega.values()):
+        raise NotReady("the lega's rosters are all empty -- the admin has not transferred the auction yet")
+    settings = stored.snapshot.settings or {}
+    min_bid = settings.get("minimumBid") if isinstance(settings.get("minimumBid"), int) else 1
+    result = reconcile(mirror, lega, me=stored.mapping.mine, labels=labels, names=names, min_bid=min_bid)
+    player_names = {int(pid): str(name) for pid, name in con.execute(
+        "SELECT player_id, name FROM v_players_current").fetchall()}
+    leaf = None
+    if result.my_team is not None:
+        note = (f"{result.my_team[1]} -- the lega team the mirror's 'me' reconciled with, player for player")
+        # A league team name is free text off the room, and a plain YAML scalar
+        # breaks on a ": " inside it (reads as a nested key) or on a leading
+        # quote (reads as the start of a quoted scalar). Single-quoting the
+        # whole note -- with embedded "'" doubled, the YAML escape for it --
+        # is safe against both, whatever the team is called.
+        quoted_note = "'" + note.replace("'", "''") + "'"
+        leaf = (f"my_team:\n  value: {result.my_team[0]}\n  source: verify-transfer\n"
+                f"  verified_on: {utc_now():%Y-%m-%d}\n  note: {quoted_note}")
+    pruned = False
+    if prune:
+        if not result.clean:
+            raise TransferMismatch(f"the diff is not clean ({_diff_summary(result)}); nothing deleted -- "
+                                   f"see `asta verify-transfer` without --prune for the detail")
+        path.unlink()
+        pruned = True
+    return VerifyReport(path, int(snapshot_id), fetched_at, result, player_names, leaf, pruned)
