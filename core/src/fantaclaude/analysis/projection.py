@@ -141,11 +141,13 @@ class PlayerInputs:
     note: PlayerNote | None
     penalty_taker: bool
     club_has_taker: bool
-    # Penalties (scored + missed) per giornata the club earns, or None when the
-    # season the rate is read off never named the club at all -- a promotion, a
-    # rename, a different spelling. Absent is not zero: 0.0 is a club that
-    # played and won no penalty, and the redistribution below is right to apply
-    # it; None is no observation, and there the redistribution does not run.
+    # Penalties (scored + missed) per giornata: the club's own rate from its
+    # most recent completed season if one names it, else the league average --
+    # a promotion, a rename or a different spelling all fall back the same way
+    # (open question 11) -- else None only when no completed season has been
+    # ingested at all, and only there does the redistribution below not run.
+    # club_penalty_rate_season is what tells "the club's own rate, from season
+    # N" from "we fell back to the league average" (None).
     club_penalty_rate: float | None
     club_penalty_rate_season: int | None = None      # the season the rate came from; None = league average
 
@@ -234,12 +236,14 @@ def _per_presenza(line: SeasonLine, cfg: ProjectionConfig, inp: PlayerInputs) ->
         assists = (1 - cfg.xg_weight) * ev.assists + cfg.xg_weight * line.xa
     pen_scored, pen_missed = ev.pen_scored / n, ev.pen_missed / n
     # The redistribution needs a rate to redistribute. Gated on club_has_taker
-    # alone it also fired where there is no observation -- the club promoted
-    # into this season, whose rate is read off a season it did not play -- and
-    # then gave the taker `0.0 * conversion` penalties while erasing every
-    # club-mate's own, so naming a taker was strictly worse than naming none
-    # (finding A). No data means do not act, which is exactly the treatment a
-    # club with no named taker already gets.
+    # alone it also fired where there is no observation at all -- no completed
+    # season anywhere in the ingested history, the only case club_penalty_rate
+    # is still None under model 3 (open question 11) -- and then gave the
+    # taker `0.0 * conversion` penalties while erasing every club-mate's own,
+    # so naming a taker was strictly worse than naming none (finding A). A
+    # promoted, renamed or differently-spelled club is not this case any more:
+    # it falls back to the league average instead, and the redistribution runs
+    # on that.
     if inp.club_has_taker and inp.club_penalty_rate is not None:
         rate = inp.club_penalty_rate
         pen_scored = rate * cfg.pen_conversion if inp.penalty_taker else 0.0
