@@ -61,7 +61,7 @@ def adjustments_path() -> Path:
 
 
 def asta_state_path() -> Path:
-    """data/asta-state.json: the mirrored auction as last seen, written atomically; deleted by verify-transfer (2b)."""
+    """data/asta-state.json: the mirrored auction as last seen, written atomically; removed only by `asta verify-transfer --prune` on a clean diff (3a). The copy under records/asta/ is permanent."""
     return data_dir() / "asta-state.json"
 
 
