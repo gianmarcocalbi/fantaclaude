@@ -96,10 +96,14 @@ class ForecastRow:
 
 
 def newest_probabili_file(con: duckdb.DuckDBPyConnection, season_id: int,
-                          giornata: int) -> tuple[int, datetime, int, int] | None:
-    row = con.execute("SELECT file_id, fetched_at, row_count, matches FROM probabili_files "
+                          giornata: int) -> tuple[int, datetime, int, int, int] | None:
+    """(file_id, fetched_at, row_count, matches, uncompiled). `uncompiled`
+    rides along in this one SELECT rather than a second query for it in the
+    caller -- both come from the same `probabili_files` row anyway (review
+    finding 14, 2026-09-04)."""
+    row = con.execute("SELECT file_id, fetched_at, row_count, matches, uncompiled FROM probabili_files "
                       "WHERE season_id = ? AND giornata = ? ORDER BY file_id DESC LIMIT 1", [season_id, giornata]).fetchone()
-    return None if row is None else (int(row[0]), row[1], int(row[2]), int(row[3]))
+    return None if row is None else (int(row[0]), row[1], int(row[2]), int(row[3]), int(row[4]))
 
 
 def forecast(con: duckdb.DuckDBPyConnection, *, run_id: str, probabili_file_id: int) -> list[ForecastRow]:
@@ -121,9 +125,12 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
                      probabili_file_id: int, rows: list[ForecastRow], now: datetime, late: bool,
                      my_team: int | None = None, module: str | None = None,
                      xi: list[dict[str, Any]] | None = None,
-                     module_scores: dict[str, float | None] | None = None) -> int:
+                     module_scores: dict[str, float | None] | None = None) -> tuple[int, bool]:
     """One lineup_runs row and its predictions, appended; refused after the
-    first kickoff unless `late`, and then marked as such by the clock, not the flag."""
+    first kickoff unless `late`, and then marked as such by the clock, not
+    the flag. Returns (lineup_run_id, is_late) -- the caller already needs
+    `is_late` for the report and would otherwise SELECT the very row this
+    just wrote to get it back (review finding 14, 2026-09-04)."""
     written_at = to_db(now)
     is_late = written_at >= round_.first_kickoff
     if is_late and not late:
@@ -149,7 +156,7 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
         con.rollback()
         raise
     con.commit()
-    return int(lineup_run_id)
+    return int(lineup_run_id), is_late
 
 
 def export_lineup_records(con: duckdb.DuckDBPyConnection, lineup_run_id: int, records_dir: Path) -> list[Path]:
@@ -257,14 +264,32 @@ def choose_xi(roster: list[RosterPlayer], forecast_by_id: dict[int, ForecastRow]
     return XiChoice(code, total, slots, scores, unlisted)
 
 
+MATCHDAY_READ_WINDOW = timedelta(days=5)
+
+
 def matchday_cross_check(con: duckdb.DuckDBPyConnection, round_: Round) -> str | None:
     """A warning when the freshest roster snapshot's mday/mstr disagree with
-    the calendar's round; None when they agree or nothing has been fetched."""
+    the calendar's round; None when they agree, nothing has been fetched, or
+    the snapshot has nothing current to say.
+
+    `ingest rosters` runs "when the rosters changed, never to check"
+    (CLAUDE.md), so the freshest snapshot can sit unchanged for weeks --
+    without a recency bound, a matchday-3 read from the day after the
+    auction would forever be compared against giornata 7's calendar, and the
+    (backwards) advice to pass --giornata would fire on every `lineup` run
+    from giornata 4 onward, drowning the real warnings beside it (review
+    finding 4, 2026-09-04). So the read is compared only when it is recent
+    enough, relative to THIS round's kickoff, to plausibly still describe
+    it -- `fetched_at` no more than `MATCHDAY_READ_WINDOW` before
+    `round_.first_kickoff` (a read fetched at or after kickoff is always
+    compared, however "stale" it looks by this measure)."""
     row = con.execute("SELECT matchday, matchday_start, fetched_at FROM roster_snapshots "
                       "WHERE matchday IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1").fetchone()
     if row is None:
         return None
     matchday, start, fetched_at = row
+    if round_.first_kickoff - fetched_at > MATCHDAY_READ_WINDOW:
+        return None
     if int(matchday) == round_.giornata and (start is None or start == round_.first_kickoff):
         return None
     return (f"the league API's status read on {fetched_at:%Y-%m-%d %H:%M} UTC said matchday {matchday} starting "
@@ -275,13 +300,21 @@ def matchday_cross_check(con: duckdb.DuckDBPyConnection, round_: Round) -> str |
 STALE_COMPILATION = timedelta(days=1)
 
 
-def compilation_staleness(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int,
+def compilation_staleness(con: duckdb.DuckDBPyConnection, giornata: int,
                           probabili_file_id: int) -> list[str]:
     """Warnings, one per match, when that match's OWN probabili compilation
     stamp predates that match's OWN kickoff by more than a day (spec: "the
     lineup command warns when a match's compilation predates its own
     kickoff by more than a day, instead of treating Tuesday's guess as
     Saturday's team news").
+
+    No `season_id` parameter: the query is already fully scoped by
+    `p.file_id = ?` (one probabili page, one season, one giornata) and the
+    `f.season_id = p.season_id` join carries the season across to
+    `fixtures` -- a `season_id` argument here would be redundant with
+    `probabili_file_id` and, worse, invite a reader to assume it does some
+    scoping the query does not actually use it for (review finding 13,
+    2026-09-04).
 
     The join to `fixtures` is on `team_short`, not `club_slug`: the
     fantacalcio.it URL slug `club_slug` carries (e.g. "inter") has no
@@ -309,6 +342,22 @@ def compilation_staleness(con: duckdb.DuckDBPyConnection, season_id: int, giorna
             warnings.append(f"{home}-{away} (giornata {giornata}): probabili compiled {updated_at:%Y-%m-%d %H:%M} UTC, "
                             f"{age.days} day(s) before its own kickoff {kickoff:%Y-%m-%d %H:%M} UTC -- treat its p_start as stale")
     return sorted(warnings)
+
+
+def uncompiled_match_warning(giornata: int, uncompiled: int, fetched_at: str) -> str:
+    """The one sentence for "N matches of this giornata are not yet
+    compiled", shared with the CLI's plain-text renderer so the two can
+    never fall out of sync. `_render_lineup` used to find this specific
+    entry in `warnings` by substring-matching a fragment of THIS sentence
+    hardcoded a second time in `cli/app.py` -- reword it here and the
+    renderer's match silently stops firing: the UNCOMPILED line vanishes
+    from its near-header position while the same warning reappears,
+    undeduplicated, at the bottom (review finding 10, 2026-09-04). Calling
+    this one function from both places instead means a reword changes both
+    at once, by construction, and the renderer can select the entry by
+    exact equality against what it independently builds from
+    `page['uncompiled']`/`page['fetched_at']`, never by parsing prose."""
+    return f"{uncompiled} match(es) of giornata {giornata} not yet compiled on the page fetched {fetched_at} UTC"
 
 
 TOP_PER_ROLE = 8
@@ -358,16 +407,15 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     page = newest_probabili_file(con, season_id, round_.giornata)
     if page is None:
         raise ForecastError(f"no probabili page for giornata {round_.giornata} -- run `fantaclaude ingest probabili`")
-    file_id, fetched_at, players, matches = page
-    uncompiled = con.execute("SELECT uncompiled FROM probabili_files WHERE file_id = ?", [file_id]).fetchone()[0]
+    file_id, fetched_at, players, matches, uncompiled = page
+    fetched_at_str = fetched_at.isoformat(sep=" ", timespec="minutes")
     rows = forecast(con, run_id=run_id, probabili_file_id=file_id)
     warnings: list[str] = []
     if (mismatch := matchday_cross_check(con, round_)):
         warnings.append(mismatch)
     if uncompiled:
-        warnings.append(f"{uncompiled} match(es) of giornata {round_.giornata} not yet compiled on the page fetched "
-                        f"{fetched_at:%Y-%m-%d %H:%M} UTC")
-    warnings += compilation_staleness(con, season_id, round_.giornata, file_id)
+        warnings.append(uncompiled_match_warning(round_.giornata, uncompiled, fetched_at_str))
+    warnings += compilation_staleness(con, round_.giornata, file_id)
     xi, no_xi_reason, module, xi_rows, scores = None, None, None, None, None
     if my_team is None:
         no_xi_reason = "league.yml has no my_team leaf (asta verify-transfer prints it)"
@@ -401,12 +449,11 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
                                     "counted as 0: " + ", ".join(names[pid] for pid in unpriced))
         except ForecastError as exc:
             no_xi_reason = str(exc)
-    lineup_run_id = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
-                                     probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
-                                     module=module, xi=xi_rows, module_scores=scores)
-    is_late = bool(con.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [lineup_run_id]).fetchone()[0])
+    lineup_run_id, is_late = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
+                                              probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
+                                              module=module, xi=xi_rows, module_scores=scores)
     records = export_lineup_records(con, lineup_run_id, records_dir)
     return LineupReport(round_, run_id, str(hashed[0]),
-                        {"file_id": file_id, "fetched_at": fetched_at.isoformat(sep=" ", timespec="minutes"),
+                        {"file_id": file_id, "fetched_at": fetched_at_str,
                          "players": players, "matches": matches, "uncompiled": int(uncompiled)},
                         is_late, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings)

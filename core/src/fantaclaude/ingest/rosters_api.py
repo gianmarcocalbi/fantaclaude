@@ -47,6 +47,18 @@ def _split(value: Any, *, what: str, team: str) -> list[str]:
     return [part.strip() for part in value.split(";") if part.strip()]
 
 
+def _team_id(team: dict[str, Any], name: str) -> int:
+    """Every other field this module reads off a team object is guarded --
+    `id` was the one bare `int(team["id"])`, so a team object missing `id`
+    or carrying a non-numeric one raised `KeyError`/`ValueError` instead of
+    the `RosterShapeError` `ingest rosters`' `_source_errors()` maps to a
+    clean exit 1 (review finding 9, 2026-09-04)."""
+    try:
+        return int(team["id"])
+    except (KeyError, TypeError, ValueError):
+        raise RosterShapeError(f"team {name!r}: id is missing or not an integer: {team.get('id')!r}") from None
+
+
 def parse_rosters(teams_payload: Any) -> tuple[list[RosterRow], list[str]]:
     data = teams_payload.get("data") if isinstance(teams_payload, dict) else None
     if not isinstance(data, list):
@@ -55,6 +67,7 @@ def parse_rosters(teams_payload: Any) -> tuple[list[RosterRow], list[str]]:
     warnings: list[str] = []
     for team in data:
         name = str(team.get("n", ""))
+        team_id = _team_id(team, name)
         ids = _split(team.get("cal"), what="cal", team=name)
         costs = _split(team.get("cs"), what="cs", team=name)
         if len(ids) != len(costs):
@@ -66,7 +79,7 @@ def parse_rosters(teams_payload: Any) -> tuple[list[RosterRow], list[str]]:
             except ValueError:
                 raise RosterShapeError(f"team {name!r}: cal/cs entry {pid!r}/{cost!r} is not an integer") from None
             total += credits
-            rows.append(RosterRow(int(team["id"]), name, team.get("nu"), player_id, credits, position))
+            rows.append(RosterRow(team_id, name, team.get("nu"), player_id, credits, position))
         crs = team.get("crs")
         if ids and isinstance(crs, int) and crs != total:
             warnings.append(f"team {name!r}: cs sums to {total} but crs says {crs}")
@@ -74,12 +87,17 @@ def parse_rosters(teams_payload: Any) -> tuple[list[RosterRow], list[str]]:
 
 
 def _matchday_start(value: Any) -> datetime | None:
-    """`mstr` is an ISO instant without a zone and it is UTC (giornata 1:
-    2026-08-22T16:30:00 against an 18:30 Rome kickoff)."""
+    """`mstr` is normally an ISO instant without a zone, and it is UTC
+    (giornata 1: 2026-08-22T16:30:00 against an 18:30 Rome kickoff). If the
+    platform ever sends one WITH an offset or a trailing `Z`, `to_db`
+    converts it to naive UTC the way every other timestamp in this codebase
+    is stored -- a bare `.replace(tzinfo=None)` would instead discard the
+    offset and keep the wall-clock number as if it already were UTC, two
+    hours off for a `+02:00` value (review finding 7, 2026-09-04)."""
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value).replace(tzinfo=None)
+        return to_db(datetime.fromisoformat(value))
     except ValueError:
         return None
 
@@ -117,7 +135,8 @@ def record_rosters(con: duckdb.DuckDBPyConnection, payload: dict[str, Any], raw:
     sizes: dict[int, int] = {}
     for r in rows:
         sizes[r.team_id] = sizes.get(r.team_id, 0) + 1
-    team_list = [{"id": int(t["id"]), "name": str(t.get("n", "")), "owner": t.get("nu"), "size": sizes.get(int(t["id"]), 0)}
+    team_list = [{"id": (tid := _team_id(t, str(t.get("n", "")))), "name": str(t.get("n", "")),
+                 "owner": t.get("nu"), "size": sizes.get(tid, 0)}
                  for t in payload["teams"]["data"]]           # every team, the empty ones included: rosters has no row for those
     teams = len(team_list)
     existing = con.execute("SELECT snapshot_id FROM roster_snapshots WHERE league_id = ? AND sha256 = ?",

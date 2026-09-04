@@ -15,8 +15,9 @@ records/.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -737,9 +738,32 @@ def _ratio(num: float, den: float) -> float | None:
     return None if not den else num / den
 
 
+_CLOSING_STATE_STAMP = re.compile(r"(\d{8}T\d{6}Z)\.json$")
+
+
+def _closing_state_key(path: Path) -> float:
+    """The instant a closing-state filename names, as epoch seconds: parsed
+    from its own `<session_code>-<UTC stamp>.json` stamp when the name has
+    one, the file's mtime otherwise. Filenames are shaped
+    `<session_code>-<stamp>.json` (`copy_to_records`), and a session code can
+    itself contain digits and hyphens (`FA-rb8-460-...`) -- sorting the
+    FILENAMES lexicographically, as this used to, sorts by the session code
+    first and the stamp only as a tie-break within one code, so a later
+    season's differently-prefixed session ("AB-xyz-...") could lexically
+    precede an earlier one ("FA-rb8-...") and be skipped as "not the
+    newest" (review finding 6, 2026-09-04)."""
+    match = _CLOSING_STATE_STAMP.search(path.name)
+    if match:
+        try:
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+        except ValueError:
+            pass
+    return path.stat().st_mtime
+
+
 def _newest_closing_state(records_dir: Path) -> Path | None:
-    files = sorted(p for p in (records_dir / "asta").glob("*.json") if not p.name.endswith("-bids.json"))
-    return files[-1] if files else None
+    files = [p for p in (records_dir / "asta").glob("*.json") if not p.name.endswith("-bids.json")]
+    return max(files, key=_closing_state_key, default=None)
 
 
 def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: str | None = None,
@@ -761,7 +785,16 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
     if run_id is None or scenario is None:
         record = _newest_closing_state(paths.records)
         if record is not None:
-            stored = read_state(record)
+            # `records/asta/` is committed and permanent; after the next
+            # STATE_VERSION bump an old record here becomes unreadable, and a
+            # bare `read_state` would then escape `_asta_errors` as a
+            # traceback with exit 1 instead of the exit-3 NotReady every
+            # other reader of a state file produces (`_stored`,
+            # `close_auction`) -- review finding 8, 2026-09-04.
+            try:
+                stored = read_state(record)
+            except StateFileError as exc:
+                raise NotReady(str(exc)) from None
             label = (record.relative_to(paths.records.parent).as_posix()
                      if record.is_relative_to(paths.records.parent) else str(record))
             if run_id is None:
@@ -795,9 +828,17 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
         "WHERE vr.run_id = ?", [run_id]).fetchone()[0]
     if first is None:
         raise NotReady("no roster snapshot with players -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
+    # `v_market_prices` also groups by (league_id, season_id) through
+    # `v_rosters_first`: with two leagues in one season it carries TWO first
+    # snapshots, correctly tagged, but this query was reading both -- classes
+    # and overall would then sum two leagues' rosters beside a header naming
+    # only one snapshot (review finding 5, 2026-09-04). `snapshot_id = ?`
+    # pins it to the exact row `first` names, the same one `unpriced` below
+    # already uses, so every number in the report describes that one snapshot.
     rows = con.execute(
         "SELECT role_class, count(*), sum(paid), sum(expected_price), sum(coalesce(quot_mantra, 0)) FROM v_market_prices "
-        "WHERE run_id = ? AND scenario = ? GROUP BY role_class ORDER BY role_class", [run_id, scenario]).fetchall()
+        "WHERE run_id = ? AND scenario = ? AND snapshot_id = ? GROUP BY role_class ORDER BY role_class",
+        [run_id, scenario, first]).fetchall()
     classes = [{"role_class": cls, "players": int(n), "paid": int(paid), "expected": int(exp),
                 "paid_over_expected": _ratio(paid, exp), "quotazione": int(quot),
                 "paid_over_quotazione": _ratio(paid, quot)} for cls, n, paid, exp, quot in rows]

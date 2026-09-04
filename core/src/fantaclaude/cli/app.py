@@ -914,13 +914,25 @@ def _render_lineup(payload: dict) -> str:
     # already does, rather than only as the last line after two absolute
     # parquet paths, or as an un-denominated count that reads the same at
     # 2-of-2 and 2-of-10 (review finding 5, 2026-09-04).
+    from fantaclaude.analysis.weekly import uncompiled_match_warning
+
     r, page = payload["round"], payload["page"]
     total_matches = page["matches"] + page["uncompiled"]
     lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
               f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
     if payload["late"]:
         lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
-    uncompiled_warning = next((w for w in payload["warnings"] if "not yet compiled on the page fetched" in w), None)
+    # Built from page['uncompiled']/page['fetched_at'] -- the same data
+    # `lineup()` built its own copy of this sentence from -- rather than
+    # located in `warnings` by substring-matching a fragment of that
+    # sentence hardcoded a second time here. The old way meant a reword of
+    # `uncompiled_match_warning` silently dropped this line from its
+    # near-header spot while the (now unmatched) warning reappeared,
+    # undeduplicated, at the bottom (review finding 10, 2026-09-04). Calling
+    # the one function both places use means a reword can't desync them: the
+    # equality filter below always matches the actual entry in `warnings`,
+    # whatever its current wording is.
+    uncompiled_warning = uncompiled_match_warning(r["giornata"], page["uncompiled"], page["fetched_at"]) if page["uncompiled"] else None
     if uncompiled_warning is not None:
         lines.append(f"UNCOMPILED: {uncompiled_warning}")
     shortfall = page["players"] - payload["predictions"]

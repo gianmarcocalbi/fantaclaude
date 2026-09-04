@@ -49,6 +49,20 @@ def test_parse_fails_loud_on_a_shape_it_cannot_read():
         parse_rosters({"data": None})
 
 
+def test_parse_fails_loud_when_a_team_id_is_missing_or_not_an_integer():
+    """Every other field this reads off a team object is guarded; `id` was
+    the one bare `int(team["id"])`, raising KeyError/ValueError instead of
+    RosterShapeError for a shape `ingest rosters`'s `_source_errors()` maps
+    to a clean exit 1 rather than a traceback (review finding 9, 2026-09-04)."""
+    missing = _team(1, "A", "", "")
+    del missing["id"]
+    with pytest.raises(RosterShapeError, match="id is missing or not an integer"):
+        parse_rosters(_teams(missing))
+    not_numeric = _team("nope", "A", "", "")
+    with pytest.raises(RosterShapeError, match="id is missing or not an integer"):
+        parse_rosters(_teams(not_numeric))
+
+
 def _raw(tmp_path, payload, stamp="1"):
     path = tmp_path / f"rosters-{stamp}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -79,6 +93,36 @@ def test_an_empty_league_is_a_snapshot_with_no_rows(db, tmp_path):
     result = record_rosters(db, payload, _raw(tmp_path, payload), league_id=1)
     assert result.inserted == 0 and result.teams == 1
     assert db.execute("SELECT count(*) FROM v_rosters_first").fetchone()[0] == 0     # never the "earliest" for market prices
+
+
+def test_record_rosters_fails_loud_when_a_team_id_is_missing_or_not_an_integer(db, tmp_path):
+    """The second bare `int(t["id"])`, building `teams` for the snapshot's
+    `team_count`/`teams` JSON -- same guard, same shape error, not a
+    traceback (review finding 9, 2026-09-04)."""
+    bad = _team(1, "A", "", "")
+    bad["id"] = None
+    payload = {"teams": _teams(bad), "status": {"sId": 21, "mday": 1, "mstr": None}, "fetch_warnings": []}
+    with pytest.raises(RosterShapeError, match="id is missing or not an integer"):
+        record_rosters(db, payload, _raw(tmp_path, payload), league_id=1)
+
+
+def test_matchday_start_converts_an_offset_or_z_bearing_stamp_to_utc(db, tmp_path):
+    """`mstr` is normally a naive ISO instant already in UTC, but if the
+    platform ever sends one WITH an offset or a trailing `Z`, a bare
+    `.replace(tzinfo=None)` would discard the offset and store the
+    wall-clock number as if it already were UTC -- two hours off for a
+    `+02:00` value (review finding 7, 2026-09-04)."""
+    offset = {"teams": _teams(_team(1, "A", "", "")),
+             "status": {"sId": 21, "mday": 3, "mstr": "2026-09-04T18:45:00+02:00"}, "fetch_warnings": []}
+    record_rosters(db, offset, _raw(tmp_path, offset, stamp="offset"), league_id=1)
+    assert db.execute("SELECT matchday_start FROM roster_snapshots WHERE matchday = 3").fetchone()[0] == \
+        datetime(2026, 9, 4, 16, 45)  # noqa: DTZ001 -- naive UTC, as stored
+
+    zulu = {"teams": _teams(_team(1, "A", "", "")),
+           "status": {"sId": 21, "mday": 4, "mstr": "2026-09-11T18:45:00Z"}, "fetch_warnings": []}
+    record_rosters(db, zulu, _raw(tmp_path, zulu, stamp="zulu"), league_id=1)
+    assert db.execute("SELECT matchday_start FROM roster_snapshots WHERE matchday = 4").fetchone()[0] == \
+        datetime(2026, 9, 11, 18, 45)  # noqa: DTZ001 -- naive UTC, as stored
 
 
 async def test_fetch_rosters_pages_the_teams_reads_the_status_and_scrubs_emails(tmp_path, fake_api):

@@ -1,3 +1,6 @@
+import random
+import re
+
 from fantaclaude.asta.transfer import reconcile
 
 LABELS = {0: "KingNazzario", 1: "G8 E CLAUDIO", 2: "random label"}
@@ -86,3 +89,55 @@ def test_a_room_team_that_bought_nothing_is_not_reported_unmatched():
     result = reconcile(mirror, lega, me=1, labels=LABELS, names=NAMES, min_bid=1)
     assert result.mirror_unmatched == () and result.my_team is None
     assert result.lega_not_in_room == ((200, "200", 0), (201, "201", 0)) and result.clean
+
+
+def test_the_exact_assignment_matches_where_greedy_would_strand_a_team():
+    """Review finding 3's own example: mirror 0 overlaps lega 100 by 3 and
+    101 by 2; mirror 1 overlaps 100 by 3 and 101 by 0. Greedy descending-
+    overlap picks (3, 0, 100) first -- it is not a tie for mirror 0 (its
+    other option is 2, not 3) -- leaving mirror 1 blocked against 101
+    (overlap 0, forbidden) and stranded. The maximum assignment is
+    0->101, 1->100 (total overlap 5, not 3), and it is not ambiguous: no
+    other pairing reaches 5."""
+    mirror = {0: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}, 1: {1: 1, 2: 1, 3: 1, 6: 1, 7: 1}}
+    lega = {100: {1: 1, 2: 1, 3: 1, 8: 1, 9: 1}, 101: {4: 1, 5: 1, 10: 1, 11: 1}}
+    result = reconcile(mirror, lega, me=-1, labels={}, names={})
+    assert {(t.mirror_team_id, t.lega_team_id, t.overlap) for t in result.teams} == {(0, 101, 2), (1, 100, 3)}
+    assert not result.ambiguous
+
+
+def test_two_mirror_teams_tied_on_one_lega_team_is_reported_ambiguous_not_id_ordered():
+    """The half the old greedy scan never checked: a tie on the LEGA side of
+    a pair, not the mirror side. Two mirror teams overlap the only lega team
+    equally -- the solve must pick one (a stranger cannot be left unmatched
+    when a legal pairing exists), but which one is genuinely arbitrary, and
+    that must be said, not silently resolved by team-id order."""
+    mirror = {0: {1: 1, 2: 1, 3: 1}, 1: {1: 1, 2: 1, 3: 1}}
+    lega = {100: {1: 1, 2: 1, 3: 1}}
+    result = reconcile(mirror, lega, me=-1, labels={}, names={})
+    assert len(result.teams) == 1 and result.teams[0].lega_team_id == 100
+    assert not result.clean
+    msg = next((a for a in result.ambiguous if "lega team 100" in a), None)
+    assert msg is not None, result.ambiguous
+    ids = re.findall(r"mirror teams (\d+) and (\d+)", msg)
+    assert ids and set(ids[0]) == {"0", "1"}
+
+
+def test_zero_overlap_pairs_are_never_matched_across_many_random_boards():
+    """The safety property finding 3's fix rests on: `_matching`'s per-team
+    dummy padding makes a zero-overlap pair structurally unchoosable by
+    `_hungarian`, not merely dispreferred -- `my_team` is pasted by hand
+    into league.yml, and a wrongly matched pair means the XI gets computed
+    over another manager's roster with nothing downstream to catch it.
+    Exercised over many random boards, mirror and lega sides of uneven size
+    included, where a plain full assignment would otherwise be forced to
+    use a zero-overlap pair to fill out a row or column."""
+    rng = random.Random(20260904)
+    for _ in range(200):
+        n_mirror, n_lega = rng.randint(1, 6), rng.randint(1, 6)
+        pool = list(range(1, 30))
+        mirror = {m: dict.fromkeys(rng.sample(pool, rng.randint(0, 5)), 1) for m in range(n_mirror)}
+        lega = {100 + l: dict.fromkeys(rng.sample(pool, rng.randint(0, 5)), 1) for l in range(n_lega)}
+        result = reconcile(mirror, lega, me=-1, labels={}, names={})
+        for t in result.teams:
+            assert t.overlap > 0, (mirror, lega, t)

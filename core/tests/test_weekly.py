@@ -76,19 +76,21 @@ def test_write_refuses_after_the_first_kickoff_unless_late_and_marks_the_row(db,
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
     rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
     r = target_round(db, NOW, season_id=21)
-    first = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    first, first_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    assert first_late is False
     after = datetime(2026, 9, 4, 19, 0, tzinfo=UTC)
     with pytest.raises(LateForecast, match="--late"):
         write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=False)
-    second = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=True)
-    assert second != first
+    second, second_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=True)
+    assert second != first and second_late is True
     assert db.execute("SELECT late, deadline FROM lineup_runs ORDER BY lineup_run_id").fetchall() == \
         [(False, datetime(2026, 9, 4, 18, 45)), (True, datetime(2026, 9, 4, 18, 45))]  # noqa: DTZ001 -- naive UTC, as stored
     assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(first,)]
     assert db.execute("SELECT p_start_published, p_start, expected_points, source FROM predictions WHERE lineup_run_id = ?",
                       [first]).fetchone() == (90, pytest.approx(0.9), pytest.approx(0.9 * 8.1), "published")
     # --late before the deadline is not late: the flag permits, the clock decides
-    third = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
+    third, third_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
+    assert third_late is False
     assert db.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [third]).fetchone() == (False,)
     assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(third,)]
 
@@ -99,8 +101,8 @@ def test_a_second_run_before_the_deadline_is_a_second_row_and_nothing_is_touched
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
     rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
     r = target_round(db, NOW, season_id=21)
-    a = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
-    b = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW + timedelta(hours=1), late=False)
+    a, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    b, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW + timedelta(hours=1), late=False)
     assert db.execute("SELECT count(*) FROM lineup_runs").fetchone()[0] == 2
     assert db.execute("SELECT count(*) FROM predictions").fetchone()[0] == 2
     assert db.execute("SELECT written_at FROM lineup_runs WHERE lineup_run_id = ?", [a]).fetchone()[0] == \
@@ -120,8 +122,8 @@ def test_records_are_exported_once_by_giornata_and_write_time(db, tmp_path):
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
     rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
-    lineup_run_id = write_lineup_run(db, round_=target_round(db, NOW, season_id=21), run_id=run_id, model_hash="m3",
-                                     probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    lineup_run_id, _ = write_lineup_run(db, round_=target_round(db, NOW, season_id=21), run_id=run_id, model_hash="m3",
+                                        probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     written = export_lineup_records(db, lineup_run_id, tmp_path / "records")
     assert [p.relative_to(tmp_path / "records").as_posix() for p in written] == \
         [f"lineup_runs/21-03-20260904T120000Z-{lineup_run_id}.parquet",
@@ -140,8 +142,8 @@ def test_two_runs_in_the_same_second_each_get_their_own_permanent_record(db, tmp
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
     rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
     round_ = target_round(db, NOW, season_id=21)
-    a = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
-    b = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    a, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    b, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     assert a != b
     assert db.execute("SELECT written_at FROM lineup_runs WHERE lineup_run_id IN (?, ?)", [a, b]).fetchall() == \
         [(datetime(2026, 9, 4, 12, 0),), (datetime(2026, 9, 4, 12, 0),)]  # noqa: DTZ001 -- naive UTC, as stored -- same second
@@ -215,6 +217,30 @@ def test_the_platforms_matchday_is_a_cross_check_on_the_calendar(db):
     assert "matchday 4" in matchday_cross_check(db, r)                           # the platform moved on
 
 
+def test_a_stale_matchday_read_is_silent_but_a_current_disagreement_still_warns(db):
+    """`ingest rosters` runs "when the rosters changed, never to check", so
+    the freshest snapshot can sit for weeks after its own giornata passed --
+    matchday 3, fetched the day after the auction, must not be compared
+    against giornata 4's calendar a week later and beyond (review finding 4,
+    2026-09-04). A snapshot fetched close to the round being checked, even
+    if it disagrees, must still warn -- the gate is about the READ's age,
+    not about disagreement being tolerated."""
+    from fantaclaude.timeutil import to_db
+
+    seed_fixtures(db, 21, {3: G3, 4: G4})
+    r3 = target_round(db, NOW, season_id=21, giornata=3)
+    r4 = target_round(db, NOW, season_id=21, giornata=4)
+    snap = seed_rosters(db, 1, 21, {10: ("Mine", {})}, matchday=3)
+    db.execute("UPDATE roster_snapshots SET matchday_start = ?, fetched_at = ? WHERE snapshot_id = ?",
+              [to_db(G3[0]), to_db(datetime(2026, 9, 4, 13, 46, tzinfo=UTC)), snap])
+    assert matchday_cross_check(db, r3) is None                                  # still within its own round's window
+    assert matchday_cross_check(db, r4) is None                                  # a week stale for giornata 4: silent
+    fresh = seed_rosters(db, 1, 21, {10: ("Mine", {})}, matchday=3)
+    db.execute("UPDATE roster_snapshots SET fetched_at = ? WHERE snapshot_id = ?",
+              [to_db(G4[0] - timedelta(days=1)), fresh])
+    assert "matchday 3" in matchday_cross_check(db, r4)                          # recent AND disagreeing: still warns
+
+
 def _seed_fixtures_with_shorts(con, season_id, giornata, matches):
     """`matches`: (home_short, away_short, kickoff aware UTC). Unlike
     `seed_fixtures`, this fills `home_short`/`away_short` -- the listone
@@ -271,7 +297,7 @@ def test_compilation_staleness_warns_per_match_against_its_own_kickoff(db):
         (4, "MIL", datetime(2026, 9, 7, 10, 0, tzinfo=UTC)),
         (5, None, datetime(2026, 9, 1, 0, 0, tzinfo=UTC)),            # no listone club: not checked, not a crash
     ])
-    warnings = compilation_staleness(db, 21, 3, file_id)
+    warnings = compilation_staleness(db, 3, file_id)
     assert len(warnings) == 1
     assert "INT-ROM" in warnings[0] and "4 day" in warnings[0] and "stale" in warnings[0]
     assert "JUV" not in warnings[0] and "MIL" not in warnings[0]
@@ -280,11 +306,11 @@ def test_compilation_staleness_warns_per_match_against_its_own_kickoff(db):
 def test_compilation_staleness_is_silent_with_nothing_to_join_or_nothing_stale(db):
     # no fixtures at all for this giornata: the join finds nothing, no crash
     file_id = _seed_probabili_with_team(db, 21, 4, [(1, "INT", datetime(2026, 9, 2, 10, 0, tzinfo=UTC))])
-    assert compilation_staleness(db, 21, 4, file_id) == []
+    assert compilation_staleness(db, 4, file_id) == []
     # a fixture exists but compiled well within a day of its own kickoff: not stale
     _seed_fixtures_with_shorts(db, 21, 5, [("INT", "ROM", datetime(2026, 9, 13, 15, 0, tzinfo=UTC))])
     fresh = _seed_probabili_with_team(db, 21, 5, [(1, "INT", datetime(2026, 9, 13, 9, 0, tzinfo=UTC))])
-    assert compilation_staleness(db, 21, 5, fresh) == []
+    assert compilation_staleness(db, 5, fresh) == []
 
 
 def test_lineup_surfaces_the_staleness_warning(db, tmp_path):

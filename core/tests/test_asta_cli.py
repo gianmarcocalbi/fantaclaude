@@ -836,3 +836,95 @@ def test_market_prices_unpriced_and_snapshot_id_are_scoped_to_the_runs_own_seaso
     assert payload["snapshot_id"] == this_season
     assert payload["snapshot_id"] != other_season
     assert payload["unpriced"] == {"players": 1, "paid": 20}
+
+
+def test_market_prices_classes_and_overall_are_scoped_to_one_league_not_two(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`v_rosters_first` groups by (league_id, season_id), not season alone
+    -- with two leagues sharing one season it yields two "first" snapshots,
+    each correctly tagged with its own `league_id`. `market_prices` already
+    pins `snapshot_id`/`unpriced` to the single earliest one across both
+    (`first`), but `classes`/`overall` read `v_market_prices` scoped only by
+    `run_id`/`scenario`, so a second league's roster in the same season was
+    silently summed in beside it -- a header naming one snapshot next to
+    totals describing two (review finding 5, 2026-09-04). league 9999999's
+    roster here must not move `overall` or `classes` at all."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: (cls, exp) for pid, cls, exp in con.execute(
+        "SELECT player_id, role_class, expected_price FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pids = sorted(prices)
+    # this league's first snapshot (lower snapshot_id, inserted first): the
+    # one the report is about.
+    this_league = seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[1]: 50})})
+    # a different league, the SAME season: must not be counted anywhere in
+    # `classes`/`overall`, and its snapshot must not be the one reported.
+    other_league = seed_rosters(con, 9999999, 21, {1: ("X", {pids[2]: 999})})
+    con.close()
+
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["snapshot_id"] == this_league and payload["snapshot_id"] != other_league
+    expected = sum(prices[p][1] for p in pids[:2])
+    assert payload["overall"]["players"] == 2 and payload["overall"]["paid"] == 150
+    assert payload["overall"]["expected"] == expected
+    assert payload["unpriced"] == {"players": 0, "paid": 0}
+    assert sum(c["players"] for c in payload["classes"]) == 2
+
+
+def test_newest_closing_state_sorts_by_the_parsed_stamp_not_the_filename(tmp_path):
+    """Filenames are `<session_code>-<UTC stamp>.json` (`copy_to_records`) --
+    sorting the FULL FILENAME lexicographically sorts by the session code
+    first and the stamp only as a tie-break within one code. A next
+    season's differently-prefixed session ("AB-xyz-...") can then lexically
+    precede an earlier one ("FA-rb8-..."), so `sorted(...)[-1]` picked the
+    older FA-rb8 file, not the actually newer AB-xyz one (review finding 6,
+    2026-09-04)."""
+    from fantaclaude.commands.asta import _newest_closing_state
+
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    older = asta_dir / "FA-rb8-460-20260903T232031Z.json"
+    newer = asta_dir / "AB-xyz-20270901T090000Z.json"
+    older.write_text("{}", encoding="utf-8")
+    newer.write_text("{}", encoding="utf-8")
+    assert max(older, newer) == older                     # the lexicographic trap the fix avoids
+    assert _newest_closing_state(tmp_path / "records") == newer
+    # a `-bids.json` sidecar, even one with a later stamp, is never picked
+    (asta_dir / "AB-xyz-bids.json").write_text("{}", encoding="utf-8")
+    (asta_dir / "ZZ-latest-99999999T000000Z-bids.json").write_text("{}", encoding="utf-8")
+    assert _newest_closing_state(tmp_path / "records") == newer
+
+
+def test_newest_closing_state_falls_back_to_mtime_when_the_name_does_not_parse(tmp_path):
+    """A name with no `<stamp>.json` suffix at all still has to sort
+    somewhere -- the file's own mtime, not a crash and not an arbitrary
+    place in a lexicographic sort."""
+    from fantaclaude.commands.asta import _newest_closing_state
+
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    old_but_parses = asta_dir / "FA-x-20200101T000000Z.json"
+    old_but_parses.write_text("{}", encoding="utf-8")
+    unparseable = asta_dir / "not-a-stamped-name.json"
+    unparseable.write_text("{}", encoding="utf-8")         # written just now: newer by mtime
+    assert _newest_closing_state(tmp_path / "records") == unparseable
+
+
+def test_market_prices_maps_an_unreadable_closing_state_to_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`records/asta/` is committed and permanent; after the next
+    STATE_VERSION bump an old record there becomes unreadable. `_stored` and
+    `close_auction` both wrap `read_state`'s `StateFileError` as `NotReady`
+    (exit 3) -- `market_prices` did not, so the same file would escape
+    `_asta_errors` as a traceback with exit 1 instead (review finding 8,
+    2026-09-04). Simulated here with a `version` the current `read_state`
+    does not recognise, standing in for the future bump."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    (asta_dir / "FA-test-20260903T232031Z.json").write_text(
+        json.dumps({"version": 999}), encoding="utf-8")
+    result = runner.invoke(app, ["asta", "market-prices"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    assert "FA-test" in result.stderr and "version" in result.stderr

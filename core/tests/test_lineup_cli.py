@@ -191,6 +191,37 @@ def test_render_lineup_surfaces_compilation_state_and_shortfall_near_the_header(
     assert "predictions: 479/479 page player(s) priced by the run" in clean and "not priced" not in clean
 
 
+def test_render_lineup_uncompiled_line_does_not_depend_on_the_wording_in_warnings():
+    """`_render_lineup` used to locate the UNCOMPILED line by
+    substring-matching a fragment of the sentence `weekly.uncompiled_
+    match_warning` builds, hardcoded a second time here -- reword that
+    sentence and the match silently stops firing: the line vanishes from
+    its near-header position while the same information reappears,
+    undeduplicated, at the bottom (review finding 10, 2026-09-04). Built
+    instead from `page['uncompiled']`/`page['fetched_at']` alone, it must
+    still appear correctly even when `warnings` carries a completely
+    different sentence for it -- exactly what a reword, with the renderer
+    not yet updated, would look like."""
+    payload = {
+        "round": {"giornata": 3, "first_kickoff": "2026-09-06 18:45"},
+        "run_id": "run123",
+        "page": {"fetched_at": "2026-09-04 13:46", "players": 479, "matches": 8, "uncompiled": 2},
+        "late": False,
+        "top": {},
+        "xi": None,
+        "no_xi_reason": "league.yml has no my_team leaf (asta verify-transfer prints it)",
+        "lineup_run_id": 42,
+        "predictions": 473,
+        "records": [],
+        "warnings": ["2 matches for giornata 3 are still awaiting team news as of 2026-09-04 13:46"],
+    }
+    lines = _render_lineup(payload).splitlines()
+    uncompiled_line = next(ln for ln in lines if ln.startswith("UNCOMPILED:"))
+    assert "2" in uncompiled_line and "giornata 3" in uncompiled_line and "2026-09-04 13:46" in uncompiled_line
+    xi_idx = next(i for i, ln in enumerate(lines) if ln.startswith("XI:"))
+    assert lines.index(uncompiled_line) < xi_idx                          # still near the header, not lost at the bottom
+
+
 def test_lineup_with_my_team_but_no_roster_still_writes_the_forecast(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
