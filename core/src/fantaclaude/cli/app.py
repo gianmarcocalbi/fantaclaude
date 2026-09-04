@@ -76,6 +76,7 @@ def _render_sync(payload: dict) -> str:
                          f"-- re-run `fantaclaude rank`")
     else:
         lines.append(f"unchanged (snapshot {payload['snapshot_id']})")
+    lines += [f"warning: {w}" for w in payload.get("warnings", [])]
     return "\n".join(lines)
 
 
@@ -888,13 +889,31 @@ def _render_board(payload: dict) -> str:
               f"{s['outfield'][0]}-{s['outfield'][1]} · roster {s['size'][0]}-{s['size'][1]} · {s['team_count']} teams "
               f"({s['source']}) · scenario {payload['scenario']}")]
     lines += [f"SESSION != LEAGUE: {c}" for c in payload["league_conflicts"]]
+    classic = "/".join(f"{role}{me['classic'].get(role, 0)}" for role in ("P", "D", "C", "A")) if me.get("classic") else ""
     lines.append(f"me: {me['label']} (team {me['team_id']}) · {me['credits']} credits · {len(me['picks'])} picks "
-                 f"(gk {me['goalkeepers']}, mov {me['outfield']}) · still needed: gk {me['missing_goalkeepers']}, "
-                 f"mov {me['missing_outfield']} · market {payload['market_credits']} credits")
+                 f"(gk {me['goalkeepers']}, mov {me['outfield']}{' · ' + classic if classic else ''}) · still needed: "
+                 f"gk {me['missing_goalkeepers']}, mov {me['missing_outfield']} · open slots {me['open_slots']} · "
+                 f"market {payload['market_credits']} credits")
     comp = ", ".join(f"{cls} {n}·{payload['credits_by_class'].get(cls, 0)}" for cls, n in payload["composition"].items() if n)
     departed = f" · departed from the target at {', '.join(payload['targets_departed'])}" if payload["targets_departed"] else ""
     lines.append(f"board: inflation {payload['inflation']:.2f} · reserve {payload['reserve']} · budget {payload['budget']} "
                  f"· completion {comp}{departed}")
+    # Per class, the ranks my squad covers over the ranks the pricer still has
+    # open for it: "Por 3/3" is full, "Dc 2/5" has three to buy, "W 0/0" has
+    # no rank left at all -- which is what a band of 0 means there.
+    room = payload.get("room_by_class") or {}
+    if room:
+        occupancy = payload.get("occupancy") or {}
+        lines.append("room: " + " · ".join(f"{cls} {occupancy.get(cls, 0)}/{occupancy.get(cls, 0) + n}"
+                                          for cls, n in room.items()))
+    block = payload.get("block")
+    if block:
+        lines.append(f"block: {block['classic_role']} · classes {', '.join(block['classes'])}")
+    pins = payload.get("pins") or {}
+    if pins:
+        named = payload["prices"]
+        lines.append("re-pinned: " + ", ".join(f"{named[pid]['name']} -> {cls}" for pid, cls in list(pins.items())[:12])
+                     + (f" (+{len(pins) - 12} more)" if len(pins) > 12 else ""))
     lines.append(_render_lot(payload))
     for cls, rows in payload["tiers"].items():
         lines.append(f"  {cls}: " + " · ".join(

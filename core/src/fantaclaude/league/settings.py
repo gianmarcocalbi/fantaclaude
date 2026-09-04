@@ -38,6 +38,10 @@ class LeagueSnapshot:
     substitutions: int | None
     rules_hash: str
     payload: dict[str, Any]
+    # What the fetch noticed and could not settle -- a team list whose pages
+    # do not add up to the division's own count. Never hashed: it is about
+    # the fetch, not the rules.
+    warnings: tuple[str, ...] = ()
 
 
 def canonical_json(value: Any) -> str:

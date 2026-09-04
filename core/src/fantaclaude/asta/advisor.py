@@ -27,12 +27,12 @@ function, the same inputs, read back from the run's rows.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-from fantaclaude.analysis.ordering import rank_key
 from fantaclaude.asta.adjustments import EMPTY_LAYER, AdjustmentLayer, apply_layer
-from fantaclaude.asta.pinned import PinnedRun
+from fantaclaude.asta.pinned import PinnedPlayer, PinnedRun
 from fantaclaude.asta.pricing import (
     NEG,
     Band,
@@ -40,12 +40,14 @@ from fantaclaude.asta.pricing import (
     OwnedPlayer,
     PlayerPrice,
     PoolState,
+    occupancy,
     price_board,
 )
 from fantaclaude.asta.session import SessionSettings, compare
 from fantaclaude.asta.state import AuctionState, Pick
 from fantaclaude.kb.participants import Participant
-from fantaclaude.model.demand import ROLE_CLASSES
+from fantaclaude.model.demand import ROLE_CLASSES, pin_class, remaining_weights
+from fantaclaude.model.roles import Role
 from fantaclaude.values import json_safe
 
 
@@ -72,6 +74,10 @@ class Ledger:
     goalkeepers: int
     outfield: int
     unknown: int                 # picks the run cannot name: credits counted, roles not
+    # Picks by classic role (P, D, C, A): not a bound Mantra enforces, but the
+    # blocks the room calls the auction in, so a ledger says where each team
+    # stands in them. A pick the run cannot name is counted in none.
+    classic: dict[str, int] = field(default_factory=dict)
 
     @property
     def credits(self) -> int:
@@ -129,7 +135,7 @@ class Ledger:
         return {"team_id": self.team_id, "label": self.label, "nick": self.nick, "budget": self.budget, "spent": self.spent,
                 "credits": self.credits, "picks": [p.player_id for p in self.picks], "goalkeepers": self.goalkeepers,
                 "outfield": self.outfield, "unknown": self.unknown, "missing_goalkeepers": gk, "missing_outfield": mov,
-                "open_slots": self.open_slots(settings)}
+                "open_slots": self.open_slots(settings), "classic": dict(self.classic)}
 
 
 @dataclass(frozen=True)
@@ -143,11 +149,15 @@ class Lot:
     band: Band | None            # None when he is sold or excluded
     expected_price: int | None
     sold_to: int | None
+    # From the player, not the price: a sold or excluded lot has no band and no
+    # expected price, but the listone's value for him is a fact either way.
+    fvm: int = 0
+    apps: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {"player_id": self.player_id, "name": self.name, "team_short": self.team_short, "role_class": self.role_class,
                 "roles": list(self.roles), "tier": self.tier, "band": None if self.band is None else self.band.to_dict(),
-                "expected_price": self.expected_price, "sold_to": self.sold_to}
+                "expected_price": self.expected_price, "sold_to": self.sold_to, "fvm": self.fvm, "apps": self.apps}
 
 
 @dataclass(frozen=True)
@@ -168,6 +178,23 @@ class Board:
     players: dict[int, Any] = field(default_factory=dict)          # the run's PinnedPlayers, for the renderings
     club_names: dict[str, str] = field(default_factory=dict)       # team_short -> club name, for the dossiers
     pressure: dict[int, Any] = field(default_factory=dict)         # player_id -> pressure.Pressure (Task 8)
+    # The league's formations. They come from the league's own settings, never
+    # from the session feed, which does not carry them -- but they are what the
+    # demand weights were built from, so the board shows the two together.
+    league_modules: tuple[str, ...] = ()
+    # modules.yml's per-module demand, as the run priced against it: how many
+    # of each class a formation puts on the pitch. `role_demand` is this
+    # aggregated across the league's modules; this is the breakdown.
+    module_demand: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Unsold players priced under a class other than the run's pin -- the
+    # role my roster still has ranks open for (build_pool_state). Empty at
+    # minute zero, by construction.
+    pins: dict[int, str] = field(default_factory=dict)
+    # The classic-role block the room is calling (P, D, C or A), read off
+    # the lot on the block, else the latest pick, with the classes its unsold
+    # players are priced under, most populous first. None before the first
+    # lot. The tier board leads with these classes.
+    block: dict[str, Any] | None = None
 
     @property
     def me(self) -> Ledger:
@@ -180,21 +207,45 @@ class Board:
     def price_of(self, player_id: int) -> PlayerPrice | None:
         return self.pricing.prices.get(player_id)
 
+    def value_of(self, player_id: int) -> float:
+        """What the player is worth to this board: the run's value under the
+        adjustment layer, which is what the pricer saw."""
+        return self.players[player_id].value_p50 * self.layer.factor(player_id)
+
     def tiers(self, n: int = 5) -> dict[str, list[dict[str, Any]]]:
-        """The printed tier board: per class, the unsold top n by max price."""
+        """The printed tier board: per class as priced (the re-pinned class,
+        not the run's), the unsold top n by max price then by adjusted
+        value. The block's classes lead, then ROLE_CLASSES order."""
+        grouped: dict[str, list[PinnedPlayer]] = {}
+        for pid, price in self.pricing.prices.items():
+            grouped.setdefault(price.role_class, []).append(self.players[pid])
+        first = list(self.block["classes"]) if self.block else []
         out: dict[str, list[dict[str, Any]]] = {}
-        for cls in ROLE_CLASSES:
-            rows = [self.players[pid] for pid in self.pricing.prices if self.players[pid].role_class == cls]
-            rows.sort(key=lambda p: (-self.pricing.prices[p.player_id].band.p50, *rank_key(p)))
+        for cls in [*first, *(c for c in ROLE_CLASSES if c not in first)]:
+            rows = grouped.get(cls)
             if rows:
+                rows.sort(key=lambda p: (-self.pricing.prices[p.player_id].band.p50, -self.value_of(p.player_id), p.player_id))
                 out[cls] = [self._row(p) for p in rows[:n]]
         return out
 
+    def my_coverage(self) -> dict[str, int]:
+        """Per class, how many of my players hold that role at all."""
+        out: dict[str, int] = {cls: 0 for cls in self.pool_state.weights}
+        for pick in self.me.picks:
+            player = self.players.get(pick.player_id)
+            for role in (getattr(player, "roles", ()) if player else ()):
+                if role in out:
+                    out[role] += 1
+        return out
+
     def _row(self, p: Any) -> dict[str, Any]:
+        # The class is the one he was priced under and the value is the one the
+        # pricer saw: a row mixing an adjusted band with the run's raw value
+        # sorted a halved man among the band-0 rows by his old worth (2026-09-03).
         price = self.pricing.prices[p.player_id]
-        row = {"player_id": p.player_id, "name": p.name, "team_short": p.team_short, "role_class": p.role_class,
+        row = {"player_id": p.player_id, "name": p.name, "team_short": p.team_short, "role_class": price.role_class,
                "roles": list(p.roles), "tier": p.tier, "band": price.band.to_dict(), "expected_price": price.expected_price,
-               "value_p50": p.value_p50}
+               "value_p50": self.value_of(p.player_id), "fvm": p.fvm, "apps": p.apps}
         if p.player_id in self.pressure:
             row["pressure"] = self.pressure[p.player_id].to_dict()
         return row
@@ -206,8 +257,26 @@ class Board:
             "status": self.state.status, "locked": self.state.locked, "picks": len(self.state.picks),
             "me": self.me.to_dict(self.settings),
             "teams": [ledger.to_dict(self.settings) for _, ledger in sorted(self.ledgers.items())],
+            "modules": list(self.league_modules),
+            "module_demand": {m: dict(by) for m, by in self.module_demand.items()},
+            # My squad with its role *sets* -- what a lineup draws from. The
+            # price rows only carry the unsold, and a ledger only carries ids.
+            "my_squad": [{"player_id": p.player_id, "name": p.name, "team_short": p.team_short,
+                          "roles": list(p.roles), "role_class": p.role_class}
+                         for p in (self.players.get(k.player_id) for k in self.me.picks) if p is not None],
+            # What the league's formations ask of each class, rank by rank (the
+            # k-th player of a class starts in this share of them), and how many
+            # players I own who can *field* in it -- by role set, not by the one
+            # class the pricer pinned them to. The two together are the question
+            # "do I still need one of these?", which the composition alone
+            # cannot answer for a multi-role squad.
+            "role_demand": {cls: list(w) for cls, w in self.pool_state.weights.items()},
+            "my_coverage": self.my_coverage(),
             "market_credits": self.market_credits, "inflation": self.pricing.inflation,
             "composition": self.pricing.composition, "credits_by_class": self.pricing.credits_by_class,
+            "room_by_class": self.pricing.room_by_class, "occupancy": self.pricing.occupancy,
+            "pins": {str(pid): cls for pid, cls in sorted(self.pins.items())}, "block": self.block,
+            "player_list_hash": self.state.player_list_hash,
             "reserve": self.pricing.reserve, "budget": self.pricing.budget, "slot_price": self.pricing.slot_price,
             "targets_departed": list(self.pricing.targets_departed), "completion_value": self.pricing.completion_value,
             "selected": self.selected, "lot": None if self.lot is None else self.lot.to_dict(),
@@ -239,6 +308,7 @@ def build_ledgers(state: AuctionState, settings: SessionSettings, run: PinnedRun
     for team_id in sorted(ids):
         picks = state.picks_of(team_id)
         gk = mov = unknown = 0
+        classic: dict[str, int] = {}
         for pick in picks:
             player = run.players.get(pick.player_id)
             if player is None:
@@ -246,7 +316,9 @@ def build_ledgers(state: AuctionState, settings: SessionSettings, run: PinnedRun
                 problems.append(f"{labels.get(team_id, f'team {team_id}')} bought player {pick.player_id} for {pick.cost}, "
                                 f"which run {run.run_id} does not have: his credits count, his roles do not -- "
                                 f"check the listone the run was priced on")
-            elif player.is_goalkeeper:
+                continue
+            classic[player.classic_role] = classic.get(player.classic_role, 0) + 1
+            if player.is_goalkeeper:
                 gk += 1
             else:
                 mov += 1
@@ -254,7 +326,7 @@ def build_ledgers(state: AuctionState, settings: SessionSettings, run: PinnedRun
         if spent > settings.budget:
             problems.append(f"{labels.get(team_id, f'team {team_id}')} spent {spent} of {settings.budget} credits")
         ledgers[team_id] = Ledger(team_id, labels.get(team_id, f"team {team_id}"), mapping.nicks.get(team_id),
-                                  settings.budget, spent, picks, gk, mov, unknown)
+                                  settings.budget, spent, picks, gk, mov, unknown, classic)
     for player_id in state.duplicates:
         named = run.players.get(player_id)
         owner = state.picks[player_id]
@@ -276,19 +348,52 @@ def build_pool_state(state: AuctionState, settings: SessionSettings, run: Pinned
     completion at all."""
     scenario = run.scenario(scenario_name)
     sold = set(state.picks)
-    pool = apply_layer(tuple(p.pool_player() for pid, p in sorted(run.players.items()) if pid not in sold), layer)
     me = ledgers[mine]
     owned = tuple(OwnedPlayer(p.player_id, run.players[p.player_id].role_class,
-                              run.players[p.player_id].value_p50 * layer.factor(p.player_id))
+                              run.players[p.player_id].value_p50 * layer.factor(p.player_id),
+                              tuple(run.players[p.player_id].roles))
                   for p in me.picks if p.player_id in run.players)
     targets = {**scenario.target_composition, **layer.targets}
     class_min = {"Por": settings.goalkeepers[0]}
+    weights = run.weights(targets, class_min)
+    pins = repin(run, owned, weights)
+    pool = apply_layer(tuple(replace(p.pool_player(), role_class=pins[pid])
+                             for pid, p in sorted(run.players.items()) if pid not in sold), layer)
     return PoolState(credits=max(0, me.credits), market_credits=sum(max(0, ledger.credits) for ledger in ledgers.values()),
-                     pool=pool, weights=run.weights(targets, class_min), hard_minimums=run.hard_minimums, owned=owned,
+                     pool=pool, weights=weights, hard_minimums=run.hard_minimums, owned=owned,
                      excluded=frozenset(pid for pid in layer.excluded if pid not in sold),
                      roster_min=settings.size[0], roster_max=settings.size[1], class_min=class_min,
                      class_max={"Por": settings.goalkeepers[1]}, targets=targets,
                      class_budget_share=scenario.max_budget_share_per_role)
+
+
+def repin(run: PinnedRun, owned: tuple[OwnedPlayer, ...], weights: dict[str, tuple[float, ...]]) -> dict[int, str]:
+    """Every run player's class for this board: pin_class over the ranks my
+    roster leaves open, under the run's own league-wide weights (no target,
+    no floor -- the weights the run pinned with), so an empty roster pins
+    exactly as the run did and a covered class hands its multi-role men to
+    the roles the completion still pays for. Occupancy is the same
+    assignment the pricer counts (pricing.occupancy), over the board's
+    weights."""
+    open_ranks = remaining_weights(run.weights({}, {}), occupancy(owned, weights))
+    return {pid: pin_class(frozenset(Role(r) for r in p.roles), open_ranks) for pid, p in run.players.items()}
+
+
+def call_block(state: AuctionState, run: PinnedRun, prices: dict[int, PlayerPrice]) -> dict[str, Any] | None:
+    """The classic-role block the room is in: the lot on the block's role,
+    else the latest pick's (the highest index -- A RILANCI numbers them),
+    with the classes its unsold players are priced under, most populous
+    first. None until a lot has been called, or when the run cannot name
+    the player it would read the block off."""
+    pid = state.selected
+    if pid is None and state.picks:
+        pid = max(state.picks.values(), key=lambda p: (p.index, p.timestamp or 0)).player_id
+    player = run.players.get(pid) if pid is not None else None
+    if player is None:
+        return None
+    counts = Counter(price.role_class for q, price in prices.items() if run.players[q].classic_role == player.classic_role)
+    classes = [cls for cls, _ in sorted(counts.items(), key=lambda kv: (-kv[1], ROLE_CLASSES.index(kv[0])))]
+    return {"classic_role": player.classic_role, "classes": classes}
 
 
 def derive(state: AuctionState, *, run: PinnedRun, settings: SessionSettings, layer: AdjustmentLayer = EMPTY_LAYER,
@@ -313,13 +418,19 @@ def derive(state: AuctionState, *, run: PinnedRun, settings: SessionSettings, la
             pick = state.picks.get(state.selected)
             lot = Lot(player.player_id, player.name, player.team_short, player.role_class, player.roles, player.tier,
                       None if price is None else price.band, None if price is None else price.expected_price,
-                      None if pick is None else pick.team_id)
+                      None if pick is None else pick.team_id, player.fvm, player.apps)
     problems.extend(layer.problems)
     conflicts = tuple(compare(settings, run.league)) if settings.source == "session" else ()
     if run.superseded:
         problems.append(f"run {run.run_id} is superseded by a rules change; it was pinned by id")
+    # only the priced: an excluded man is re-pinned like any other but has no row to name him by
+    pins = {p.player_id: p.role_class for p in pool_state.pool
+            if p.player_id in pricing.prices and p.role_class != run.players[p.player_id].role_class}
     board = Board(run.run_id, scenario_obj.name, state, settings, conflicts, ledgers, mapping.mine, pool_state, pricing,
-                  state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names)
+                  state.selected, lot, layer, tuple(problems), players=run.players, club_names=run.club_names,
+                  league_modules=tuple(getattr(run.league, "modules", ()) or ()),
+                  module_demand={m: dict(by) for m, by in (run.demand or {}).items()},
+                  pins=pins, block=call_block(state, run, pricing.prices))
     if participants is not None:
         # advisor -> pressure -> advisor (pressure.py imports Board and Ledger from
         # here), so the import has to live inside the function, not at module scope.

@@ -80,7 +80,9 @@ from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
 from fantaclaude.values import is_number, json_safe
 
-MODEL_VERSION = "1"
+# "2" since 2026-09-04: the appearance rate carries a prior and its estimation
+# variance (projection.py). A run under "1" is a different model, not a tweak.
+MODEL_VERSION = "2"
 RISK_APPETITES = ("cautious", "balanced", "aggressive")
 QUANTILE_OF = {"cautious": "p25", "balanced": "p50", "aggressive": "p75"}
 

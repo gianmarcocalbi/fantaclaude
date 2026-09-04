@@ -37,7 +37,11 @@ class ClassicRole(StrEnum):
 
 MANTRA_CODES: dict[int, Role] = {
     6: Role.Por, 7: Role.Dd, 8: Role.Ds, 9: Role.Dc, 10: Role.E, 11: Role.M,
-    12: Role.C, 13: Role.W, 14: Role.T, 15: Role.A, 16: Role.Pc, 19: Role.B,
+    # 13 is the trequartista and 14 the ala, not the other way round: confirmed
+    # against the downloaded listone (Vlasic 5687 and Da Cunha both carry 13 and
+    # are T on fantacalcio.it) and against code 14's population, which is wingers
+    # -- Boga, Chukwueze, Conceicao, Cancellieri, Almqvist, Aboukhlal.
+    12: Role.C, 13: Role.T, 14: Role.W, 15: Role.A, 16: Role.Pc, 19: Role.B,
 }
 CLASSIC_CODES: dict[int, ClassicRole] = {
     1: ClassicRole.P, 2: ClassicRole.D, 3: ClassicRole.C, 4: ClassicRole.A,

@@ -42,9 +42,16 @@ to pin another; `--scenario` to price under another of its scenarios) against
 `data/asta-state.json` when one exists, else an empty auction under the run's
 league settings. Read: the `session:` line and any `SESSION != LEAGUE` line
 (the session wins for the night; a mismatch is announced, never absorbed);
-`me:` credits, picks, what is still needed; `board:` inflation, reserve, the
-completion it would buy; `lot:` the player on the block with his band and the
-pressure against him; the tier board per class; every `problem:`.
+`me:` credits, picks (with the classic P/D/C/A split), what is still needed,
+open slots; `board:` inflation, reserve, the completion it would buy; `room:`
+per class, the ranks my squad covers over the ranks the pricer still has open
+(`Por 2/2` is full, `W 0/0` has no rank at all — which is what a band of 0
+means there); `block:` the classic-role block the room is calling, read off
+the lot or the latest pick, and its classes, which lead the tier board;
+`re-pinned:` the unsold players priced under another of their roles because
+my roster covers the class the run pinned them to; `lot:` the player on the
+block with his band and the pressure against him; the tier board per class
+as priced; every `problem:`.
 
 With no state file there is no session, so nothing has a label yet: `--me` and
 `--map`'s key are team *numbers* there (`--me 3 --map 0=Marco`). Once a state
@@ -93,8 +100,8 @@ live mirror, the dashboard on http://127.0.0.1:8765, and the
 `fantaclaude-asta` MCP at `/mcp/` (the trailing slash is load-bearing).
 `--replay <capture> --speed N` rehearses it; `--state <file>` reviews a
 finished auction. The address is fixed: there is no `--host`/`--port`. While it runs, prefer the MCP
-tools (`asta_board`, `asta_explain`, `asta_adjust`, `asta_refresh`,
-`asta_query`) over the CLI: they read the same in-memory board the
+tools (`asta_status`, `asta_board`, `asta_explain`, `asta_adjust`,
+`asta_refresh`, `asta_query`) over the CLI: they read the same in-memory board the
 dashboard shows. `asta adjust` from the CLI proxies to the server by
 itself; a hand edit of `data/adjustments.yml` needs `asta refresh` (or the
 dashboard's refresh button) to land.

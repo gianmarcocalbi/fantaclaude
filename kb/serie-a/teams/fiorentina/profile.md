@@ -1,18 +1,15 @@
 ---
-updated: 2026-08-29
+updated: 2026-09-04
 ttl: 14d
-confidence: medium
-source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it (2026-08-29); coach, squad and appearances from the listone and the voti workbook"
+confidence: low
+source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it (2026-08-29); listone snapshot 3 (2026-09-02) for the post-window squad; Kean's move to Como confirmed by the account holder (2026-09-04)"
 team: Fiorentina
 team_short: FIO
 coach: Grosso
 module: 4-3-2-1
 europe: none
 rotation_factor: 0.95
-takers:
-  penalties: Gudmundsson A.
-  corners: Gudmundsson A.
-  free_kicks: Gudmundsson A.
+takers: {}          # unknown post-window; see "Set pieces"
 ---
 
 # Fiorentina — 2026-27
@@ -31,8 +28,12 @@ league: Dragusin is the one name every guide starts, with Pongracic, Ranieri,
 Valdepenas and Viery contesting beside him, Jimenez on one flank and Dodò and
 Joao Mario contesting the other. Midfield is Fagioli and Mandragora competing
 for the deep role with Ndour, Oulai, Brescianini and Atta around them.
-Mastantuono is the summer's marquee arrival and plays behind the striker, and
-Kean leads the line with Pellegrino as the alternative.
+Mastantuono is the summer's marquee arrival and plays behind the striker. The
+centre-forward is the club's open question: Kean started the opening round
+here and then left for Como — confirmed by the account holder, who bought him
+— and the shirt now falls to Beto or Pellegrino M. The listone prices the two
+identically, which is the market saying it does not know either. Neither is
+"the alternative" to the other until a source says so.
 
 The opening giornata was poor across the board, which tells you the shape is not
 yet working; it does not tell you which eleven Grosso believes in.
@@ -51,30 +52,36 @@ slots across defence and midfield. That is churn rather than turnover, but for
 a projection the effect is the same: individual minutes are less predictable
 than at a settled club.
 
-De Gea, Dragusin, Mastantuono and Kean are the four who should play whatever
-happens.
+De Gea, Dragusin and Mastantuono are the three who should play whatever
+happens. There is no fourth: the man who would have been it is at Como.
 
 ## Set pieces
 
-Gudmundsson is first on all three — penalties, corners and direct free kicks —
-in both set-piece sources, and the season-20 workbook shows him converting his
-penalties without a miss, which is the strongest corroboration available for
-any Fiorentina taker. Mastantuono, Mandragora and Fagioli are the alternative
-deliverers, and Kean and Mandragora are named behind Gudmundsson on penalties.
+**Unknown, deliberately, as of 2026-09-02.** The entire published hierarchy has
+left the club in the 2026 window: Gudmundsson to Lazio, Mandragora to Torino,
+Kean to Como -- confirmed against listone snapshot 3, not inferred. Every
+rigoristi list in circulation still names those three and is therefore stale for
+this club.
 
-The caveat is large and belongs here rather than in a footnote: Gudmundsson did
-not appear in the opening giornata. Everything in this section assumes he plays.
-
-```
-fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_player_match_current WHERE season_id = 20 AND sheet = 'Fantacalcio' AND team = 'Fiorentina' AND (pen_scored > 0 OR pen_missed > 0) GROUP BY 1"
-```
+The three `takers` fields are empty rather than guessed. A named taker applies a
+penalty uplift to that player, so a guess here would silently move his price and
+the prices around him on the strength of nothing; an empty field costs only the
+uplift, which is the conservative error. The remaining candidates by profile are
+Beto and Pellegrino M. up front, with Atta, Goncalves P. and Mastantuono as
+deliverers, but no source and no observation supports naming one.
 
 ## Watch
 
 - **Gudmundsson's availability.** He is the entire set-piece department on
-  paper and did not play the first round. If he is out, penalties most likely
-  go to Kean and free kicks to Mandragora — but no source says so, so that is
-  an inference, not a fact.
+  paper and did not play the first round. The earlier guess that penalties
+  would fall to Kean is void — he is at Como — and there is no obvious second
+  name now that the centre-forward's shirt is itself unsettled. `takers` stays
+  empty rather than carrying a guess; free kicks would most likely go to
+  Mandragora, but no source says so.
+- **Who leads the line.** Beto and Pellegrino M., same quotazione, one shirt,
+  and no source that separates them. Both are noted `contested`; the first
+  guide or team sheet that names a starter is worth more here than anywhere
+  else in this profile.
 - **The rebuilt defence.** Five names for two central slots, two for the right
   flank; the guides do not converge.
 - **Grosso's module.** Two guides say 4-3-2-1, one says 4-3-3, and neither is

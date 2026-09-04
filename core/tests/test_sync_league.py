@@ -117,3 +117,40 @@ def test_a_league_yml_conflict_leaves_no_database_behind(monkeypatch, tmp_path, 
     result = CliRunner().invoke(app, ["sync-league"])
     assert result.exit_code == ExitCode.CONFLICT
     assert not (tmp_path / "data" / "fanta.duckdb").exists(), "phantom database created"
+
+
+async def test_the_team_list_is_paged_until_exhausted_and_checked_against_the_division_count(db, fake_api, mcp_fixture_json):
+    """Spec open question 12 (found 2026-09-02): the endpoint pages by ten,
+    and `fetch_snapshot` read page 1 only, so the eleventh team -- the one
+    who just joined, before an auction -- fell off silently. Every page is
+    read, and a total that disagrees with `divisions[].count` is a warning
+    the report carries rather than a snapshot that quietly lies."""
+    teams = mcp_fixture_json("teams")
+    rows = teams["data"]
+    extra = [{**rows[0], "id": 900 + i, "idu": 700 + i, "n": f"Team {i}", "nu": f"nick{i}"} for i in range(4)]
+    page1 = {**teams, "nextPage": True, "pages": 2, "item": 12, "data": rows + extra[:2],
+             "divisions": [{"division": "A", "count": 12}]}
+    page2 = {**teams, "nextPage": False, "prevPage": True, "page": 2, "pages": 2, "item": 12, "data": extra[2:],
+             "divisions": [{"division": "A", "count": 12}]}
+    pages = {1: page1, 2: page2}
+    api = fake_api()
+
+    async def teams_by_page(page=1, league=None):
+        api.calls.append(f"teams:{page}")
+        return json.loads(json.dumps(pages[page]))
+
+    api.teams = teams_by_page
+    report = await sync_league(api, db, None)
+    assert api.calls.count("teams:1") == 1 and api.calls.count("teams:2") == 1
+    stored = json.loads(db.execute("SELECT payload FROM league_settings WHERE snapshot_id = ?", [report.snapshot_id]).fetchone()[0])
+    assert len(stored["teams"]["data"]) == 12 and report.warnings == []
+    # a division count the pages do not add up to is said, not hidden
+    short = {1: {**page1, "nextPage": False, "pages": 1, "divisions": [{"division": "A", "count": 12}]}}
+
+    async def one_short_page(page=1, league=None):
+        return json.loads(json.dumps(short[page]))
+
+    api.teams = one_short_page
+    again = await sync_league(api, db, None)
+    assert len(again.warnings) == 1 and "10" in again.warnings[0] and "12" in again.warnings[0]
+    assert again.to_dict()["warnings"] == again.warnings

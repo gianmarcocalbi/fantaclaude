@@ -1,7 +1,7 @@
 import pytest
 from fantacalcio_mcp.config import (
-    Credentials,
     ConfigurationError,
+    Credentials,
     load_dotenv,
     resolve_credentials,
     workspace_root,

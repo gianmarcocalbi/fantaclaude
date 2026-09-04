@@ -8,9 +8,7 @@ import time
 import httpx
 import pytest
 import respx
-
-from fantacalcio_mcp.auth import Auth, AuthError, decode_claims, is_expired
-from fantacalcio_mcp.auth import _safe_json
+from fantacalcio_mcp.auth import Auth, AuthError, _safe_json, decode_claims, is_expired
 from fantacalcio_mcp.config import ConfigurationError, Credentials
 
 BASE = "https://apileague.fantacalcio.it"

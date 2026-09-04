@@ -170,7 +170,7 @@ class Auth:
         try:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
-                raise ValueError("token cache root is not a JSON object")
+                raise ValueError("token cache root is not a JSON object")  # noqa: TRY004 -- caught two lines below; the type is the corruption
             account_jwt = data.get("account")
             cached_user_id = data.get("user_id")
             cached_username = data.get("username")
@@ -178,7 +178,7 @@ class Auth:
                 alias: LeagueToken(**entry)
                 for alias, entry in (data.get("leagues") or {}).items()
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail closed on any corruption; see comment below
             # Any corruption -- schema drift, a hand-edited file, a partial
             # write, an unexpected shape -- must never crash the server.
             # Fail closed: treat it as a cold cache and carry on.
@@ -714,7 +714,7 @@ class Auth:
                     self._recovery_attempted_for = failed_token
                     try:
                         await self._login_and_record(kind="recovery")
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- outcome is read from _last_login_error below
                         pass  # outcome is read from _last_login_error below,
                               # the same way for us and every piggybacking waiter
 
@@ -811,7 +811,7 @@ class Auth:
                     self._recovery_attempted_for = failed_token
                     try:
                         await self._login_and_record(kind="recovery")
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 -- outcome is read from _last_login_error below
                         pass  # outcome is read from _last_login_error below,
                               # the same way for us and every piggybacking waiter
 

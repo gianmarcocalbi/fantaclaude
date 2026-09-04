@@ -37,6 +37,8 @@ def test_load_pinned_run_reads_the_run_back(tmp_path, fixture_json, mcp_fixture_
         assert lautaro.role_class == "Pc" and not lautaro.is_goalkeeper and pinned.players[5841].is_goalkeeper
         assert (lautaro.value_p25, lautaro.value_p50, lautaro.value_p75) == (projection.value_p25, projection.value_p50, projection.value_p75)
         assert lautaro.quotazione == 35 and lautaro.tier == result.tiers[2764]
+        # fvm is the listone's own market value, joined from the snapshot the run pinned
+        assert lautaro.fvm == 185 and pinned.players[3].fvm == 1
         assert lautaro.pool_player() == result.pool[[p.player_id for p in result.pool].index(2764)]
         assert pinned.pricing_cfg == PricingConfig() and [s.name for s in pinned.scenarios] == ["balanced", "value-hunting"]
         assert pinned.scenario().name == "balanced" and pinned.scenario("value-hunting").max_budget_share_per_role == {"Pc": 0.25}

@@ -100,7 +100,12 @@ def _int(value: Any, where: str, *, minimum: int | None = None) -> int:
 
 
 def _optional_int(value: Any, where: str) -> int | None:
-    return None if value is None else _int(value, where)
+    # FantaAstaLive sends "" for "nothing selected", not null: the live session
+    # FA-rb8-460 carried selectedPlayerId "" on 2026-09-02 and the mirror
+    # refused the whole node. Absent, null and blank all mean the same thing.
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _int(value, where)
 
 
 def _entries(value: Any, where: str) -> list[Any]:

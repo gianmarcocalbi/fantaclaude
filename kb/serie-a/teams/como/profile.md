@@ -1,8 +1,8 @@
 ---
-updated: 2026-08-29
+updated: 2026-09-04
 ttl: 14d
 confidence: medium
-source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it, tg24.sky.it (2026-08-29); coach, squad and appearances from the listone and the voti workbook"
+source: "web: fantacalcio-online.com, howtechismade.com, fantamaster.it, tg24.sky.it (2026-08-29); dazn.com probabile formazione and goal.com on the Kean signing (2026-09-04); coach, squad and appearances from the listone and the voti workbook"
 team: Como
 team_short: COM
 coach: Fabregas
@@ -28,11 +28,21 @@ Butez is first choice ahead of Vigorito and Tornqvist. The back four is Couto
 right, Valle or Kaiki left, and Chalobah with Ramon in the middle, with
 Goldaniga, Kempf, Kambwala and Cuenca as the depth — an unusually large
 defensive squad for a club of this size, which is itself a rotation signal. The
-pivot is Perrone and Da Cunha, with Caqueret and Milla behind them. Nico Paz is
+pivot is two of four rather than a fixed pair: Da Cunha is the constant, with
+Milla, Perrone and Ricci S. around him — the probable-formation guides start
+Milla, the opening day used Milla, Da Cunha and Perrone, and Caqueret is
+behind all of them. Nico Paz is
 the trequartista and the player the whole side is arranged around; Baturina and
 Diao are the wide forwards, with Kuhn, Addai, Rodriguez and Lahdo competing.
-Douvikas leads the line, with Azon and the transfer-flagged Morata as the
-alternatives; Douvikas scored on the opening day.
+The centre-forward is a two-man duel and no longer a settled place. Douvikas
+started the opening day and scored, and he is the one who reads the system —
+that is his edge, and it is slight. Kean arrived late in the window on a loan
+the club is obliged to convert, at a fee that says he was wanted rather than
+accepted, and the reporting is unanimous that he was promised nothing: the
+duel is called a tight one, the alternation is expected to be frequent, and
+both are named as possible together in some games. Kean also has last
+season's form and condition to recover. Azon and the transfer-flagged Morata
+are behind them both. Treat the shirt as shared and neither man as safe.
 
 ```
 fantaclaude query --sql "SELECT name, classic_role, voto, goals, assists FROM v_player_match_current WHERE season_id = 21 AND team = 'Como' AND sheet = 'Fantacalcio' ORDER BY giornata, classic_role"
@@ -51,7 +61,8 @@ before; a coach whose guides already flag "frequent rotation expected given
 Champions League commitments"; and a squad deliberately built two-deep in every
 line over the summer. The forward line is where it will show — four or five
 names for two wide slots — along with the second centre-forward and the pivot.
-Butez, Paz and Perrone are the ones who should play everything.
+Paz is the one who should play everything; Butez would be, but see the
+goalkeeper in "Watch".
 
 ## Set pieces
 
@@ -59,7 +70,10 @@ Da Cunha is the penalty taker: both squad guides name him first, and the
 season-20 workbook has him converting from the spot repeatedly without a miss —
 the strongest data corroboration of any penalty taker in this knowledge base.
 Nico Paz and Douvikas are named behind him, and the workbook also records Paz
-missing from the spot, which is presumably why he is not first.
+missing from the spot, which is presumably why he is not first. The
+probable-formation guide names Douvikas and Kean as the two alternatives, so
+whichever of them holds the shirt inherits the second call rather than the
+first — the penalties stay with Da Cunha either way.
 
 Corners go to Baturina first and free kicks to Nico Paz first, with Da Cunha
 and Perrone in both lists. The two set-piece guides agree on the group; they
@@ -71,6 +85,15 @@ fantaclaude query --sql "SELECT name, sum(pen_scored), sum(pen_missed) FROM v_pl
 ```
 
 ## Watch
+- **The goalkeeper may be a contest, not a choice.** This profile has Butez
+  first ahead of Vigorito and Tornqvist, and he did start the opening day —
+  but the probable-formation guide calls it an open competition with a
+  keeper this profile never named, whom the listone carries as
+  `Sanchez Ro.`. Either the guide is stale or this profile is; the shirt is
+  worth one query in a fortnight rather than a guess now.
+- **Kean and Douvikas.** The one place where a wrong call costs real credits
+  here: the two of them are priced as a shared shirt, and a settled starter
+  would be worth half as much again as either currently is.
 
 - **The calendar snapshot predates the European draws** (26–28 August 2026),
   but that snapshot is not what's blocking `europe`. A re-ingest has already

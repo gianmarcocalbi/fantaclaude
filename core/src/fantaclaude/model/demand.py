@@ -265,11 +265,25 @@ def satisfiable_demand(demand_by_module: Mapping[str, Mapping[str, float]], supp
     return FoldedDemand(demand, kept, iterations)
 
 
+def remaining_weights(weights: Mapping[str, tuple[float, ...]], occupancy: Mapping[str, int]) -> dict[str, tuple[float, ...]]:
+    """The rank weights a roster still has open: each class's ranks with the
+    first `occupancy[cls]` of them taken. With nothing owned it is `weights`
+    itself, so pinning against it at minute zero is pinning as the run did;
+    with a class covered it is empty there, so a multi-role man pins to the
+    role his roster still pays for (see pin_class)."""
+    return {cls: tuple(ranks[occupancy.get(cls, 0):]) for cls, ranks in weights.items()}
+
+
 def pin_class(roles: frozenset[Role], weights: Mapping[str, tuple[float, ...]]) -> str:
     """The one class a multi-role player is valued under when the pool is
     priced: the class with the most demand across the modules, ties broken
-    by ROLE_CLASSES order. The exact matching for the player on the block
-    is the auction's job (spec, "Where this is an approximation")."""
+    by ROLE_CLASSES order. The run pins against the league-wide weights,
+    fixed when it is written; the live board pins the same way against
+    `remaining_weights`, the ranks my roster leaves open -- which is how the
+    twelve men pinned to a full E on 2026-09-03 stop reading as band 0
+    while holding a T, C or M the completion still pays for. The exact
+    matching for the player on the block stays the auction's job (spec,
+    "Where this is an approximation")."""
     classes = player_classes(roles)
     if not classes:
         raise ValueError("a player carries at least one role")

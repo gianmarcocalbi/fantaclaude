@@ -14,6 +14,11 @@ be resolvable from here even if `data/` is lost:
   unchanged file writes one record rather than two identical ones); it and
   `data/asta-state.json` are deleted only once `verify-transfer` (a
   post-auction task, open question 9) confirms the lega matches the room.
+- `asta/<session>-<date>-bids.json` — the bid ladder of an A RILANCI night:
+  every distinct `currentBid` the session published, per lot, with who won
+  it and for how much, plus the status transitions. Extracted from the raw
+  Firebase capture in `data/raw/asta_live/` (gitignored, ~130 MB a night)
+  because the closing state alone says what was paid, never what was bid.
 
 Everything in `data/` is gitignored and rebuildable; commit this directory
 after every `rank` you intend to keep. Read them back with

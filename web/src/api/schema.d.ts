@@ -173,6 +173,13 @@ export interface components {
             /** Reasons */
             reasons: string[];
         };
+        /** BlockOut */
+        BlockOut: {
+            /** Classic Role */
+            classic_role: string;
+            /** Classes */
+            classes: string[];
+        };
         /** BoardPayload */
         BoardPayload: {
             /** Run Id */
@@ -205,6 +212,63 @@ export interface components {
             credits_by_class: {
                 [key: string]: number;
             };
+            /**
+             * Modules
+             * @default []
+             */
+            modules: string[];
+            /**
+             * Role Demand
+             * @default {}
+             */
+            role_demand: {
+                [key: string]: number[];
+            };
+            /**
+             * My Coverage
+             * @default {}
+             */
+            my_coverage: {
+                [key: string]: number;
+            };
+            /**
+             * Module Demand
+             * @default {}
+             */
+            module_demand: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /**
+             * My Squad
+             * @default []
+             */
+            my_squad: components["schemas"]["SquadMemberOut"][];
+            /**
+             * Room By Class
+             * @default {}
+             */
+            room_by_class: {
+                [key: string]: number;
+            };
+            /**
+             * Occupancy
+             * @default {}
+             */
+            occupancy: {
+                [key: string]: number;
+            };
+            /**
+             * Pins
+             * @default {}
+             */
+            pins: {
+                [key: string]: string;
+            };
+            block?: components["schemas"]["BlockOut"] | null;
+            /** Player List Hash */
+            player_list_hash?: string | null;
             /** Reserve */
             reserve: number;
             /** Budget */
@@ -311,6 +375,13 @@ export interface components {
             missing_outfield: number;
             /** Open Slots */
             open_slots: number;
+            /**
+             * Classic
+             * @default {}
+             */
+            classic: {
+                [key: string]: number;
+            };
         };
         /** LotOut */
         LotOut: {
@@ -331,6 +402,16 @@ export interface components {
             expected_price: number | null;
             /** Sold To */
             sold_to: number | null;
+            /**
+             * Fvm
+             * @default 0
+             */
+            fvm: number;
+            /**
+             * Apps
+             * @default 0
+             */
+            apps: number;
         };
         /** MappingIn */
         MappingIn: {
@@ -380,6 +461,16 @@ export interface components {
             expected_price: number;
             /** Value P50 */
             value_p50: number;
+            /**
+             * Fvm
+             * @default 0
+             */
+            fvm: number;
+            /**
+             * Apps
+             * @default 0
+             */
+            apps: number;
             pressure?: components["schemas"]["PressureOut"] | null;
         };
         /** RefreshResult */
@@ -407,6 +498,26 @@ export interface components {
              * @enum {string}
              */
             source: "session" | "league";
+            /**
+             * Classic Buckets
+             * @default {}
+             */
+            classic_buckets: {
+                [key: string]: number[];
+            };
+        };
+        /** SquadMemberOut */
+        SquadMemberOut: {
+            /** Player Id */
+            player_id: number;
+            /** Name */
+            name: string;
+            /** Team Short */
+            team_short: string;
+            /** Roles */
+            roles: string[];
+            /** Role Class */
+            role_class: string;
         };
         /** TeamOut */
         TeamOut: {

@@ -6,7 +6,6 @@ import time
 import httpx
 import pytest
 import respx
-
 from fantacalcio_mcp.api import ApiError, FantacalcioAPI
 from fantacalcio_mcp.auth import Auth, AuthError
 from fantacalcio_mcp.config import ConfigurationError, Credentials

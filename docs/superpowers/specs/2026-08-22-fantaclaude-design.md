@@ -1696,8 +1696,30 @@ often than to bad models.
    decisive test: diff the listone the moment one player is assigned. Purging the
    auction store assumes the answer is yes. Until it is verified, keep the file —
    the cost of being wrong is losing the only record of what the room paid.
-10. **Does FantaAstaLive expose anything during active bidding? Sharpened
-    2026-08-24.** FantaAstaLive runs in one of two modes: **DRAFT**, turn-based,
+   **Resolved 2026-09-04: yes.** After the admin transferred the auction, every
+   team object from `/onboarding/v1/league/teams` carries `cal` — the player
+   ids it owns, semicolon-separated — and `cs`, the price paid for each in the
+   same order, summing exactly to `crs` (credits spent). That is the roster and
+   the cost, on an endpoint already mapped. The transfer was verified by hand
+   the same day: all nine rival teams reconcile with the FantaAstaLive mirror
+   player for player and credit for credit, the only differences being
+   one-credit players the lega added after the room closed. `verify-transfer`
+   is therefore buildable — the comparison is a set-diff of `{id: cost}` per
+   team, matched to a mirror team by roster overlap rather than by name, since
+   the room's labels do not match the lega's owners. Until it is a command the
+   two files under `records/asta/` stay, and nothing deletes
+   `data/asta-state.json` (the raw Firebase capture is 128 MB and stays
+   gitignored in `data/raw/`).
+10. **~~Does FantaAstaLive expose anything during active bidding?~~ Resolved
+    2026-09-03.** Yes. In A RILANCI the session node carries `currentBid
+    {playerId, teamId, value, timestamp, comment}` and every client sees each
+    raise; the night's capture holds about three thousand of them over 279
+    lots, extracted to `records/asta/FA-rb8-460-20260903-bids.json`. The
+    board does not read it live yet — the state module consumes picks,
+    settings, status and the lot — so distance-to-max against the live offer
+    remains to build. `status` flips 1 → 2 per lot (open, assigned) and reads
+    3 once every roster is complete. Sharpened 2026-08-24: FantaAstaLive runs
+    in one of two modes: **DRAFT**, turn-based,
     where the admin assigns each lot, and **A RILANCI**, where anyone bids at any
     time and the lot goes to the last offer when a countdown expires. The observed
     session carried `turnTeamId` and `pickOrder`, which is DRAFT-shaped — that is
@@ -1710,6 +1732,92 @@ often than to bad models.
     `options.bids` and `options.draft` side by side and a `bids-log` list, so the
     ladder exists client-side; what the rehearsal checks is whether it is mirrored
     into the session node.
+
+11. **Should the club penalty rate fall back for a promoted club? Found
+    2026-09-02.** `penalty_rate_clubs` is built from `last_back` — the single
+    most recent *completed* season (20) — so a club absent from it has no
+    observed rate, and `_taker_warning`'s sibling warning fires. In the
+    2026-27 listone that is Frosinone, Monza and Venezia: all three played
+    seasons 18/19 and are back in 21, none played 20. The consequence is
+    bounded and deliberate (the projection does not redistribute on a rate it
+    never observed, so the taker is not punished) but it is real: for three of
+    twenty clubs, the profile's penalty taker changes nothing, and a promoted
+    club's designated taker is valued conservatively against an established
+    club's. The candidate fixes — read those clubs' own seasons 18/19, or fall
+    back to a league-average rate — each move every price at those clubs and
+    mint a new `model_hash`, so **not before the 2026-27 auction**. Phase 3.
+
+12. **~~The team snapshot reads only the first page.~~ Fixed 2026-09-04.**
+    `fetch_snapshot` now pages until `nextPage` is false and warns when the
+    pages do not add up to `divisions[].count` (`SyncReport.warnings`). Found
+    2026-09-02:
+    `fetch_snapshot` calls `api.teams(page=1, league=league)` and never asks for
+    page 2. The endpoint's page size is 10, so the defect is invisible in a
+    league of ten or fewer and silent above it: at eleven teams the response
+    carried ten objects and `divisions[A].count = 11`; at twelve, ten objects
+    and `count = 12`. The teams that fall off are the newest, which is exactly
+    the case that matters before an auction — a manager who has just joined is
+    the one the snapshot cannot see.
+
+    It does **not** corrupt `team_count`, which reads the league profile's
+    `n_s` and only falls back to `len(team_rows)` when that is null; and the
+    auction binds rivals by nick against the FantaAstaLive session rather than
+    against this list, so the dossiers are unaffected. What it does break is any
+    reading of the embedded team list as complete. Fix is to page until
+    exhausted and cross-check the total against `divisions[].count` — after the
+    2026-27 auction, not during the freeze.
+
+13. **`n_s` is the league's configured size, not its actual one. Found
+    2026-09-02.** The valuation reads it for `team_count`, and it is baked into
+    `rules_hash`, so it sets the market (`teams x budget`) and every price. It
+    is set by the admin and drifts freely from reality: it read 8 while ten
+    teams existed, then 12 when the true figure was 10. There is deliberately no
+    override — `team_count` is in `league_yml.COMPARABLE`, so a disagreeing
+    entry makes `apply_sync` refuse and record nothing. That refusal is correct
+    (a league.yml that silently overrode the API would be worse) but it means
+    **the pre-auction run is blocked on the admin setting the number
+    correctly**, and that dependency deserves to be visible rather than
+    discovered on the night.
+
+14. **The room's player list is not the listone. Found 2026-09-03.** FantaAstaLive
+    keeps its own list (`playerListType: default`, stored in the node only as
+    `playerListHash`). On the night one listone player (Zappa, 4461, flagged
+    for transfer) was never offered, and one player our listone has never
+    carried (id 795) was sold for three credits. The board names the second
+    case as a problem line (a pick the run cannot name) and now carries the
+    hash on its payload; the first case is undetectable until the end, since
+    the list itself is never published. During an auction the answer is
+    `asta adjust --type exclude`, never a re-ingest. Whether a fresh listone
+    ingest after the auction carries 795 is the cheap test of "their list is
+    simply newer than ours". **Sharpened 2026-09-04:** it is not newer. 795 is
+    in none of the three listone snapshots, and the lega has since accepted him
+    onto Gene's transferred roster at the price the room recorded — so
+    `/onboarding/v1/league/players` does not return every player the league
+    will let a manager buy, and no re-ingest will close the gap. A pick the run
+    cannot name is the only signal, and the board already raises it.
+
+16. **The team list's identities are not the room's. Found 2026-09-04.**
+    FantaAstaLive team names and connection labels are free text: four of the
+    ten teams carried a name that matched no lega owner, and one dossier was
+    bound to the wrong manager for the whole auction as a result (`--map
+    0=KingNazzario` named the team that hosted the room, which is another
+    manager's). After a transfer the rosters settle it exactly — each lega
+    `cal`/`cs` matches one mirror team player for player — but during the
+    auction there is nothing to reconcile against, so the mapping screen's
+    bindings are only as good as the operator's knowledge of who is who. The
+    fix is procedural (confirm with the admin before bidding) unless the
+    platform is ever found to expose a stable per-manager id.
+
+15. **~~Are the session's `roles` pairs `[classic, mantra]`?~~ Resolved
+    2026-09-03.** No: they are `[min, max]`. FA-rb8-460 shipped
+    `gk: [2, 4], mov: [23, 28], size: [25, 30], def/mid/atk: [8, 8], [8, 8],
+    [6, 6]`, and the room ended with two, three and four keepers on rosters
+    of twenty-seven to thirty. The mirror read the pair by game and collapsed
+    the keepers to two, so a full roster showed as still owing a player.
+    `def/mid/atk` are the classic-role buckets the room calls its blocks in,
+    not enforced in Mantra (one team held nine defenders); the session reader
+    carries them as `classic_buckets` and the ledgers count picks by classic
+    role.
 
 ## Non-goals
 

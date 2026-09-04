@@ -13,9 +13,15 @@ export function MyPanel({ board }: { board: BoardPayload }) {
       </div>
       <p className="text-neutral-400">
         {me.picks.length} picks · gk {me.goalkeepers} · mov {me.outfield}
+        {me.classic && Object.keys(me.classic).length > 0 &&
+          ` · ${["P", "D", "C", "A"].map(r => `${r}${me.classic?.[r] ?? 0}`).join("/")}`}
         {me.missing_goalkeepers + me.missing_outfield > 0 &&
           ` · still needed: gk ${me.missing_goalkeepers}, mov ${me.missing_outfield}`}
+        {` · open slots ${me.open_slots}`}
       </p>
+      {board.block && (
+        <p className="text-sky-400">block {board.block.classic_role} · {board.block.classes.join(", ")}</p>
+      )}
       <p className="text-neutral-400">reserve {board.reserve} · budget {board.budget} · completion {completion}</p>
       {board.targets_departed.length > 0 && (
         <p className="text-amber-400">departed from the target at {board.targets_departed.join(", ")}</p>

@@ -1,3 +1,16 @@
+team_count:
+  value: 10
+  source: admin
+  verified_on: 2026-09-02
+  note: >-
+    The league is ten teams, stated by the account holder who is in it. The
+    league API's own `n_s` is the admin's configured size and has been wrong in
+    both directions -- 8 while ten teams existed, then 12 -- so it is not
+    trusted here. Because `team_count` is in `league_yml.COMPARABLE`, this leaf
+    makes `sync-league` refuse while the API still says 12, which is the point:
+    it stops a sync silently re-pricing the auction for a room that does not
+    exist. Remove it, or set it to whatever the admin finally configures, once
+    the API agrees.
 # league.yml -- only what the league API cannot express. Never override what
 # it can: a key that duplicates an API value must agree with it, or
 # `fantaclaude sync-league` fails loud (exit 4). Every leaf carries
@@ -8,15 +21,28 @@ auction:
     source: admin
     verified_on: 2026-08-23
   mode:
-    value: unknown        # draft | rilanci -- ask the admin when asking for the session code
+    value: rilanci        # draft | rilanci
     source: admin
-    verified_on: 2026-08-24
-    note: FantaAstaLive offers DRAFT and A RILANCI; the admin has not said which
+    verified_on: 2026-09-02
+    note: >-
+      A RILANCI, confirmed by the admin. Anyone bids at any time and the lot
+      goes to the last offer when the countdown expires. The 2026-08-23 capture
+      shows the parameters FantaAstaLive uses for it -- countdownSeconds 10,
+      countdownInterval 2000, countdownType auction, minimumBid fixed 1,
+      beatRaise 1 -- but nothing in this repo reads a live bid: the board shows
+      the modelled band and modelled pressure, never the current offer. Watch
+      the offer on FantaAstaLive itself and the max price here (open question 10).
   date:
-    value: 2026-09-05
+    value: 2026-09-03
     source: admin
-    verified_on: 2026-08-22
-    note: approximate
+    verified_on: 2026-09-02
+    note: >-
+      Confirmed 2026-09-02 as the next day. The earlier 2026-09-05 was the
+      admin's approximate date and was wrong by two days, which collapsed the
+      freeze: there is no separate freeze day, the run is pinned the evening
+      before. Giornata 3 kicks off 2026-09-04 18:45, i.e. AFTER the auction,
+      so the pinned run's "giornata 2 played, 36 remaining" is correct for
+      once -- the auction precedes the round rather than trailing it.
 roster:
   min_goalkeepers:
     value: 2
@@ -24,4 +50,40 @@ roster:
     verified_on: 2026-08-24
     note: stated verbally; equals the API's minrl[0], and the cross-check keeps it that way
 # nick -> participant dossier, filled by `fanta-kb interview` (Phase 1)
-participants: {}
+participants:
+  'Abderrazak Hamdallah':
+    value: kb/league/participants/abderrazak-hamdallah.md
+    source: interview
+    verified_on: 2026-09-02
+  CavA:
+    value: kb/league/participants/cava.md
+    source: interview
+    verified_on: 2026-09-02
+  Chuck:
+    value: kb/league/participants/chuck.md
+    source: interview
+    verified_on: 2026-09-02
+  Edo:
+    value: kb/league/participants/edo.md
+    source: interview
+    verified_on: 2026-09-02
+  Fantacristo:
+    value: kb/league/participants/fantacristo.md
+    source: interview
+    verified_on: 2026-09-02
+  Gene:
+    value: kb/league/participants/gene.md
+    source: interview
+    verified_on: 2026-09-02
+  KingNazzario:
+    value: kb/league/participants/kingnazzario.md
+    source: interview
+    verified_on: 2026-09-02
+  piantaz:
+    value: kb/league/participants/piantaz.md
+    source: interview
+    verified_on: 2026-09-02
+  radyandre:
+    value: kb/league/participants/radyandre.md
+    source: interview
+    verified_on: 2026-09-02

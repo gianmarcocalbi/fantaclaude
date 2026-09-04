@@ -6,7 +6,7 @@ function; the CLI adds only argument parsing and rendering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -34,6 +34,7 @@ class SyncReport:
     diff: list[Change] = field(default_factory=list)
     superseded_runs: int = 0
     conflicts: list[Conflict] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,19 +46,57 @@ class SyncReport:
             "superseded_runs": self.superseded_runs,
             "conflicts": [{"key": c.key, "league_yml": c.league_yml, "api": c.api}
                           for c in self.conflicts],
+            "warnings": list(self.warnings),
         }
 
 
+# The endpoint pages by ten and a league can outgrow one page; the loop is
+# bounded so a server that always answers `nextPage: true` cannot spin it.
+MAX_TEAM_PAGES = 20
+
+
+async def fetch_teams(api: FantacalcioAPI, *, league: str | None = None) -> tuple[Any, list[str]]:
+    """Every page of the team list, folded into the first page's envelope,
+    and a warning when the pages do not add up to the division's own count.
+
+    Spec open question 12 (found 2026-09-02): page 1 alone carried ten of
+    twelve teams and `divisions[A].count = 12`, and the two that fell off
+    were the newest -- exactly the manager who joined before an auction.
+    """
+    first = await api.teams(page=1, league=league)
+    if not isinstance(first, dict) or not isinstance(first.get("data"), list):
+        return first, []
+    rows = list(first["data"])
+    page = 1
+    while first.get("nextPage") and page < MAX_TEAM_PAGES:
+        page += 1
+        more = await api.teams(page=page, league=league)
+        chunk = more.get("data") if isinstance(more, dict) else None
+        if not isinstance(chunk, list) or not chunk:
+            break
+        rows.extend(chunk)
+        if not more.get("nextPage"):
+            break
+    warnings: list[str] = []
+    counted = sum(int(d.get("count") or 0) for d in (first.get("divisions") or []) if isinstance(d, dict))
+    if counted and counted != len(rows):
+        warnings.append(f"the team list carries {len(rows)} teams over {page} page(s) but the divisions count {counted}; "
+                        f"the snapshot's team list is not complete")
+    return {**first, "data": rows, "page": 1, "nextPage": False, "pages": page, "item": len(rows)}, warnings
+
+
 async def fetch_snapshot(api: FantacalcioAPI, *, league: str | None = None) -> LeagueSnapshot:
-    # Sequential on purpose: six reads against a real account, one at a time.
+    # Sequential on purpose: six reads against a real account, one at a time
+    # (the team list may take one more per page beyond the first).
     profile = await api.league_profile(league=league)
     status = await api.league_status(league=league)
     rosters = await api.roster_settings(league=league)
     lineup = await api.lineup_settings(league=league)
     calculate = await api.calculation_settings(league=league)
-    teams = await api.teams(page=1, league=league)
-    return snapshot_from_payloads(profile=profile, status=status, rosters=rosters,
+    teams, warnings = await fetch_teams(api, league=league)
+    snap = snapshot_from_payloads(profile=profile, status=status, rosters=rosters,
                                   lineup=lineup, calculate=calculate, teams=teams)
+    return replace(snap, warnings=tuple(warnings)) if warnings else snap
 
 
 async def prepare_sync(api: FantacalcioAPI, league_yml: dict[str, Provenanced] | None, *,
@@ -84,7 +123,7 @@ def apply_sync(con: duckdb.DuckDBPyConnection | None, snap: LeagueSnapshot,
     if conflicts:
         return SyncReport(snap.league_id, snap.season_id, snap.team_count, snap.rules_hash,
                           changed=False, snapshot_id=None, previous_hash=None,
-                          conflicts=conflicts)
+                          conflicts=conflicts, warnings=list(snap.warnings))
     result = record_snapshot(con, snap, fetched_at=fetched_at)
     superseded = 0
     if result.changed and result.previous_hash is not None:
@@ -99,7 +138,8 @@ def apply_sync(con: duckdb.DuckDBPyConnection | None, snap: LeagueSnapshot,
                                  [result.previous_hash]).fetchone()[0]
     return SyncReport(snap.league_id, snap.season_id, snap.team_count, snap.rules_hash,
                       changed=result.changed, snapshot_id=result.snapshot_id,
-                      previous_hash=result.previous_hash, diff=result.diff, superseded_runs=int(superseded))
+                      previous_hash=result.previous_hash, diff=result.diff, superseded_runs=int(superseded),
+                      warnings=list(snap.warnings))
 
 
 async def sync_league(api: FantacalcioAPI, con: duckdb.DuckDBPyConnection,

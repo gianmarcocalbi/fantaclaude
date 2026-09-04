@@ -18,7 +18,11 @@ def test_twelve_mantra_roles_and_their_listone_codes():
     assert len(Role) == 12
     assert MANTRA_CODES == {
         6: Role.Por, 7: Role.Dd, 8: Role.Ds, 9: Role.Dc, 10: Role.E, 11: Role.M,
-        12: Role.C, 13: Role.W, 14: Role.T, 15: Role.A, 16: Role.Pc, 19: Role.B,
+        # 13 = T, 14 = W. Checked against the downloaded listone (Vlasic 5687 and
+        # Da Cunha carry 13 and are trequartisti on fantacalcio.it) and against
+        # code 14's population, which is wingers. This table was transposed here
+        # and in model/roles.py until 2026-09-03, so the test agreed with the bug.
+        12: Role.C, 13: Role.T, 14: Role.W, 15: Role.A, 16: Role.Pc, 19: Role.B,
     }
     assert set(MANTRA_CODES.values()) == set(Role)
     assert CLASSIC_CODES == {1: ClassicRole.P, 2: ClassicRole.D, 3: ClassicRole.C, 4: ClassicRole.A}
