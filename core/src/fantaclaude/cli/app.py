@@ -76,6 +76,7 @@ def _render_sync(payload: dict) -> str:
                          f"-- re-run `fantaclaude rank`")
     else:
         lines.append(f"unchanged (snapshot {payload['snapshot_id']})")
+    lines += [f"warning: {w}" for w in payload.get("warnings", [])]
     return "\n".join(lines)
 
 
