@@ -39,6 +39,7 @@ from fantaclaude.asta.pinned import (
     PinnedRun,
     PinnedRunError,
     load_pinned_run,
+    newest_run_id,
 )
 from fantaclaude.asta.pricing import explain as explain_price
 from fantaclaude.asta.session import SessionError, SessionSettings, session_from_feed
@@ -684,3 +685,69 @@ def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_f
         path.unlink()
         pruned = True
     return VerifyReport(path, int(snapshot_id), fetched_at, result, player_names, leaf, pruned)
+
+
+@dataclass(frozen=True)
+class MarketReport:
+    run_id: str
+    scenario: str
+    source: str
+    snapshot_id: int
+    classes: list[dict[str, Any]]
+    overall: dict[str, Any]
+    unpriced: dict[str, int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"run_id": self.run_id, "scenario": self.scenario, "source": self.source, "snapshot_id": self.snapshot_id,
+                "classes": list(self.classes), "overall": dict(self.overall), "unpriced": dict(self.unpriced)}
+
+
+def _ratio(num: float, den: float) -> float | None:
+    return None if not den else num / den
+
+
+def _newest_closing_state(records_dir: Path) -> Path | None:
+    files = sorted(p for p in (records_dir / "asta").glob("*.json") if not p.name.endswith("-bids.json"))
+    return files[-1] if files else None
+
+
+def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: str | None = None,
+                  scenario: str | None = None) -> MarketReport:
+    """What the room paid over what the run expected, per class, off the
+    earliest non-empty roster snapshot of the season (spec: `v_market_prices`).
+    The run and scenario default to the pair the newest closing state under
+    records/asta names -- the board the night was priced against."""
+    source = "--run/--scenario"
+    if run_id is None or scenario is None:
+        record = _newest_closing_state(paths.records)
+        if record is not None:
+            stored = read_state(record)
+            run_id, scenario = run_id or stored.run_id, scenario or stored.scenario
+            source = record.relative_to(paths.records.parent).as_posix() if record.is_relative_to(paths.records.parent) else str(record)
+    if run_id is None:
+        run_id = newest_run_id(con)
+        source = "the newest run"
+        if run_id is None:
+            raise NotReady("no valuation run -- run `fantaclaude rank`")
+    if scenario is None:
+        row = con.execute("SELECT scenarios[1] FROM valuation_runs WHERE run_id = ?", [run_id]).fetchone()
+        if row is None:
+            raise NotReady(f"run {run_id!r} is not in valuation_runs")
+        scenario = str(row[0])
+    first = con.execute("SELECT min(snapshot_id) FROM v_rosters_first").fetchone()[0]
+    if first is None:
+        raise NotReady("no roster snapshot with players -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
+    rows = con.execute(
+        "SELECT role_class, count(*), sum(paid), sum(expected_price), sum(coalesce(quot_mantra, 0)) FROM v_market_prices "
+        "WHERE run_id = ? AND scenario = ? GROUP BY role_class ORDER BY role_class", [run_id, scenario]).fetchall()
+    classes = [{"role_class": cls, "players": int(n), "paid": int(paid), "expected": int(exp),
+                "paid_over_expected": _ratio(paid, exp), "quotazione": int(quot),
+                "paid_over_quotazione": _ratio(paid, quot)} for cls, n, paid, exp, quot in rows]
+    n, paid, exp, quot = (sum(c[k] for c in classes) for k in ("players", "paid", "expected", "quotazione"))
+    overall = {"players": n, "paid": paid, "expected": exp, "paid_over_expected": _ratio(paid, exp),
+               "quotazione": quot, "paid_over_quotazione": _ratio(paid, quot)}
+    unpriced = con.execute(
+        "SELECT count(*), coalesce(sum(cost), 0) FROM v_rosters_first f WHERE f.player_id NOT IN "
+        "(SELECT player_id FROM valuation_prices WHERE run_id = ? AND scenario = ?)", [run_id, scenario]).fetchone()
+    return MarketReport(run_id, scenario, source, int(first), classes, overall,
+                        {"players": int(unpriced[0]), "paid": int(unpriced[1])})

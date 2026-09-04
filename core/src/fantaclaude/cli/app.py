@@ -1354,6 +1354,38 @@ def asta_verify_transfer_cmd(
     emit(report.to_dict(), json_=json_, render=_render_verify)
 
 
+def _render_market(payload: dict) -> str:
+    def line(c: dict, label: str) -> str:
+        pe = "-" if c["paid_over_expected"] is None else f"{c['paid_over_expected']:.2f}"
+        pq = "-" if c["paid_over_quotazione"] is None else f"{c['paid_over_quotazione']:.2f}"
+        return f"  {label:8} {c['players']:3} players · paid {c['paid']:5} · expected {c['expected']:5} · paid/expected {pe} · paid/quot {pq}"
+    lines = [f"run {payload['run_id']} · scenario {payload['scenario']} · from {payload['source']} · roster snapshot {payload['snapshot_id']}"]
+    lines += [line(c, c["role_class"]) for c in payload["classes"]]
+    lines.append(line(payload["overall"], "all"))
+    lines.append(f"  unpriced: {payload['unpriced']['players']} player(s) the run never priced, {payload['unpriced']['paid']} credits")
+    lines.append("a per-class multiplier belongs in pricing.yml, by hand: that file feeds model_hash")
+    return "\n".join(lines)
+
+
+@asta_app.command("market-prices")
+def asta_market_prices_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+) -> None:
+    """What the room paid over what the run expected, per class, off the earliest roster snapshot of the season. Defaults to the run and scenario the newest closing state under records/asta names. Local."""
+    from fantaclaude.commands.asta import market_prices
+
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            report = market_prices(con, paths=paths, run_id=run, scenario=scenario)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_market)
+
+
 @asta_app.command("refresh")
 def asta_refresh_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),

@@ -672,3 +672,39 @@ def test_verify_transfer_reports_names_my_team_and_prunes_only_on_a_clean_diff(m
     # --prune never applies to an explicit --state file
     kept = runner.invoke(app, ["asta", "verify-transfer", "--state", str(records[0]), "--prune"])
     assert kept.exit_code == ExitCode.USAGE and records[0].is_file()
+
+
+def test_market_prices_reports_paid_over_expected_per_class_for_the_run_the_night_was_priced_against(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: (cls, exp) for pid, cls, exp in con.execute(
+        "SELECT player_id, role_class, expected_price FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pids = sorted(prices)
+    # the earliest non-empty snapshot is the auction; a later one (a mid-season swap) must not move the numbers
+    seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[1]: 50, 795: 3}), 2: ("B", {pids[2]: 20})})
+    seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[3]: 999}), 2: ("B", {pids[2]: 20})})
+    con.close()
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == run_id and payload["scenario"] == "balanced" and payload["source"] == "--run/--scenario"
+    assert payload["overall"]["players"] == 3 and payload["overall"]["paid"] == 170
+    expected = sum(prices[p][1] for p in pids[:3])
+    assert payload["overall"]["expected"] == expected
+    assert payload["overall"]["paid_over_expected"] == pytest.approx(170 / expected) if expected else payload["overall"]["paid_over_expected"] is None
+    assert payload["unpriced"] == {"players": 1, "paid": 3}
+    assert {c["role_class"] for c in payload["classes"]} == {prices[p][0] for p in pids[:3]}
+    # without flags: the pair the newest closing state under records/asta names
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    defaulted = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert defaulted["run_id"] == run_id and defaulted["source"].startswith("records/asta/FA-test")
+    plain = runner.invoke(app, ["asta", "market-prices"])
+    assert plain.exit_code == ExitCode.OK and "paid/expected" in plain.stdout and "unpriced" in plain.stdout
+
+
+def test_market_prices_needs_an_auction_in_the_rosters(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    result = runner.invoke(app, ["asta", "market-prices"])
+    assert result.exit_code == ExitCode.NOT_READY and "ingest rosters" in result.stderr
