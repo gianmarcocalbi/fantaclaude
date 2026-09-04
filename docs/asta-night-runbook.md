@@ -79,7 +79,16 @@ before, the drills, and the after.
 ## After
 
 - `fantaclaude asta close` — copies the state file to `records/asta/`;
-  commit `records/`.
+  commit `records/`. Close only once the room has stopped: the file is named
+  by the state's own `written_at`, so a state that moves again closes to a
+  second record rather than overwriting the first.
+- The bid ladder (A RILANCI's `currentBid` nodes) lives only in the raw
+  capture under `data/raw/asta_live/`, which is gitignored and ~130 MB for a
+  night. Extract the distinct bids per lot into
+  `records/asta/<session>-<date>-bids.json` beside the closing state (done
+  by hand on 2026-09-04; worth a command).
+- Drop the `value` adjustments that stood in for missing player notes before
+  the board is priced on a run that has the notes: they double-count.
 - The state files are **kept** until `verify-transfer` (post-auction task,
   open question 9) confirms the lega matches the room. Review any time with
   `fantaclaude asta serve --state records/asta/<file>.json` — this
@@ -107,3 +116,21 @@ hand-edit + `asta refresh` half of **4**, `asta_explain`/`asta_query` in
 
 Note: the MCP serves six tools, not the five the `fanta-asta` skill lists —
 `asta_status` is the extra one.
+
+## Auction log
+
+**2026-09-03** (FA-rb8-460, A RILANCI, ten teams, ~20:00 to 01:20, 289
+sales). The mirror held the whole night — no disconnect, every sale and cost
+edit reproduced; `asta serve` was still writing the state file at close and
+the record under `records/asta/` is that file. Found live and fixed on
+2026-09-04: the session's `roles` pairs are `[min, max]` (the mirror collapsed
+`gk [2, 4]` to two and reported a full roster as still owing a player);
+multi-role players pinned to a full class sat at band 0 while another of their
+roles was wanted; the board had no notion of the block being called; a class
+with an open slot but no pinned player vanished from the tier board; an
+adjusted player sorted by his pre-adjustment value. Found live and fixed in the
+model (model 2): the appearance rate had no prior and no sample-size term, so
+five two-appearance players topped the board. Confirmed: A RILANCI publishes
+`currentBid` (open question 10); the room's list differs from the listone in
+both directions (open question 14). The night's account is
+`kb/league/season-2026-27/giornata-00-asta.md`.

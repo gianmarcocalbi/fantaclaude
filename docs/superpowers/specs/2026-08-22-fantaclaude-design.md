@@ -1696,8 +1696,21 @@ often than to bad models.
    decisive test: diff the listone the moment one player is assigned. Purging the
    auction store assumes the answer is yes. Until it is verified, keep the file —
    the cost of being wrong is losing the only record of what the room paid.
-10. **Does FantaAstaLive expose anything during active bidding? Sharpened
-    2026-08-24.** FantaAstaLive runs in one of two modes: **DRAFT**, turn-based,
+   **Status 2026-09-04:** still open. The auction closed on 2026-09-03 and the
+   admin has not yet transferred it; the room's closing state and its full bid
+   ladder are committed under `records/asta/` (the raw Firebase capture is
+   128 MB and stays in `data/raw/`, gitignored), so the record no longer
+   depends on the answer. `verify-transfer` waits for the transfer.
+10. **~~Does FantaAstaLive expose anything during active bidding?~~ Resolved
+    2026-09-03.** Yes. In A RILANCI the session node carries `currentBid
+    {playerId, teamId, value, timestamp, comment}` and every client sees each
+    raise; the night's capture holds about three thousand of them over 279
+    lots, extracted to `records/asta/FA-rb8-460-20260903-bids.json`. The
+    board does not read it live yet — the state module consumes picks,
+    settings, status and the lot — so distance-to-max against the live offer
+    remains to build. `status` flips 1 → 2 per lot (open, assigned) and reads
+    3 once every roster is complete. Sharpened 2026-08-24: FantaAstaLive runs
+    in one of two modes: **DRAFT**, turn-based,
     where the admin assigns each lot, and **A RILANCI**, where anyone bids at any
     time and the lot goes to the last offer when a countdown expires. The observed
     session carried `turnTeamId` and `pickOrder`, which is DRAFT-shaped — that is
@@ -1725,7 +1738,10 @@ often than to bad models.
     back to a league-average rate — each move every price at those clubs and
     mint a new `model_hash`, so **not before the 2026-27 auction**. Phase 3.
 
-12. **The team snapshot reads only the first page. Found 2026-09-02.**
+12. **~~The team snapshot reads only the first page.~~ Fixed 2026-09-04.**
+    `fetch_snapshot` now pages until `nextPage` is false and warns when the
+    pages do not add up to `divisions[].count` (`SyncReport.warnings`). Found
+    2026-09-02:
     `fetch_snapshot` calls `api.teams(page=1, league=league)` and never asks for
     page 2. The endpoint's page size is 10, so the defect is invisible in a
     league of ten or fewer and silent above it: at eleven teams the response
@@ -1753,6 +1769,29 @@ often than to bad models.
     **the pre-auction run is blocked on the admin setting the number
     correctly**, and that dependency deserves to be visible rather than
     discovered on the night.
+
+14. **The room's player list is not the listone. Found 2026-09-03.** FantaAstaLive
+    keeps its own list (`playerListType: default`, stored in the node only as
+    `playerListHash`). On the night one listone player (Zappa, 4461, flagged
+    for transfer) was never offered, and one player our listone has never
+    carried (id 795) was sold for three credits. The board names the second
+    case as a problem line (a pick the run cannot name) and now carries the
+    hash on its payload; the first case is undetectable until the end, since
+    the list itself is never published. During an auction the answer is
+    `asta adjust --type exclude`, never a re-ingest. Whether a fresh listone
+    ingest after the auction carries 795 is the cheap test of "their list is
+    simply newer than ours".
+
+15. **~~Are the session's `roles` pairs `[classic, mantra]`?~~ Resolved
+    2026-09-03.** No: they are `[min, max]`. FA-rb8-460 shipped
+    `gk: [2, 4], mov: [23, 28], size: [25, 30], def/mid/atk: [8, 8], [8, 8],
+    [6, 6]`, and the room ended with two, three and four keepers on rosters
+    of twenty-seven to thirty. The mirror read the pair by game and collapsed
+    the keepers to two, so a full roster showed as still owing a player.
+    `def/mid/atk` are the classic-role buckets the room calls its blocks in,
+    not enforced in Mantra (one team held nine defenders); the session reader
+    carries them as `classic_buckets` and the ledgers count picks by classic
+    role.
 
 ## Non-goals
 
