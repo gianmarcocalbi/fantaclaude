@@ -14,8 +14,10 @@ records/.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +40,7 @@ from fantaclaude.asta.pinned import (
     PinnedRun,
     PinnedRunError,
     load_pinned_run,
+    newest_run_id,
 )
 from fantaclaude.asta.pricing import explain as explain_price
 from fantaclaude.asta.session import SessionError, SessionSettings, session_from_feed
@@ -64,7 +67,9 @@ from fantaclaude.asta.state import (
     Team,
     apply_snapshot,
     read_snapshots,
+    state_from_snapshot,
 )
+from fantaclaude.asta.transfer import Reconciliation, reconcile
 from fantaclaude.commands.ingest import NotReady
 from fantaclaude.ingest.names import match_listone
 from fantaclaude.kb.participants import Participant, ParticipantError, load_participants
@@ -580,3 +585,268 @@ def close_auction(paths: AstaPaths, *, session_code: str | None = None) -> Path:
                                written_at=written_at)
     except StateFileError as exc:
         raise NotReady(str(exc)) from None
+
+
+class TransferMismatch(RuntimeError):
+    """--prune asked for on a diff that is not clean."""
+
+
+def _min_bid(settings: dict[str, Any]) -> int:
+    """The session's minimum bid, read off `settings.minimumBid` -- which the
+    live feed sends as a bare int in some sessions and, confirmed by
+    `asta_session_sample.jsonl`, as `{"type": "fixed", "value": N}` in
+    others. An `isinstance(..., int)` test against the raw value is always
+    False for the second shape and silently falls back to 1 with no error
+    (review finding 2, 2026-09-04) -- reading a league with a different
+    minimum bid right, by coincidence, only for leagues where it happens to
+    be 1. Neither shape present defaults to 1, same as before."""
+    raw = settings.get("minimumBid")
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return 1
+
+
+def _diff_summary(result: Reconciliation) -> str:
+    """What is not clean, named -- so a --prune refusal says *why*, not just
+    that it refused. `verify_transfer` without --prune prints the same facts
+    at length; this is the one line that has to fit an error message."""
+    problems: list[str] = []
+    for t in result.teams:
+        if t.missing_in_lega:
+            problems.append(f"{t.lega_team_name}: {len(t.missing_in_lega)} missing in the lega")
+        if t.cost_differences:
+            problems.append(f"{t.lega_team_name}: {len(t.cost_differences)} cost differs")
+        if t.extra_in_lega:
+            problems.append(f"{t.lega_team_name}: {len(t.extra_in_lega)} dear extra")
+    problems += [f"{name}: not in the room ({size} players)" for _, name, size in result.lega_not_in_room if size]
+    if result.mirror_unmatched:
+        problems.append(f"{len(result.mirror_unmatched)} room team(s) unmatched")
+    problems += list(result.ambiguous)
+    return "; ".join(problems) if problems else "not clean"
+
+
+@dataclass(frozen=True)
+class VerifyReport:
+    state_path: Path
+    snapshot_id: int
+    fetched_at: datetime
+    result: Reconciliation
+    names: dict[int, str]
+    my_team_leaf: str | None
+    my_team_hint: str | None
+    pruned: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        r = self.result
+        return {"state": str(self.state_path), "roster_snapshot": self.snapshot_id,
+                "rosters_fetched_at": self.fetched_at.isoformat(sep=" ", timespec="minutes"),
+                "teams": [t.to_dict() for t in r.teams],
+                "lega_not_in_room": [list(x) for x in r.lega_not_in_room],
+                "mirror_unmatched": [list(x) for x in r.mirror_unmatched], "ambiguous": list(r.ambiguous),
+                "my_team": None if r.my_team is None else {"lega_team_id": r.my_team[0], "name": r.my_team[1],
+                                                             "leaf": self.my_team_leaf},
+                "my_team_hint": self.my_team_hint,
+                "player_names": {str(k): v for k, v in self.names.items()},
+                "clean": r.clean, "pruned": self.pruned}
+
+
+def verify_transfer(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, state_file: Path | None = None,
+                    prune: bool = False) -> VerifyReport:
+    """The lega's latest roster snapshot against the mirrored auction. Reports;
+    `--prune` deletes data/asta-state.json alone, on a clean diff, never a
+    `--state` file and never anything under records/."""
+    if prune and state_file is not None:
+        raise UsageError("--prune removes data/asta-state.json only; it does not apply to a --state file")
+    stored, path = _stored(paths, state_file, fresh=False)
+    if stored is None:
+        raise NotReady(f"no state file at {path} -- nothing mirrored to verify; pass --state records/asta/<file>.json")
+    state = state_from_snapshot(stored.snapshot)
+    mirror: dict[int, dict[int, int]] = {t.team_id: {} for t in stored.snapshot.teams}
+    for pick in state.picks.values():
+        mirror.setdefault(pick.team_id, {})[pick.player_id] = pick.cost
+    labels = {t.team_id: t.label for t in stored.snapshot.teams}
+    labels.update(stored.mapping.nicks)
+    snapshot = con.execute("SELECT snapshot_id, fetched_at, teams FROM roster_snapshots "
+                           "ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+    if snapshot is None:
+        raise NotReady("no roster snapshot -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
+    snapshot_id, fetched_at, teams_json = snapshot
+    teams = json.loads(teams_json) if isinstance(teams_json, str) else teams_json
+    lega: dict[int, dict[int, int]] = {int(t["id"]): {} for t in teams}      # every team, the empty ones included
+    names: dict[int, str] = {int(t["id"]): str(t["name"]) for t in teams}
+    for team_id, player_id, cost in con.execute(
+            "SELECT team_id, player_id, cost FROM v_rosters_current").fetchall():
+        lega.setdefault(int(team_id), {})[int(player_id)] = int(cost)
+    if not any(lega.values()):
+        raise NotReady("the lega's rosters are all empty -- the admin has not transferred the auction yet")
+    settings = stored.snapshot.settings or {}
+    min_bid = _min_bid(settings)
+    result = reconcile(mirror, lega, me=stored.mapping.mine, labels=labels, names=names, min_bid=min_bid)
+    player_names = {int(pid): str(name) for pid, name in con.execute(
+        "SELECT player_id, name FROM v_players_current").fetchall()}
+    leaf = None
+    if result.my_team is not None:
+        note = (f"{result.my_team[1]} -- the lega team the mirror's 'me' reconciled with, player for player")
+        # A league team name is free text off the room, and a plain YAML scalar
+        # breaks on a ": " inside it (reads as a nested key) or on a leading
+        # quote (reads as the start of a quoted scalar). Single-quoting the
+        # whole note -- with embedded "'" doubled, the YAML escape for it --
+        # is safe against both, whatever the team is called.
+        quoted_note = "'" + note.replace("'", "''") + "'"
+        leaf = (f"my_team:\n  value: {result.my_team[0]}\n  source: verify-transfer\n"
+                f"  verified_on: {utc_now():%Y-%m-%d}\n  note: {quoted_note}")
+    hint = None
+    if result.my_team is None and not mirror.get(stored.mapping.mine):
+        # The one case worth explaining plainly, distinct from a genuine
+        # UNMATCHED room team (already reported): `me` bought nothing, so it
+        # has zero overlap with everything and cannot be told apart from a
+        # stranger's empty team by roster alone (review finding 1,
+        # 2026-09-04) -- no fallback infers it, so the maintainer has to say
+        # which lega team is his.
+        hint = ("my room team ('me') bought nothing in the room, so it has no overlap to match by; "
+               "paste the lega team id into league.yml's my_team leaf by hand")
+    pruned = False
+    if prune:
+        if not result.clean:
+            raise TransferMismatch(f"the diff is not clean ({_diff_summary(result)}); nothing deleted -- "
+                                   f"see `asta verify-transfer` without --prune for the detail")
+        path.unlink()
+        pruned = True
+    return VerifyReport(path, int(snapshot_id), fetched_at, result, player_names, leaf, hint, pruned)
+
+
+@dataclass(frozen=True)
+class MarketReport:
+    run_id: str
+    scenario: str
+    source: str
+    snapshot_id: int
+    classes: list[dict[str, Any]]
+    overall: dict[str, Any]
+    unpriced: dict[str, int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"run_id": self.run_id, "scenario": self.scenario, "source": self.source, "snapshot_id": self.snapshot_id,
+                "classes": list(self.classes), "overall": dict(self.overall), "unpriced": dict(self.unpriced)}
+
+
+def _ratio(num: float, den: float) -> float | None:
+    return None if not den else num / den
+
+
+_CLOSING_STATE_STAMP = re.compile(r"(\d{8}T\d{6}Z)\.json$")
+
+
+def _closing_state_key(path: Path) -> float:
+    """The instant a closing-state filename names, as epoch seconds: parsed
+    from its own `<session_code>-<UTC stamp>.json` stamp when the name has
+    one, the file's mtime otherwise. Filenames are shaped
+    `<session_code>-<stamp>.json` (`copy_to_records`), and a session code can
+    itself contain digits and hyphens (`FA-rb8-460-...`) -- sorting the
+    FILENAMES lexicographically, as this used to, sorts by the session code
+    first and the stamp only as a tie-break within one code, so a later
+    season's differently-prefixed session ("AB-xyz-...") could lexically
+    precede an earlier one ("FA-rb8-...") and be skipped as "not the
+    newest" (review finding 6, 2026-09-04)."""
+    match = _CLOSING_STATE_STAMP.search(path.name)
+    if match:
+        try:
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+        except ValueError:
+            pass
+    return path.stat().st_mtime
+
+
+def _newest_closing_state(records_dir: Path) -> Path | None:
+    files = [p for p in (records_dir / "asta").glob("*.json") if not p.name.endswith("-bids.json")]
+    return max(files, key=_closing_state_key, default=None)
+
+
+def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: str | None = None,
+                  scenario: str | None = None) -> MarketReport:
+    """What the room paid over what the run expected, per class, off the
+    earliest non-empty roster snapshot of the season (spec: `v_market_prices`).
+    The run and scenario each default independently to the pair the newest
+    closing state under records/asta names -- the board the night was priced
+    against -- and `source` reports where *each half* actually came from, so
+    a flag pinning one of the two while the other is defaulted never reads
+    as if both were pinned, or both defaulted from the same place."""
+    # run_source/scenario_source are tracked separately, never folded into one
+    # variable early: `--run` with no `--scenario` and no closing state must
+    # not claim the scenario was pinned too (or vice-versa) -- and a closing
+    # state that only fills the *other* half must not be credited for the one
+    # that was already pinned by flag.
+    run_source = "--run" if run_id is not None else None
+    scenario_source = "--scenario" if scenario is not None else None
+    if run_id is None or scenario is None:
+        record = _newest_closing_state(paths.records)
+        if record is not None:
+            # `records/asta/` is committed and permanent; after the next
+            # STATE_VERSION bump an old record here becomes unreadable, and a
+            # bare `read_state` would then escape `_asta_errors` as a
+            # traceback with exit 1 instead of the exit-3 NotReady every
+            # other reader of a state file produces (`_stored`,
+            # `close_auction`) -- review finding 8, 2026-09-04.
+            try:
+                stored = read_state(record)
+            except StateFileError as exc:
+                raise NotReady(str(exc)) from None
+            label = (record.relative_to(paths.records.parent).as_posix()
+                     if record.is_relative_to(paths.records.parent) else str(record))
+            if run_id is None:
+                run_id, run_source = stored.run_id, label
+            if scenario is None:
+                scenario, scenario_source = stored.scenario, label
+    if run_id is None:
+        run_id = newest_run_id(con)
+        run_source = "the newest run"
+        if run_id is None:
+            raise NotReady("no valuation run -- run `fantaclaude rank`")
+    if scenario is None:
+        row = con.execute("SELECT scenarios[1] FROM valuation_runs WHERE run_id = ?", [run_id]).fetchone()
+        if row is None:
+            raise NotReady(f"run {run_id!r} is not in valuation_runs")
+        scenario = str(row[0])
+        scenario_source = "the run's default scenario"
+    # Equal halves (both pinned by the same closing state file) collapse to
+    # one label rather than doubling it; unequal halves are shown side by
+    # side so a mixed pair -- one pinned by flag, the other defaulted --
+    # never gets misreported as either "all pinned" or "all defaulted".
+    source = run_source if run_source == scenario_source else f"{run_source}/{scenario_source}"
+    # Scoped to the run's own season (as v_market_prices already joins), not
+    # `v_rosters_first` bare -- that view groups by (league_id, season_id), so
+    # an unscoped min() picks the first snapshot of ANY season once a second
+    # one exists (review finding 1, 2026-09-04). `first` is the snapshot this
+    # report is about; `unpriced` below is pinned to that same snapshot_id so
+    # the reported id and the numbers provably describe one snapshot.
+    first = con.execute(
+        "SELECT min(f.snapshot_id) FROM v_rosters_first f JOIN valuation_runs vr ON vr.season_id = f.season_id "
+        "WHERE vr.run_id = ?", [run_id]).fetchone()[0]
+    if first is None:
+        raise NotReady("no roster snapshot with players -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
+    # `v_market_prices` also groups by (league_id, season_id) through
+    # `v_rosters_first`: with two leagues in one season it carries TWO first
+    # snapshots, correctly tagged, but this query was reading both -- classes
+    # and overall would then sum two leagues' rosters beside a header naming
+    # only one snapshot (review finding 5, 2026-09-04). `snapshot_id = ?`
+    # pins it to the exact row `first` names, the same one `unpriced` below
+    # already uses, so every number in the report describes that one snapshot.
+    rows = con.execute(
+        "SELECT role_class, count(*), sum(paid), sum(expected_price), sum(coalesce(quot_mantra, 0)) FROM v_market_prices "
+        "WHERE run_id = ? AND scenario = ? AND snapshot_id = ? GROUP BY role_class ORDER BY role_class",
+        [run_id, scenario, first]).fetchall()
+    classes = [{"role_class": cls, "players": int(n), "paid": int(paid), "expected": int(exp),
+                "paid_over_expected": _ratio(paid, exp), "quotazione": int(quot),
+                "paid_over_quotazione": _ratio(paid, quot)} for cls, n, paid, exp, quot in rows]
+    n, paid, exp, quot = (sum(c[k] for c in classes) for k in ("players", "paid", "expected", "quotazione"))
+    overall = {"players": n, "paid": paid, "expected": exp, "paid_over_expected": _ratio(paid, exp),
+               "quotazione": quot, "paid_over_quotazione": _ratio(paid, quot)}
+    unpriced = con.execute(
+        "SELECT count(*), coalesce(sum(cost), 0) FROM v_rosters_first f WHERE f.snapshot_id = ? AND f.player_id NOT IN "
+        "(SELECT player_id FROM valuation_prices WHERE run_id = ? AND scenario = ?)", [first, run_id, scenario]).fetchone()
+    return MarketReport(run_id, scenario, source, int(first), classes, overall,
+                        {"players": int(unpriced[0]), "paid": int(unpriced[1])})

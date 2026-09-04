@@ -66,3 +66,14 @@ def test_the_committed_files_load():
     assert all(e.source and e.verified_on for e in entries.values())
     prefs = yaml.safe_load(preferences_yml_path().read_text(encoding="utf-8"))
     assert isinstance(prefs, dict) and "target_composition" in prefs
+
+
+def test_my_team_is_not_comparable_to_anything_the_api_says(tmp_path, mcp_fixture_json):
+    from fantaclaude.league.league_yml import cross_check, load_league_yml
+    from fantaclaude.league.settings import snapshot_from_payloads
+    path = tmp_path / "league.yml"
+    path.write_text("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    snap = snapshot_from_payloads(profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
+                                  rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
+                                  calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams"))
+    assert cross_check(load_league_yml(path), snap) == []

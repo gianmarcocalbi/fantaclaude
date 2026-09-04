@@ -612,3 +612,319 @@ def test_refresh_needs_a_running_server(real_server_proxy, monkeypatch, tmp_path
             "problems": []})
         r2 = runner.invoke(app, ["asta", "refresh"])
     assert r2.exit_code == ExitCode.OK and "1 applied" in r2.output
+
+
+from conftest import seed_rosters
+
+
+def _lega_from_state(state_file, *, added=None, price=None):
+    """The lega rosters that would match the mirrored state exactly, plus optional perturbations."""
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    teams = {}
+    for t in payload["teams"]:
+        roster = {p["player_id"]: p["cost"] for p in t["picks"]}
+        teams[1000 + int(t["id"])] = (f"lega {t['id']}", roster)
+    if added:
+        teams[added[0]][1][added[1]] = added[2]
+    if price:
+        teams[price[0]][1][price[1]] = price[2]
+    teams[1999] = ("eleventh", {})
+    return teams
+
+
+def test_verify_transfer_reports_names_my_team_and_prunes_only_on_a_clean_diff(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    # --me "0": the fixture's "host" actually bought players (2764, 2120). Team "1" ("Claude")
+    # bought nothing and is deliberately excluded here -- reconcile no longer infers `my_team`
+    # for a team with zero room overlap (review finding 1, 2026-09-04): naming the wrong lega
+    # team on a report marked clean is worse than naming none, so the leaf has to be exercised
+    # through a genuine overlap match.
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "0", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    nothing = runner.invoke(app, ["asta", "verify-transfer"])
+    assert nothing.exit_code == ExitCode.NOT_READY and "ingest rosters" in nothing.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, added=(1000, 424242, 1)))
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["clean"] is True and payload["my_team"]["lega_team_id"] == 1000
+    assert "value: 1000" in payload["my_team"]["leaf"] and "source: verify-transfer" in payload["my_team"]["leaf"]
+    assert any(t["added_after_room"] == [[424242, 1]] for t in payload["teams"])
+    # team "1" ("Claude") bought nothing and has no lega counterpart of its own to infer --
+    # its empty lega team (1001) is simply not in the room, same as the always-empty eleventh
+    assert payload["lega_not_in_room"] == [[1001, "lega 1", 0], [1999, "eleventh", 0]] and payload["pruned"] is False
+    plain = runner.invoke(app, ["asta", "verify-transfer"])
+    assert "my_team:" in plain.stdout and "clean" in plain.stdout
+
+    # a changed price: not clean, --prune refuses (exit 4) and the file stays
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    first_pick = json.loads(state_file.read_text())["teams"][0]["picks"][0]
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file, price=(1000 + json.loads(state_file.read_text())["teams"][0]["id"], first_pick["player_id"], first_pick["cost"] + 1)))
+    con.close()
+    dirty = runner.invoke(app, ["asta", "verify-transfer", "--prune"])
+    assert dirty.exit_code == ExitCode.CONFLICT and state_file.is_file() and "cost" in dirty.stderr
+
+    # clean again: --prune deletes the working file and nothing under records/
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file))
+    con.close()
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    records = sorted((tmp_path / "records" / "asta").glob("*.json"))
+    pruned = runner.invoke(app, ["asta", "verify-transfer", "--prune", "--json"])
+    assert pruned.exit_code == ExitCode.OK, pruned.output
+    assert json.loads(pruned.stdout)["pruned"] is True and not state_file.is_file()
+    assert sorted((tmp_path / "records" / "asta").glob("*.json")) == records
+    # --prune never applies to an explicit --state file
+    kept = runner.invoke(app, ["asta", "verify-transfer", "--state", str(records[0]), "--prune"])
+    assert kept.exit_code == ExitCode.USAGE and records[0].is_file()
+
+
+def test_verify_transfer_honours_the_nested_minimum_bid_shape_the_live_feed_sends(monkeypatch, tmp_path, fixture_json,
+                                                                                   mcp_fixture_json):
+    """settings.minimumBid arrives as {"type": "fixed", "value": N} (see
+    asta_session_sample.jsonl), not a bare int -- an isinstance(..., int)
+    test against the raw value is always False for that shape and silently
+    falls back to 1 with no error (review finding 2, 2026-09-04), which is
+    only coincidentally right for a league whose minimum happens to be 1.
+    Here the minimum is 5: an lega extra at exactly 5 is tolerated as bought
+    after the room, one at 6 is not."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "0", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    payload["feed"]["settings"]["minimumBid"] = {"type": "fixed", "value": 5}
+    state_file.write_text(json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    lega = _lega_from_state(state_file, added=(1000, 500001, 5))
+    lega[1000][1][500002] = 6
+    seed_rosters(con, 2578630, 21, lega)
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    team = next(t for t in json.loads(result.stdout)["teams"] if t["lega_team_id"] == 1000)
+    assert team["added_after_room"] == [[500001, 5]] and team["extra_in_lega"] == [[500002, 6]] and not team["clean"]
+
+
+def test_a_me_that_bought_nothing_gets_a_plain_hint_instead_of_a_guessed_my_team(monkeypatch, tmp_path, fixture_json,
+                                                                                  mcp_fixture_json):
+    """--me "1" is the fixture's "Claude", who bought nothing: reconcile can
+    no longer infer `my_team` for a zero-overlap team (review finding 1,
+    2026-09-04), so the report has to say plainly why, rather than silently
+    saying nothing at all."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    state_file = tmp_path / "data" / "asta-state.json"
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_rosters(con, 2578630, 21, _lega_from_state(state_file))
+    con.close()
+    result = runner.invoke(app, ["asta", "verify-transfer", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["my_team"] is None
+    assert payload["my_team_hint"] is not None and "bought nothing" in payload["my_team_hint"]
+    plain = runner.invoke(app, ["asta", "verify-transfer"])
+    assert plain.exit_code == ExitCode.OK and "bought nothing" in plain.stdout
+
+
+def test_market_prices_reports_paid_over_expected_per_class_for_the_run_the_night_was_priced_against(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: (cls, exp) for pid, cls, exp in con.execute(
+        "SELECT player_id, role_class, expected_price FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pids = sorted(prices)
+    # the earliest non-empty snapshot is the auction; a later one (a mid-season swap) must not move the numbers
+    seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[1]: 50, 795: 3}), 2: ("B", {pids[2]: 20})})
+    seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[3]: 999}), 2: ("B", {pids[2]: 20})})
+    con.close()
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == run_id and payload["scenario"] == "balanced" and payload["source"] == "--run/--scenario"
+    assert payload["overall"]["players"] == 3 and payload["overall"]["paid"] == 170
+    expected = sum(prices[p][1] for p in pids[:3])
+    assert payload["overall"]["expected"] == expected
+    assert payload["overall"]["paid_over_expected"] == pytest.approx(170 / expected) if expected else payload["overall"]["paid_over_expected"] is None
+    assert payload["unpriced"] == {"players": 1, "paid": 3}
+    assert {c["role_class"] for c in payload["classes"]} == {prices[p][0] for p in pids[:3]}
+    # without flags: the pair the newest closing state under records/asta names
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    defaulted = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert defaulted["run_id"] == run_id and defaulted["source"].startswith("records/asta/FA-test")
+    plain = runner.invoke(app, ["asta", "market-prices"])
+    assert plain.exit_code == ExitCode.OK and "paid/expected" in plain.stdout and "unpriced" in plain.stdout
+
+
+def test_market_prices_source_reports_each_half_of_the_pair_independently(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`source` must never claim a half was pinned (or defaulted) that wasn't
+    -- a `--run` with no `--scenario` and no closing state is the regression
+    this covers: the run is pinned but the scenario is the run's own
+    default, and the two must be reported as two different provenances, not
+    folded into the flag-pair literal."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: cls for pid, cls in con.execute(
+        "SELECT player_id, role_class FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pid = min(prices)
+    seed_rosters(con, 2578630, 21, {1: ("A", {pid: 10}), 2: ("B", {})})
+    con.close()
+
+    # --run alone, nothing under records/asta yet: the scenario comes from the
+    # run's own default, not from a pinned --scenario -- the bug this guards.
+    only_run = json.loads(runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--json"]).stdout)
+    assert only_run["run_id"] == run_id and only_run["scenario"] == "balanced"
+    assert only_run["source"] == "--run/the run's default scenario"
+
+    # --scenario alone: the run comes from the newest-run fallback, not from --run.
+    only_scenario = json.loads(runner.invoke(app, ["asta", "market-prices", "--scenario", "balanced", "--json"]).stdout)
+    assert only_scenario["run_id"] == run_id and only_scenario["source"] == "the newest run/--scenario"
+
+    # neither flag: both halves fall back independently, from two different rules.
+    neither = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert neither["source"] == "the newest run/the run's default scenario"
+
+    # a closing state now exists: --run alone takes the *scenario* half from it
+    # (the run stays pinned by flag) -- a mixed pair, not "all from the file".
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    mixed = json.loads(runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--json"]).stdout)
+    run_half, _, scenario_half = mixed["source"].partition("/")
+    assert run_half == "--run" and scenario_half.startswith("records/asta/FA-test")
+
+    # neither flag, closing state present: both halves come from the same file
+    # -- the existing single-label case (no field/field duplication) still holds.
+    both_from_state = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert both_from_state["source"].startswith("records/asta/FA-test") and both_from_state["source"].count(".json") == 1
+
+
+def test_market_prices_needs_an_auction_in_the_rosters(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    result = runner.invoke(app, ["asta", "market-prices"])
+    assert result.exit_code == ExitCode.NOT_READY and "ingest rosters" in result.stderr
+
+
+def test_market_prices_unpriced_and_snapshot_id_are_scoped_to_the_runs_own_season(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`v_rosters_first` groups by (league_id, season_id), so an unscoped
+    read of it picks up the first snapshot of EVERY season once a second one
+    exists -- `classes`/`overall` are already season-scoped through
+    `v_market_prices`'s join, but `unpriced` and the reported `snapshot_id`
+    were not (review finding 1, 2026-09-04). A next season's roster snapshot
+    must move neither: `unpriced` must count only the run's own season's
+    first snapshot, and `snapshot_id` must name that same snapshot."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: cls for pid, cls in con.execute(
+        "SELECT player_id, role_class FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pid = min(prices)
+    # season 21 (the run's own season, matching the fixture): one priced
+    # player, one unpriced -- ground truth is 1 unpriced player, 20 credits.
+    this_season = seed_rosters(con, 2578630, 21, {1: ("A", {pid: 10, 424242: 20}), 2: ("B", {})})
+    # a later season's first snapshot: two more players, unpriced under any
+    # run (there is no valuation for either) -- must not be counted, and its
+    # snapshot must not be the one reported.
+    other_season = seed_rosters(con, 2578630, 22, {1: ("A", {900001: 15, 900002: 95}), 2: ("B", {})})
+    con.close()
+
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["snapshot_id"] == this_season
+    assert payload["snapshot_id"] != other_season
+    assert payload["unpriced"] == {"players": 1, "paid": 20}
+
+
+def test_market_prices_classes_and_overall_are_scoped_to_one_league_not_two(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`v_rosters_first` groups by (league_id, season_id), not season alone
+    -- with two leagues sharing one season it yields two "first" snapshots,
+    each correctly tagged with its own `league_id`. `market_prices` already
+    pins `snapshot_id`/`unpriced` to the single earliest one across both
+    (`first`), but `classes`/`overall` read `v_market_prices` scoped only by
+    `run_id`/`scenario`, so a second league's roster in the same season was
+    silently summed in beside it -- a header naming one snapshot next to
+    totals describing two (review finding 5, 2026-09-04). league 9999999's
+    roster here must not move `overall` or `classes` at all."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: (cls, exp) for pid, cls, exp in con.execute(
+        "SELECT player_id, role_class, expected_price FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pids = sorted(prices)
+    # this league's first snapshot (lower snapshot_id, inserted first): the
+    # one the report is about.
+    this_league = seed_rosters(con, 2578630, 21, {1: ("A", {pids[0]: 100, pids[1]: 50})})
+    # a different league, the SAME season: must not be counted anywhere in
+    # `classes`/`overall`, and its snapshot must not be the one reported.
+    other_league = seed_rosters(con, 9999999, 21, {1: ("X", {pids[2]: 999})})
+    con.close()
+
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["snapshot_id"] == this_league and payload["snapshot_id"] != other_league
+    expected = sum(prices[p][1] for p in pids[:2])
+    assert payload["overall"]["players"] == 2 and payload["overall"]["paid"] == 150
+    assert payload["overall"]["expected"] == expected
+    assert payload["unpriced"] == {"players": 0, "paid": 0}
+    assert sum(c["players"] for c in payload["classes"]) == 2
+
+
+def test_newest_closing_state_sorts_by_the_parsed_stamp_not_the_filename(tmp_path):
+    """Filenames are `<session_code>-<UTC stamp>.json` (`copy_to_records`) --
+    sorting the FULL FILENAME lexicographically sorts by the session code
+    first and the stamp only as a tie-break within one code. A next
+    season's differently-prefixed session ("AB-xyz-...") can then lexically
+    precede an earlier one ("FA-rb8-..."), so `sorted(...)[-1]` picked the
+    older FA-rb8 file, not the actually newer AB-xyz one (review finding 6,
+    2026-09-04)."""
+    from fantaclaude.commands.asta import _newest_closing_state
+
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    older = asta_dir / "FA-rb8-460-20260903T232031Z.json"
+    newer = asta_dir / "AB-xyz-20270901T090000Z.json"
+    older.write_text("{}", encoding="utf-8")
+    newer.write_text("{}", encoding="utf-8")
+    assert max(older, newer) == older                     # the lexicographic trap the fix avoids
+    assert _newest_closing_state(tmp_path / "records") == newer
+    # a `-bids.json` sidecar, even one with a later stamp, is never picked
+    (asta_dir / "AB-xyz-bids.json").write_text("{}", encoding="utf-8")
+    (asta_dir / "ZZ-latest-99999999T000000Z-bids.json").write_text("{}", encoding="utf-8")
+    assert _newest_closing_state(tmp_path / "records") == newer
+
+
+def test_newest_closing_state_falls_back_to_mtime_when_the_name_does_not_parse(tmp_path):
+    """A name with no `<stamp>.json` suffix at all still has to sort
+    somewhere -- the file's own mtime, not a crash and not an arbitrary
+    place in a lexicographic sort."""
+    from fantaclaude.commands.asta import _newest_closing_state
+
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    old_but_parses = asta_dir / "FA-x-20200101T000000Z.json"
+    old_but_parses.write_text("{}", encoding="utf-8")
+    unparseable = asta_dir / "not-a-stamped-name.json"
+    unparseable.write_text("{}", encoding="utf-8")         # written just now: newer by mtime
+    assert _newest_closing_state(tmp_path / "records") == unparseable
+
+
+def test_market_prices_maps_an_unreadable_closing_state_to_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`records/asta/` is committed and permanent; after the next
+    STATE_VERSION bump an old record there becomes unreadable. `_stored` and
+    `close_auction` both wrap `read_state`'s `StateFileError` as `NotReady`
+    (exit 3) -- `market_prices` did not, so the same file would escape
+    `_asta_errors` as a traceback with exit 1 instead (review finding 8,
+    2026-09-04). Simulated here with a `version` the current `read_state`
+    does not recognise, standing in for the future bump."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    asta_dir = tmp_path / "records" / "asta"
+    asta_dir.mkdir(parents=True)
+    (asta_dir / "FA-test-20260903T232031Z.json").write_text(
+        json.dumps({"version": 999}), encoding="utf-8")
+    result = runner.invoke(app, ["asta", "market-prices"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    assert "FA-test" in result.stderr and "version" in result.stderr

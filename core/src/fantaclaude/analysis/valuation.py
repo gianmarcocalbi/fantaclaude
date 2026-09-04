@@ -80,9 +80,10 @@ from fantaclaude.model.seasons import SERIE_A_GIORNATE
 from fantaclaude.timeutil import to_db
 from fantaclaude.values import is_number, json_safe
 
-# "2" since 2026-09-04: the appearance rate carries a prior and its estimation
-# variance (projection.py). A run under "1" is a different model, not a tweak.
-MODEL_VERSION = "2"
+# "3" since 2026-09-04: the club penalty rate falls back to the club's own
+# most recent completed season, then to the league average (open question
+# 11). "2" carried the appearance-rate prior.
+MODEL_VERSION = "3"
 RISK_APPETITES = ("cautious", "balanced", "aggressive")
 QUANTILE_OF = {"cautious": "p25", "balanced": "p50", "aggressive": "p75"}
 
@@ -338,24 +339,25 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             warnings.append(_taker_warning(profile, name, match, candidates))
         takers[short] = match.player_id
         team_name = candidates[0].team_name
-        if match.player_id is not None and team_name not in history.penalty_rate_clubs:
+        if match.player_id is not None and history.penalty_rate_source(team_name) is None:
             # The club penalty rate is keyed by the voti workbook's own club
             # string and looked up by the listone's team_name: two free-text
             # sources, no id, no alias table on the voti side. A promoted club,
-            # a rename or "Hellas Verona" against "Verona" all miss. The
-            # projection no longer redistributes on a rate it never observed
-            # (finding A), so the taker is not punished for the miss -- but the
-            # profile's statement about who takes the penalties still has no
-            # effect, and a rename or a spelling difference is a fixable join,
-            # not a fact about the club, so it is still named. Only warned when
-            # a taker actually resolved: that is the only case where the rate
-            # is read (finding 12). A club the workbook does name but that took
-            # no penalty is a real 0.0, so it is in penalty_rate_clubs and
-            # stays quiet.
-            warnings.append(f"{profile.team}: the voti history never names {team_name!r} (promoted, renamed, or "
-                            f"spelled differently there), so it has no observed penalty rate; penalty taker "
-                            f"{name!r} therefore changes nothing and every {team_name} player keeps the penalties "
-                            f"his own history records. Fix the spelling if the club is only spelled differently")
+            # a rename or "Hellas Verona" against "Verona" all miss. Model 3
+            # (open question 11) falls back a club with no own-history match to
+            # the league average rather than acting as if there were no rate at
+            # all -- but the profile's statement about who takes the penalties
+            # still has no effect on the club's own history, and a rename or a
+            # spelling difference is a fixable join, not a fact about the club,
+            # so it is still named. Only warned when a taker actually resolved:
+            # that is the only case where the rate is read (finding 12). A club
+            # the workbook does name but that took no penalty is a real 0.0, so
+            # penalty_rate_source finds it and stays quiet.
+            rate = history.penalty_rate(team_name)
+            warnings.append(f"{profile.team}: the voti history never names {team_name!r} (promoted, renamed, or spelled "
+                            f"differently there); its penalty taker {name!r} is priced on the league-average rate "
+                            f"{'-' if rate is None else f'{rate:.2f}'} per giornata. Fix the spelling if the club is only "
+                            f"spelled differently")
     inputs: list[PlayerInputs] = []
     for player_id, name, team_name, team_short, classic_role, mantra_roles, quot, age in rows:
         roles = frozenset(Role(r) for r in mantra_roles)
@@ -367,7 +369,8 @@ def build_inputs(con: duckdb.DuckDBPyConnection, history: History, profiles: lis
             quotazione=int(quot or 0), age=None if age is None else int(age), lines=history.lines_for(int(player_id)),
             rotation_factor=profile.rotation_factor if profile else 1.0, note=notes.get(int(player_id)),
             penalty_taker=taker == int(player_id), club_has_taker=taker is not None,
-            club_penalty_rate=history.penalty_rate(str(team_name))))
+            club_penalty_rate=history.penalty_rate(str(team_name)),
+            club_penalty_rate_season=history.penalty_rate_source(str(team_name))))
     names_of = {int(pid): str(team_name) for pid, _, team_name, *_ in rows}
     shorts_of = {int(pid): str(team_short) for pid, _, _, team_short, *_ in rows}
     for note in orphan_notes(notes, names_of):

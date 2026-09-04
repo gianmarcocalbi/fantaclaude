@@ -70,26 +70,25 @@ class History:
     giornate: dict[int, int]
     lines: dict[int, tuple[SeasonLine, ...]] = field(default_factory=dict)
     priors: dict[str, RolePrior] = field(default_factory=dict)
+    # Every club named in any completed back season, zeroes included, at the
+    # rate of the most recent completed season naming it (open question 11): a
+    # promoted club's own history is the closest evidence, and only a club in
+    # no completed season at all falls back to the league average.
     club_penalty_rate: dict[str, float] = field(default_factory=dict)
-    # Every club the rate's season named, those that took no penalty included.
-    # club_penalty_rate cannot answer that on its own -- it drops the zeroes --
-    # and the caller has to tell "this club took none" from "this club is
-    # spelled differently here than in the listone, so the lookup misses and
-    # every penalty silently becomes zero" (finding 12).
-    penalty_rate_clubs: frozenset[str] = frozenset()
+    penalty_rate_season: dict[str, int] = field(default_factory=dict)
+    league_penalty_rate: float | None = None
 
     def lines_for(self, player_id: int) -> tuple[SeasonLine, ...]:
         return self.lines.get(player_id, ())
 
     def penalty_rate(self, team: str) -> float | None:
-        """The club's penalties per giornata, or None when the season the rate
-        is read off never named the club -- absent, not zero. The two are
-        different facts and the projection treats them differently (finding
-        A): a club that played and took none is a real 0.0, a club promoted
-        into this season has no observation at all."""
-        if team not in self.penalty_rate_clubs:
-            return None
-        return self.club_penalty_rate.get(team, 0.0)
+        """The club's own penalties per giornata, else the league average, else
+        None when no completed season is ingested at all."""
+        return self.club_penalty_rate.get(team, self.league_penalty_rate)
+
+    def penalty_rate_source(self, team: str) -> int | None:
+        """The season the rate was read from; None for the league average."""
+        return self.penalty_rate_season.get(team)
 
     @property
     def giornate_played(self) -> int:
@@ -157,10 +156,16 @@ def load_history(con: duckdb.DuckDBPyConnection, *, sheet: str, bm: BonusMalus, 
         priors[role] = RolePrior(role, fmean(fvs), pvariance(fvs) ** 0.5 if len(fvs) > 1 else 0.0, fmean(votes),
                                   fmean(rates) if rates else 0.0, len(pairs))
 
-    last_back = max((s for s in seasons if s != current_season and s in giornate), default=None)
-    rated = last_back is not None and bool(giornate.get(last_back))
-    club_rate = {team: n / giornate[last_back] for team, n in club_penalties[last_back].items() if n} if rated else {}
-    rate_clubs = frozenset(club_penalties[last_back]) if rated else frozenset()
+    completed = sorted(s for s in seasons if s != current_season and giornate.get(s))
+    club_rate: dict[str, float] = {}
+    rate_season: dict[str, int] = {}
+    for season in completed:                          # ascending: the most recent season naming a club wins
+        for team, n in club_penalties[season].items():
+            club_rate[team] = n / giornate[season]
+            rate_season[team] = season
+    last_back = completed[-1] if completed else None
+    league_rate = (fmean(n / giornate[last_back] for n in club_penalties[last_back].values())
+                   if last_back is not None and club_penalties[last_back] else None)
     return History(sheet=sheet, current_season=current_season, seasons=seasons, giornate=giornate,
                     lines={pid: tuple(ls) for pid, ls in lines.items()}, priors=priors, club_penalty_rate=club_rate,
-                    penalty_rate_clubs=rate_clubs)
+                    penalty_rate_season=rate_season, league_penalty_rate=league_rate)

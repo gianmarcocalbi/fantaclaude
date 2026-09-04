@@ -138,6 +138,15 @@ def _literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def write_parquet(con: duckdb.DuckDBPyConnection, query: str, path: Path) -> bool:
+    """COPY `query` to `path` as parquet unless the file exists; records are never rewritten."""
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con.execute(f"COPY ({query}) TO {_literal(path.as_posix())} (FORMAT PARQUET)")
+    return True
+
+
 def export_records(con: duckdb.DuckDBPyConnection, run_id: str, rules_hash: str, records_dir: Path) -> list[Path]:
     """Parquet copies of the run's rows and of the settings row it used; a file that exists is left alone."""
     run, rules = _literal(run_id), _literal(rules_hash)
@@ -148,11 +157,4 @@ def export_records(con: duckdb.DuckDBPyConnection, run_id: str, rules_hash: str,
         (records_dir / "league_settings" / f"{rules_hash}.parquet",
          f"SELECT * FROM league_settings WHERE rules_hash = {rules} ORDER BY snapshot_id DESC LIMIT 1"),
     ]
-    written: list[Path] = []
-    for path, query in targets:
-        if path.exists():
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        con.execute(f"COPY ({query}) TO {_literal(path.as_posix())} (FORMAT PARQUET)")
-        written.append(path)
-    return written
+    return [path for path, query in targets if write_parquet(con, query, path)]

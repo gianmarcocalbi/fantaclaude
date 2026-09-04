@@ -166,6 +166,15 @@ never both.
 
 ### Ownership — unresolved, with the search space recorded
 
+**Resolved 2026-09-04, after the auction was transferred into the lega:** the
+roster is on the team object itself. `cal` is the owned player ids,
+semicolon-separated, and `cs` the price paid for each in the same order, summing
+exactly to `crs`; both are empty strings until the admin transfers. Both sit in
+the "explicitly unknown" list below, where they stay as a record of what the
+search looked like before the field had a value. No availability filter is added
+to this MCP: `fantaclaude ingest rosters` reads the fields off the same
+`teams` pages `list_teams` already walks (fantaclaude design, open question 9).
+
 Determining which players are already taken is **not currently possible**, and
 the negative results matter more than the positive ones because each re-probe
 costs live-API exposure on a real account:

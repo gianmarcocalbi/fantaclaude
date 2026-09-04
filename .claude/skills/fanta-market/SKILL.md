@@ -31,6 +31,11 @@ Three rules, defended hard:
   where we disagree with the market: each line is either the edge or a bug,
   and it is read by hand before the auction.
 
+After an auction, `fantaclaude asta market-prices` reports paid over expected
+per class for the run the night was priced against (2026-27: Pc about 1.25,
+C near parity, A/M/Por 0.75–0.8, Dc/E/W about 0.63). A per-class multiplier
+goes into `pricing.yml` by hand and is a new model.
+
 ## Modes
 
 ### `rank`

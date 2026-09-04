@@ -28,6 +28,20 @@ def _seed(db):
     seed_advanced(db, 20, [(2764, 170, 2, 1.4, 0.3)])
 
 
+def _seed_with_19(db):
+    """`_seed` plus a season the history reads as older -- season 19 is in
+    `back_seasons(21, 3)` -- naming a club (Venezia) that season 20 does not,
+    so the penalty-rate test can tell "the club's own older season" from "the
+    league average" (open question 11)."""
+    _seed(db)
+    # season 19: Venezia played it and took two penalties in two giornate; Roma took one
+    seed_voti(db, 19, 1, [(4001, "Pohjanpalo", "Venezia", "A", 7.0, {"pen_scored": 1}),
+                          (5841, "Svilar", "Roma", "P", 6.0, {})])
+    seed_voti(db, 19, 2, [(4001, "Pohjanpalo", "Venezia", "A", 6.5, {"pen_missed": 1}),
+                          (5841, "Svilar", "Roma", "P", 6.0, {"pen_saved": 1}),
+                          (4002, "Dybala", "Roma", "A", 7.0, {"pen_scored": 1})])
+
+
 def test_load_history_builds_season_lines_under_the_league_scoring(db, bm):
     _seed(db)
     history = load_history(db, sheet="Fantacalcio", bm=bm, current_season=21, back=3)
@@ -69,18 +83,39 @@ def test_role_priors_and_club_penalties_come_from_the_back_seasons(db, bm):
     assert prior.presenze_rate == pytest.approx(2 / 3)                          # Lautaro: 2 voti in 3 giornate
     assert history.priors["D"].fantavoto_mean == pytest.approx(((6 - 0.5) + (5.5 - 2)) / 2)
     assert "ALL" not in history.priors and "C" not in history.priors           # no rows, no prior
-    assert history.club_penalty_rate == {"Inter": pytest.approx(1 / 3), "Atalanta": pytest.approx(1 / 3)}
-    # penalty_rate() tells "played and took none" from "never named at all":
-    # the projection redistributes on the first and must not act on the second
-    # (finding A -- Frosinone, Monza and Venezia have no back season here).
+    # club_penalty_rate now names every club the back season named, zeroes
+    # included (Roma and Lazio took none, but they are in the workbook).
+    assert history.club_penalty_rate == {"Inter": pytest.approx(1 / 3), "Atalanta": pytest.approx(1 / 3),
+                                         "Roma": 0.0, "Lazio": 0.0}
+    assert history.penalty_rate_season == {"Inter": 20, "Atalanta": 20, "Roma": 20, "Lazio": 20}
     assert history.penalty_rate("Inter") == pytest.approx(1 / 3)
     assert history.penalty_rate("Roma") == 0.0                                # in the season, took no penalty
-    assert history.penalty_rate("Venezia") is None                            # never played it
+    # never named at all (Venezia has no back season here): the league average
+    # over last_back's clubs, not None -- open question 11
+    assert history.penalty_rate("Venezia") == pytest.approx(history.league_penalty_rate)
+    assert history.penalty_rate_source("Venezia") is None
+
+
+def test_penalty_rate_falls_back_to_the_clubs_own_older_season_then_the_league_average(db, bm):
+    _seed_with_19(db)
+    history = load_history(db, sheet="Fantacalcio", bm=bm, current_season=21, back=3)
+    # the most recent completed season a club appears in decides its rate (open question 11)
+    assert history.club_penalty_rate == {"Inter": pytest.approx(1 / 3), "Atalanta": pytest.approx(1 / 3),
+                                         "Roma": 0.0, "Lazio": 0.0, "Venezia": pytest.approx(1.0)}
+    assert history.penalty_rate_season == {"Inter": 20, "Atalanta": 20, "Roma": 20, "Lazio": 20, "Venezia": 19}
+    assert history.penalty_rate("Inter") == pytest.approx(1 / 3) and history.penalty_rate_source("Inter") == 20
+    assert history.penalty_rate("Roma") == 0.0 and history.penalty_rate_source("Roma") == 20     # season 20 wins over 19
+    assert history.penalty_rate("Venezia") == pytest.approx(1.0) and history.penalty_rate_source("Venezia") == 19
+    # a club in no completed season at all: the league average over last_back's clubs, and no season
+    assert history.league_penalty_rate == pytest.approx((1 / 3 + 1 / 3 + 0.0 + 0.0) / 4)
+    assert history.penalty_rate("Frosinone") == pytest.approx(history.league_penalty_rate)
+    assert history.penalty_rate_source("Frosinone") is None
 
 
 def test_an_empty_history_is_empty_not_broken(db, bm):
     history = load_history(db, sheet="Fantacalcio", bm=bm, current_season=21)
     assert history.lines_for(2764) == () and history.priors == {} and history.giornate_played == 0
+    assert history.penalty_rate("Inter") is None and history.league_penalty_rate is None
 
 
 def test_event_columns_are_real_columns_of_the_view_the_query_interpolates_them_into(db):

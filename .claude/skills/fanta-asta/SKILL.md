@@ -90,8 +90,35 @@ so closing twice over an unchanged state file writes one record and not two
 identical ones under two names. Nothing offline knows the session code, so
 pass `--session`: without it the copy is named `session-<UTC stamp>.json`,
 which is a record nobody can tie to a night (and it names one file, so it may
-not contain `/`). The file is deleted only once `verify-transfer` (a
-post-auction task, open question 9) confirms the lega.
+not contain `/`). The copy is permanent; once the admin has transferred the
+auction, `fantaclaude asta verify-transfer` checks the lega against it and
+`--prune` removes `data/asta-state.json` alone (Phase 3a).
+
+### `verify-transfer`
+
+`fantaclaude asta verify-transfer [--state records/asta/<file>.json] [--prune]`
+— once the admin has transferred the auction into the lega and
+`fantaclaude ingest rosters` has run once, the lega's rosters against the
+mirrored room. Teams are matched by roster overlap, never by name (four of
+ten labels lied on 2026-09-03). The report names what it tolerates — a lega
+team in no room roster ("not in the room", fine when empty), a player added
+after the close at the minimum bid ("added after the room") — and what fails
+it: a cost that differs, a room pick the lega lacks, a dear extra. When my
+room team's roster genuinely overlaps a lega roster, it names that lega team
+as the `my_team` leaf for `league.yml`, ready to paste in; when my room team
+bought nothing there is no overlap to match by, so it does not guess — it
+prints a hint that the id has to be pasted into `league.yml`'s `my_team` leaf
+by hand. `--prune` deletes `data/asta-state.json` on a clean diff and nothing
+else, never a `--state` file and never `records/`.
+
+### `market-prices`
+
+`fantaclaude asta market-prices [--run <id>] [--scenario <name>]` — what the
+room paid over what the run expected, per class, off the earliest roster
+snapshot of the season; defaults to the run and scenario the newest closing
+state under `records/asta/` names. Read it, then write a per-class
+multiplier into `pricing.yml` by hand: that file feeds `model_hash`, so the
+command never does.
 
 ### `serve`
 

@@ -11,6 +11,9 @@ derived layer -- valuation_runs, valuations and valuation_prices, every row
 immutable, supersession a view -- and rebuilds advanced_snapshots around a
 dedupe key that covers every input of the match: the raw bytes, the aliases
 file and the listone snapshot, so a changed alias re-matches on its own.
+Version 4 (Phase 3a) adds the observed roster and probabili layers and the
+forecast layer -- lineup_runs/predictions, immutable, refused after the first
+kickoff by the writer, never by the schema.
 The DDL is additive: apply_schema upgrades an older file in place and
 refuses only a newer one; the one table whose constraint changed (version 2
 to 3) is rebuilt around its rows, because DuckDB cannot drop a constraint.
@@ -22,7 +25,7 @@ from dataclasses import asdict, dataclass
 
 import duckdb
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 ADVANCED_SNAPSHOTS_DDL = """
 CREATE TABLE IF NOT EXISTS advanced_snapshots (
@@ -258,6 +261,91 @@ CREATE TABLE IF NOT EXISTS valuation_prices (
     explain        JSON NOT NULL,
     PRIMARY KEY (run_id, scenario, player_id)
 );
+CREATE SEQUENCE IF NOT EXISTS seq_probabili_files START 1;
+CREATE TABLE IF NOT EXISTS probabili_files (
+    file_id     INTEGER PRIMARY KEY DEFAULT nextval('seq_probabili_files'),
+    season_id   INTEGER NOT NULL,
+    giornata    INTEGER NOT NULL,
+    fetched_at  TIMESTAMP NOT NULL,
+    source      VARCHAR NOT NULL,
+    raw_path    VARCHAR NOT NULL,
+    sha256      VARCHAR NOT NULL,
+    row_count   INTEGER NOT NULL,
+    matches     INTEGER NOT NULL,
+    uncompiled  INTEGER NOT NULL,
+    UNIQUE (season_id, giornata, sha256)
+);
+CREATE TABLE IF NOT EXISTS probabili (
+    file_id     INTEGER NOT NULL,
+    season_id   INTEGER NOT NULL,
+    giornata    INTEGER NOT NULL,
+    player_id   INTEGER NOT NULL,
+    name        VARCHAR NOT NULL,
+    club_slug   VARCHAR NOT NULL,
+    team_short  VARCHAR,
+    formation   VARCHAR,
+    p_start     INTEGER NOT NULL,
+    bench       BOOLEAN NOT NULL,
+    updated_at  TIMESTAMP,
+    raw         JSON NOT NULL,
+    PRIMARY KEY (file_id, player_id)
+);
+CREATE SEQUENCE IF NOT EXISTS seq_roster_snapshots START 1;
+CREATE TABLE IF NOT EXISTS roster_snapshots (
+    snapshot_id    INTEGER PRIMARY KEY DEFAULT nextval('seq_roster_snapshots'),
+    league_id      INTEGER NOT NULL,
+    season_id      INTEGER,
+    fetched_at     TIMESTAMP NOT NULL,
+    source         VARCHAR NOT NULL,
+    raw_path       VARCHAR NOT NULL,
+    sha256         VARCHAR NOT NULL,
+    matchday       INTEGER,
+    matchday_start TIMESTAMP,
+    team_count     INTEGER NOT NULL,
+    teams          JSON NOT NULL,
+    row_count      INTEGER NOT NULL,
+    UNIQUE (league_id, sha256)
+);
+CREATE TABLE IF NOT EXISTS rosters (
+    snapshot_id INTEGER NOT NULL,
+    team_id     INTEGER NOT NULL,
+    team_name   VARCHAR NOT NULL,
+    owner       VARCHAR,
+    player_id   INTEGER NOT NULL,
+    cost        INTEGER NOT NULL,
+    position    INTEGER NOT NULL,
+    PRIMARY KEY (snapshot_id, team_id, player_id)
+);
+CREATE SEQUENCE IF NOT EXISTS seq_lineup_runs START 1;
+CREATE TABLE IF NOT EXISTS lineup_runs (
+    lineup_run_id     INTEGER PRIMARY KEY DEFAULT nextval('seq_lineup_runs'),
+    season_id         INTEGER NOT NULL,
+    giornata          INTEGER NOT NULL,
+    run_id            VARCHAR NOT NULL,
+    model_hash        VARCHAR NOT NULL,
+    probabili_file_id INTEGER NOT NULL,
+    deadline          TIMESTAMP NOT NULL,
+    written_at        TIMESTAMP NOT NULL,
+    late              BOOLEAN NOT NULL,
+    my_team           INTEGER,
+    module            VARCHAR,
+    xi                JSON,
+    module_scores     JSON,
+    predictions       INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS predictions (
+    lineup_run_id     INTEGER NOT NULL,
+    season_id         INTEGER NOT NULL,
+    giornata          INTEGER NOT NULL,
+    player_id         INTEGER NOT NULL,
+    p_start_published INTEGER,
+    p_start           DOUBLE NOT NULL,
+    fv_if_plays       DOUBLE NOT NULL,
+    fv_sd             DOUBLE,
+    expected_points   DOUBLE NOT NULL,
+    source            VARCHAR NOT NULL,
+    PRIMARY KEY (lineup_run_id, player_id)
+);
 CREATE OR REPLACE VIEW v_voti_files_current AS
     SELECT f.* FROM voti_files f
     WHERE f.file_id = (SELECT max(g.file_id) FROM voti_files g
@@ -323,6 +411,35 @@ CREATE OR REPLACE VIEW v_valuation_prices_current AS
     SELECT p.* FROM valuation_prices p
     WHERE p.run_id = (SELECT run_id FROM v_valuation_runs WHERE NOT superseded
                       ORDER BY created_at DESC, run_id DESC LIMIT 1);
+CREATE OR REPLACE VIEW v_probabili_files_current AS
+    SELECT f.* FROM probabili_files f
+    WHERE f.file_id = (SELECT max(g.file_id) FROM probabili_files g
+                       WHERE g.season_id = f.season_id AND g.giornata = f.giornata);
+CREATE OR REPLACE VIEW v_probabili_current AS
+    SELECT p.* FROM probabili p
+    WHERE p.file_id IN (SELECT file_id FROM v_probabili_files_current);
+CREATE OR REPLACE VIEW v_rosters_current AS
+    SELECT r.*, s.league_id, s.season_id, s.fetched_at, s.matchday, s.matchday_start
+    FROM rosters r JOIN roster_snapshots s USING (snapshot_id)
+    WHERE r.snapshot_id = (SELECT max(snapshot_id) FROM roster_snapshots);
+CREATE OR REPLACE VIEW v_rosters_first AS
+    SELECT r.*, s.league_id, s.season_id, s.fetched_at
+    FROM rosters r JOIN roster_snapshots s USING (snapshot_id)
+    WHERE r.snapshot_id IN (SELECT min(snapshot_id) FROM roster_snapshots
+                            WHERE row_count > 0 GROUP BY league_id, season_id);
+CREATE OR REPLACE VIEW v_market_prices AS
+    SELECT f.league_id, f.season_id, f.snapshot_id, f.team_id, f.team_name, f.player_id, f.cost AS paid,
+           p.run_id, p.scenario, p.role_class, p.expected_price, p.max_p50,
+           v.name, v.classic_role, v.quot_mantra
+    FROM v_rosters_first f
+    JOIN valuation_runs vr ON vr.season_id = f.season_id
+    JOIN valuation_prices p ON p.run_id = vr.run_id AND p.player_id = f.player_id
+    LEFT JOIN valuations v ON v.run_id = p.run_id AND v.player_id = f.player_id;
+CREATE OR REPLACE VIEW v_lineup_runs_current AS
+    SELECT l.* FROM lineup_runs l
+    WHERE NOT l.late AND l.lineup_run_id = (SELECT max(m.lineup_run_id) FROM lineup_runs m
+                                            WHERE m.season_id = l.season_id AND m.giornata = l.giornata
+                                              AND NOT m.late);
 """
 
 

@@ -101,9 +101,10 @@ and rebuildable from `data/raw/`.
 appended by `fantaclaude asta adjust`; every entry needs a `reason`.
 `data/asta-state.json` is the mirrored auction as last seen: written
 atomically by the tooling, never edited by hand, copied to `records/asta/` by
-`fantaclaude asta close` and deleted only once the transfer into the lega is
-verified (`verify-transfer`, a post-auction task blocked on open question 9 —
-until it lands, nothing deletes them). Every `fantaclaude asta` command except
+`fantaclaude asta close`. That copy is permanent. The working file is removed
+only by `fantaclaude asta verify-transfer --prune`, on a clean diff against the
+lega (a Phase 3a command — until it lands, nothing deletes it). Every
+`fantaclaude asta` command except
 `serve` is local — read-only on the database, no network — so it may be
 run freely, during the auction included. `asta serve` is the one networked
 command: it subscribes to the FantaAstaLive Firebase session (anonymous

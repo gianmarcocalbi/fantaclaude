@@ -452,6 +452,117 @@ def ingest_calendar_cmd(
     emit({"calendar": [r.to_dict() for r in results]}, json_=json_, render=_render_calendar)
 
 
+def _render_probabili(payload: dict) -> str:
+    head = f"probabili {payload['season_id']} giornata {payload['giornata']}"
+    if payload["skipped_duplicate"]:
+        return f"{head}: duplicate of file {payload['file_id']} -- nothing new ({payload['raw_path']})"
+    line = f"{head}: file {payload['file_id']}, {payload['inserted']} players over {payload['matches']} compiled match(es)"
+    if payload["uncompiled"]:
+        line += f", {payload['uncompiled']} not yet compiled"
+    if payload["unknown_players"]:
+        line += f"; {payload['unknown_players']} player ids not in the current listone"
+    if payload["duplicates"]:
+        line += f"; {payload['duplicates']} listed twice (first kept)"
+    return f"{line} ({payload['raw_path']})"
+
+
+GIORNATA_ONE_OPTION = typer.Option(None, "--giornata", help="The giornata (default: the next one on the calendar).")
+
+
+@ingest_app.command("probabili")
+def ingest_probabili_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+) -> None:
+    """The probabili formazioni page (fantacalcio.it, public): every player's published p_start for the next giornata. One request."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.commands.ingest import ensure_schema
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import run_web
+    from fantaclaude.ingest.probabili import (
+        fetch_probabili,
+        parse_probabili_page,
+        record_probabili,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+    from fantaclaude.timeutil import utc_now
+
+    ensure_schema()
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)                 # the round is a pre-read; the write lock must not span the request
+    try:
+        round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+    except ForecastError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    store = RawStore(raw_dir())
+    with _source_errors():
+        raw = run_web(lambda http: fetch_probabili(http, store, label=f"{season_id}-{round_.giornata:02d}"))
+        page = parse_probabili_page(raw.path.read_text(encoding="utf-8"))
+        if page.giornata is not None and page.giornata != round_.giornata:
+            typer.echo(f"the page is giornata {page.giornata}, not {round_.giornata} -- pass --giornata {page.giornata} "
+                       f"if that is the round you want recorded", err=True)
+            raise typer.Exit(code=ExitCode.CONFLICT)
+        con = connect()
+        try:
+            apply_schema(con)
+            result = record_probabili(con, season_id, round_.giornata, page, raw)
+        finally:
+            con.close()
+    emit(result.to_dict(), json_=json_, render=_render_probabili)
+
+
+def _render_rosters(payload: dict) -> str:
+    head = f"rosters league {payload['league_id']}"
+    if payload["skipped_duplicate"]:
+        line = f"{head}: duplicate of snapshot {payload['snapshot_id']} -- nothing new"
+    else:
+        line = (f"{head}: snapshot {payload['snapshot_id']}, {payload['inserted']} players over {payload['teams']} teams"
+                f" · matchday {payload['matchday']} starts {payload['matchday_start']} UTC")
+    return "\n".join([line + f" ({payload['raw_path']})", *(f"warning: {w}" for w in payload["warnings"])])
+
+
+@ingest_app.command("rosters")
+def ingest_rosters_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Every lega team's roster and what it paid (cal/cs on the team objects), with the status read's matchday. Two reads against the real account -- run when the rosters changed, never to check."""
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.commands.ingest import (
+        NotReady,
+        current_league_id,
+        ensure_schema,
+        fetch_rosters,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.ingest.rosters_api import record_rosters
+    from fantaclaude.paths import raw_dir
+
+    ensure_schema()
+    try:
+        league_id = current_league_id()
+    except NotReady as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    store = RawStore(raw_dir())
+    raw, payload = run_with_api(lambda api: fetch_rosters(api, store, league=league))
+    with _source_errors():                      # RosterShapeError is a ValueError: exit 1
+        con = connect()
+        try:
+            apply_schema(con)
+            result = record_rosters(con, payload, raw, league_id=league_id)
+        finally:
+            con.close()
+    emit(result.to_dict(), json_=json_, render=_render_rosters)
+
+
 def _ranges(values: list[int]) -> str:
     """[1, 2, 3, 7] -> '1-3, 7'"""
     parts: list[tuple[int, int]] = []
@@ -795,6 +906,99 @@ def rank_cmd(
     emit(report.to_dict(), json_=json_, render=_render_rank)
 
 
+def _render_lineup(payload: dict) -> str:
+    # Rendering only -- the JSON shape (payload) is unchanged, a machine
+    # contract other things may read. A skim top-to-bottom answering "is
+    # this forecast sane?" must see the compilation state and any
+    # page/predictions shortfall right after the header, the way LATE
+    # already does, rather than only as the last line after two absolute
+    # parquet paths, or as an un-denominated count that reads the same at
+    # 2-of-2 and 2-of-10 (review finding 5, 2026-09-04).
+    from fantaclaude.analysis.weekly import uncompiled_match_warning
+
+    r, page = payload["round"], payload["page"]
+    total_matches = page["matches"] + page["uncompiled"]
+    lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
+              f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
+    if payload["late"]:
+        lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
+    # Built from page['uncompiled']/page['fetched_at'] -- the same data
+    # `lineup()` built its own copy of this sentence from -- rather than
+    # located in `warnings` by substring-matching a fragment of that
+    # sentence hardcoded a second time here. The old way meant a reword of
+    # `uncompiled_match_warning` silently dropped this line from its
+    # near-header spot while the (now unmatched) warning reappeared,
+    # undeduplicated, at the bottom (review finding 10, 2026-09-04). Calling
+    # the one function both places use means a reword can't desync them: the
+    # equality filter below always matches the actual entry in `warnings`,
+    # whatever its current wording is.
+    uncompiled_warning = uncompiled_match_warning(r["giornata"], page["uncompiled"], page["fetched_at"]) if page["uncompiled"] else None
+    if uncompiled_warning is not None:
+        lines.append(f"UNCOMPILED: {uncompiled_warning}")
+    shortfall = page["players"] - payload["predictions"]
+    lines.append(f"predictions: {payload['predictions']}/{page['players']} page player(s) priced by the run"
+                + (f" ({shortfall} not priced)" if shortfall else ""))
+    for role, rows in payload["top"].items():
+        lines.append(f"  {role}: " + " · ".join(
+            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}={x['expected_points']:.2f}" for x in rows))
+    xi = payload.get("xi")
+    if xi is None:
+        lines.append(f"XI: none -- {payload['no_xi_reason']}")
+    else:
+        lines.append(f"XI: {xi['module']} · expected {xi['total']:.2f}")
+        lines += [f"  {s['slot']:<6} {s['name']} ({s['fit']}, {s['expected_points']:.2f})" for s in xi["slots"]]
+        others = " · ".join(f"{m} {v:.2f}" if v is not None else f"{m} -"
+                            for m, v in xi["module_scores"].items() if m != xi["module"])
+        lines.append(f"  other modules: {others}")
+    lines.append(f"written: lineup_run {payload['lineup_run_id']}, {payload['predictions']} predictions"
+                 + (" · " + ", ".join(payload["records"]) if payload["records"] else " · records already exist"))
+    lines += [f"warning: {w}" for w in payload["warnings"] if w != uncompiled_warning]
+    return "\n".join(lines)
+
+
+LINEUP_RUN_OPTION = typer.Option(None, "--run", help="Read projections from this valuation run (default: the newest not superseded).")
+
+
+@app.command("lineup")
+def lineup_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    run: str | None = LINEUP_RUN_OPTION,
+    late: bool = typer.Option(False, "--late", help="Write even though the giornata has kicked off; the row is marked and calibration excludes it."),
+) -> None:
+    """Write the giornata's forecast -- p_start x expected fantavoto for every player the probabili page lists -- and, when league.yml names my team, the XI and module that maximise expected points. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.paths import records_dir
+    from fantaclaude.timeutil import utc_now
+
+    entries = _league_yml_or_exit()
+    my_team: int | None = None
+    if entries and "my_team" in entries:
+        try:
+            my_team = int(entries["my_team"].value)
+        except (TypeError, ValueError):
+            typer.echo("league.yml: my_team.value must be the lega team id (an integer)", err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            report = lineup(con, now=utc_now(), season_id=season_id, giornata=giornata, run_id=run, late=late,
+                            my_team=my_team, records_dir=records_dir())
+        except LateForecast as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.CONFLICT) from None
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_lineup)
+
+
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "
                                          "adjustments, the state file. No network.", no_args_is_help=True)
 app.add_typer(asta_app)
@@ -1124,6 +1328,90 @@ def asta_close_cmd(
     with _asta_errors():
         path = close_auction(_asta_paths(), session_code=session)
     emit({"records": str(path)}, json_=json_, render=lambda p: f"copied to {p['records']} -- commit records/")
+
+
+PRUNE_OPTION = typer.Option(False, "--prune", help="On a clean diff, delete data/asta-state.json (never records/).")
+
+
+def _render_verify(payload: dict) -> str:
+    names = payload["player_names"]
+    who = lambda pid: names.get(str(pid), f"#{pid}")
+    lines = [f"state {payload['state']} · rosters snapshot {payload['roster_snapshot']} ({payload['rosters_fetched_at']} UTC)"]
+    for t in payload["teams"]:
+        status = "ok" if t["clean"] else "DIFFERS"
+        lines.append(f"{status:8} {t['mirror_label']} (room {t['mirror_team_id']}) = {t['lega_team_name']} (lega {t['lega_team_id']}) "
+                     f"· {t['overlap']} shared of {t['mirror_size']}/{t['lega_size']}")
+        lines += [f"         missing in the lega: {who(p)}" for p in t["missing_in_lega"]]
+        lines += [f"         cost differs: {who(p)} room {a} lega {b}" for p, a, b in t["cost_differences"]]
+        lines += [f"         added after the room: {who(p)} for {c}" for p, c in t["added_after_room"]]
+        lines += [f"         extra in the lega: {who(p)} for {c}" for p, c in t["extra_in_lega"]]
+    lines += [f"not in the room: {name} (lega {tid}, {size} players)" for tid, name, size in payload["lega_not_in_room"]]
+    lines += [f"UNMATCHED room team {tid} ({label})" for tid, label in payload["mirror_unmatched"]]
+    lines += [f"AMBIGUOUS {a}" for a in payload["ambiguous"]]
+    if payload["my_team"]:
+        lines.append(f"my team in the lega: {payload['my_team']['name']} ({payload['my_team']['lega_team_id']}) -- add to league.yml:")
+        lines.append(payload["my_team"]["leaf"])
+    elif payload.get("my_team_hint"):
+        lines.append(payload["my_team_hint"])
+    lines.append("clean: the lega matches the room" if payload["clean"] else "NOT CLEAN: see above")
+    if payload["pruned"]:
+        lines.append("pruned data/asta-state.json; records/ untouched")
+    return "\n".join(lines)
+
+
+@asta_app.command("verify-transfer")
+def asta_verify_transfer_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    state: Path | None = STATE_OPTION,
+    prune: bool = PRUNE_OPTION,
+) -> None:
+    """Check the lega's rosters against the mirrored auction -- teams matched by roster overlap, never by name -- and name my lega team. Local; run `fantaclaude ingest rosters` first."""
+    from fantaclaude.commands.asta import TransferMismatch, verify_transfer
+
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            try:
+                report = verify_transfer(con, paths=paths, state_file=state, prune=prune)
+            except TransferMismatch as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=ExitCode.CONFLICT) from None
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_verify)
+
+
+def _render_market(payload: dict) -> str:
+    def line(c: dict, label: str) -> str:
+        pe = "-" if c["paid_over_expected"] is None else f"{c['paid_over_expected']:.2f}"
+        pq = "-" if c["paid_over_quotazione"] is None else f"{c['paid_over_quotazione']:.2f}"
+        return f"  {label:8} {c['players']:3} players · paid {c['paid']:5} · expected {c['expected']:5} · paid/expected {pe} · paid/quot {pq}"
+    lines = [f"run {payload['run_id']} · scenario {payload['scenario']} · from {payload['source']} · roster snapshot {payload['snapshot_id']}"]
+    lines += [line(c, c["role_class"]) for c in payload["classes"]]
+    lines.append(line(payload["overall"], "all"))
+    lines.append(f"  unpriced: {payload['unpriced']['players']} player(s) the run never priced, {payload['unpriced']['paid']} credits")
+    lines.append("a per-class multiplier belongs in pricing.yml, by hand: that file feeds model_hash")
+    return "\n".join(lines)
+
+
+@asta_app.command("market-prices")
+def asta_market_prices_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    run: str | None = RUN_OPTION,
+    scenario: str | None = ONE_SCENARIO_OPTION,
+) -> None:
+    """What the room paid over what the run expected, per class, off the earliest roster snapshot of the season. Defaults to the run and scenario the newest closing state under records/asta names. Local."""
+    from fantaclaude.commands.asta import market_prices
+
+    paths = _asta_paths()
+    with _asta_errors():
+        con = _open_read_only()
+        try:
+            report = market_prices(con, paths=paths, run_id=run, scenario=scenario)
+        finally:
+            con.close()
+    emit(report.to_dict(), json_=json_, render=_render_market)
 
 
 @asta_app.command("refresh")

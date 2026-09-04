@@ -1,4 +1,16 @@
-from fantaclaude.model.modules import MODULES_YML, Fit, assign, load_modules
+import itertools
+import random
+
+import pytest
+from fantaclaude.model.modules import (
+    MODULES_YML,
+    Fit,
+    Module,
+    Slot,
+    assign,
+    assign_weighted,
+    load_modules,
+)
 from fantaclaude.model.roles import Role
 
 R = frozenset
@@ -90,3 +102,67 @@ def test_assign_finds_the_matching_a_greedy_pass_misses():
     assert result is not None
     t_index = next(i for i, s in enumerate(m.slots) if s.label == "T")
     assert roster[result[t_index]] == R({Role.E, Role.T})
+
+
+def _brute(module, roster, natural, adapted):
+    best = None
+    for perm in itertools.permutations(range(len(roster)), len(module.slots)):
+        total = 0.0
+        for slot, i in zip(module.slots, perm):
+            fit = slot.fit(roster[i])
+            if fit is Fit.NATURAL:
+                total += natural[i]
+            elif fit is Fit.ADAPTED:
+                total += adapted[i]
+            else:
+                break
+        else:
+            if best is None or total > best:
+                best = total
+    return best
+
+
+SMALL = Module(code="t", label="test", slots=(
+    Slot("Por", R({Role.Por}), R(), R()),
+    Slot("Dc", R({Role.Dc}), R({Role.B}), R({Role.Ds})),
+    Slot("M/C", R({Role.M, Role.C}), R({Role.T}), R()),
+    Slot("A/Pc", R({Role.A, Role.Pc}), R({Role.W}), R({Role.T}))))
+POOL = [R({Role.Por}), R({Role.Dc}), R({Role.B}), R({Role.Ds}), R({Role.M}), R({Role.C, Role.T}),
+        R({Role.T}), R({Role.W}), R({Role.A}), R({Role.Pc}), R({Role.Dc, Role.M})]
+
+
+def test_assign_weighted_agrees_with_brute_force_on_small_rosters():
+    rng = random.Random(7)
+    for _ in range(60):
+        roster = rng.sample(POOL, k=rng.randint(4, 7))
+        natural = [round(rng.uniform(0, 10), 2) for _ in roster]
+        adapted = [max(n - rng.uniform(0.5, 1.5), 0.0) for n in natural]
+        oracle = _brute(SMALL, roster, natural, adapted)
+        result = assign_weighted(SMALL, roster, natural, adapted)
+        if oracle is None:
+            assert result is None
+        else:
+            total, chosen = result
+            assert total == pytest.approx(oracle)
+            assert len(set(chosen)) == len(SMALL.slots)
+            assert all(SMALL.slots[k].fit(roster[i]) in (Fit.NATURAL, Fit.ADAPTED) for k, i in enumerate(chosen))
+
+
+def test_assign_weighted_prefers_the_natural_fit_when_the_malus_outweighs_the_player():
+    m = load_modules()["343"]
+    roster = [R({Role.Por}), R({Role.Dc}), R({Role.Dc}), R({Role.B}), R({Role.E}), R({Role.M}),
+              R({Role.C}), R({Role.E}), R({Role.W}), R({Role.Pc}), R({Role.A}), R({Role.Dd})]
+    natural = [5.0] * 11 + [5.6]                 # the Dd is worth a little more than either E ...
+    adapted = [4.0] * 11 + [4.6]                 # ... but not once the out-of-position malus is paid
+    total, chosen = assign_weighted(m, roster, natural, adapted)
+    assert 11 not in chosen and total == pytest.approx(55.0)
+    natural[11], adapted[11] = 7.0, 6.0          # now he is worth fielding adapted at E
+    total, chosen = assign_weighted(m, roster, natural, adapted)
+    assert 11 in chosen and total == pytest.approx(56.0)
+
+
+def test_assign_weighted_returns_none_when_no_legal_eleven_exists():
+    m = load_modules()["343"]
+    roster = [R({Role.Por})] * 3 + [R({Role.Dc})] * 8
+    assert assign_weighted(m, roster, [1.0] * 11, [0.0] * 11) is None
+    assert assign_weighted(m, roster[:10], [1.0] * 10, [0.0] * 10) is None

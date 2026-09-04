@@ -140,3 +140,47 @@ def seed_advanced(con, season_id: int, rows) -> int:
             "0.0, 0.0, 'F', '{}')",
             [snapshot_id, season_id, f"u{player_id}", f"p{player_id}", ["X"], player_id, player_id, games, minutes, xg, xa, xg])
     return snapshot_id
+
+
+def seed_probabili(con, season_id: int, giornata: int, rows) -> int:
+    """One synthetic probabili file. `rows` are (player_id, name, club_slug, p_start)."""
+    from uuid import uuid4
+    file_id = con.execute(
+        "INSERT INTO probabili_files (season_id, giornata, fetched_at, source, raw_path, sha256, row_count, matches, uncompiled) "
+        "VALUES (?, ?, now(), 'seed', ?, ?, ?, 1, 0) RETURNING file_id",
+        [season_id, giornata, f"seed/prob-{season_id}-{giornata}", f"seed-prob-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    for player_id, name, club, p_start in rows:
+        con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, false, NULL, '{}')",
+                    [file_id, season_id, giornata, player_id, name, club, p_start])
+    return file_id
+
+
+def seed_rosters(con, league_id: int, season_id: int, teams, *, matchday=None) -> int:
+    """One roster snapshot. `teams` maps team_id -> (name, {player_id: cost})."""
+    from uuid import uuid4
+    rows = [(tid, name, pid, cost, i) for tid, (name, roster) in teams.items() for i, (pid, cost) in enumerate(roster.items())]
+    team_list = [{"id": tid, "name": name, "owner": None, "size": len(roster)} for tid, (name, roster) in teams.items()]
+    snapshot_id = con.execute(
+        "INSERT INTO roster_snapshots (league_id, season_id, fetched_at, source, raw_path, sha256, matchday, matchday_start, "
+        "team_count, teams, row_count) VALUES (?, ?, now(), 'seed', 'seed/rosters', ?, ?, NULL, ?, ?::JSON, ?) RETURNING snapshot_id",
+        [league_id, season_id, f"seed-rosters-{uuid4().hex[:8]}", matchday, len(teams), json.dumps(team_list), len(rows)]).fetchone()[0]
+    for tid, name, pid, cost, position in rows:
+        con.execute("INSERT INTO rosters VALUES (?, ?, ?, NULL, ?, ?, ?)", [snapshot_id, tid, name, pid, cost, position])
+    return snapshot_id
+
+
+def seed_fixtures(con, season_id: int, rounds) -> int:
+    """One Serie A calendar snapshot. `rounds` maps giornata -> list of kickoffs (aware UTC)."""
+    from uuid import uuid4
+
+    from fantaclaude.timeutil import to_db
+    n = sum(len(k) for k in rounds.values())
+    snapshot_id = con.execute(
+        "INSERT INTO fixture_snapshots (competition, season_id, fetched_at, source, raw_paths, sha256, row_count) "
+        "VALUES ('SA', ?, now(), 'seed', [], ?, ?) RETURNING snapshot_id",
+        [season_id, f"seed-fix-{uuid4().hex[:8]}", n]).fetchone()[0]
+    for giornata, kickoffs in rounds.items():
+        for i, kickoff in enumerate(kickoffs):
+            con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, 'Home', 'Away', NULL, NULL, '{}')",
+                        [snapshot_id, season_id, f"seed-{giornata}-{i}", str(giornata), giornata, to_db(kickoff)])
+    return snapshot_id

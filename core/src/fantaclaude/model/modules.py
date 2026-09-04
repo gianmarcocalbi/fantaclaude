@@ -4,7 +4,8 @@ modules.yml is domain data transcribed from the official table (see its
 header); nothing here infers a slot from the API. `assign` answers "can this
 roster field this module?" exactly, by bipartite matching -- the question the
 valuation and the auction advisor ask, and one that eyeballing gets wrong for
-multi-role players.
+multi-role players. `assign_weighted` answers the weekly question beside it
+-- which eleven, and where -- exactly, by max-weight matching.
 """
 
 from __future__ import annotations
@@ -136,3 +137,89 @@ def assign(module: Module, roster: Sequence[frozenset[Role]], *,
     for player, slot_index in owner.items():
         result[slot_index] = player
     return result
+
+
+_FORBIDDEN = 1e9      # a pair the table forbids: dearer than any legal eleven can ever be
+
+
+def _hungarian(cost: list[list[float]]) -> list[int]:
+    """Minimum-cost assignment of every row to a distinct column (rows <= columns):
+    per row, the column chosen. Potentials and shortest augmenting paths,
+    O(rows^2 x columns) -- eleven slots against forty players is microseconds."""
+    n, m = len(cost), len(cost[0])
+    inf = float("inf")
+    u = [0.0] * (n + 1)
+    v = [0.0] * (m + 1)
+    matched = [0] * (m + 1)          # matched[j]: the row (1-based) holding column j, 0 = free
+    way = [0] * (m + 1)
+    for i in range(1, n + 1):
+        matched[0] = i
+        j0 = 0
+        minv = [inf] * (m + 1)
+        used = [False] * (m + 1)
+        while True:
+            used[j0] = True
+            i0 = matched[j0]
+            delta, j1 = inf, 0
+            for j in range(1, m + 1):
+                if used[j]:
+                    continue
+                cur = cost[i0 - 1][j - 1] - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta, j1 = minv[j], j
+            for j in range(m + 1):
+                if used[j]:
+                    u[matched[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if matched[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            matched[j0] = matched[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    result = [-1] * n
+    for j in range(1, m + 1):
+        if matched[j]:
+            result[matched[j] - 1] = j - 1
+    return result
+
+
+def assign_weighted(module: Module, roster: Sequence[frozenset[Role]], natural: Sequence[float],
+                    adapted: Sequence[float]) -> tuple[float, list[int]] | None:
+    """The eleven that maximise total weight: (total, per slot the roster index),
+    or None when the roster cannot field the module. A player fielded ADAPTED
+    contributes `adapted[i]` -- his expected points net of the out-of-position
+    malus -- instead of `natural[i]`; FORCED_ONLY and NO are never fielded, the
+    same rule `assign` keeps. Exact, like `assign`: the one thing eyeballing a
+    multi-role roster gets wrong is exactly what this exists to prevent."""
+    if not (len(roster) == len(natural) == len(adapted)):
+        raise ValueError("roster, natural and adapted must be the same length")
+    if len(roster) < len(module.slots):
+        return None
+    cost: list[list[float]] = []
+    for slot in module.slots:
+        row: list[float] = []
+        for i, roles in enumerate(roster):
+            fit = slot.fit(roles)
+            if fit is Fit.NATURAL:
+                row.append(-float(natural[i]))
+            elif fit is Fit.ADAPTED:
+                row.append(-float(adapted[i]))
+            else:
+                row.append(_FORBIDDEN)
+        cost.append(row)
+    chosen = _hungarian(cost)
+    total = 0.0
+    for slot_index, player in enumerate(chosen):
+        if cost[slot_index][player] >= _FORBIDDEN:
+            return None
+        total -= cost[slot_index][player]
+    return total, chosen
