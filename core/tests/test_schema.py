@@ -15,6 +15,9 @@ V2_OBJECTS = {"voti_files", "player_match", "advanced_snapshots", "advanced_stat
               "v_european_ties"}
 V3_OBJECTS = {"valuation_runs", "valuations", "valuation_prices",
               "v_valuation_runs", "v_valuations_current", "v_valuation_prices_current"}
+V4_OBJECTS = {"probabili_files", "probabili", "roster_snapshots", "rosters", "lineup_runs", "predictions",
+              "v_probabili_files_current", "v_probabili_current", "v_rosters_current", "v_rosters_first",
+              "v_market_prices", "v_lineup_runs_current"}
 
 # advanced_snapshots exactly as Phase 0b created it: the shape a live version-2 file carries.
 V2_ADVANCED_SNAPSHOTS = """
@@ -38,7 +41,7 @@ def _columns(con, table):
 
 def test_apply_schema_is_idempotent(tmp_path):
     con = connect(tmp_path / "x.duckdb")
-    assert apply_schema(con) == SCHEMA_VERSION == 3
+    assert apply_schema(con) == SCHEMA_VERSION == 4
     assert apply_schema(con) == SCHEMA_VERSION
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 1
     con.close()
@@ -92,8 +95,8 @@ def test_a_version_1_file_is_migrated_forward_in_place(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 3
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
+    assert apply_schema(con) == 4
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 4
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 2      # history of versions kept
     assert con.execute("SELECT name FROM teams").fetchone()[0] == "Roma"               # v1 rows survive
     assert con.execute("SELECT count(*) FROM v_player_season").fetchone()[0] == 0
@@ -123,7 +126,7 @@ def test_a_version_2_file_gets_its_advanced_snapshots_rebuilt(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 3
+    assert apply_schema(con) == 4
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -167,7 +170,7 @@ def test_an_interrupted_migration_resumes_from_the_leftover_v2_table(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 3
+    assert apply_schema(con) == 4
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
@@ -196,7 +199,7 @@ def test_a_migration_already_corrupted_by_the_old_non_atomic_code_still_recovers
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 3
+    assert apply_schema(con) == 4
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -217,7 +220,7 @@ def test_an_old_shape_table_with_no_version_row_is_still_migrated(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 3
+    assert apply_schema(con) == 4
     assert "aliases_sha256" in _columns(con, "advanced_snapshots")
     assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
     con.close()
@@ -259,7 +262,7 @@ def test_a_failure_mid_migration_rolls_back_atomically(tmp_path, monkeypatch):
 
     # A later, unobstructed apply_schema still finishes the job.
     con = connect(path)
-    assert apply_schema(con) == 3
+    assert apply_schema(con) == 4
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -320,3 +323,19 @@ def test_valuation_views_pick_the_newest_run_under_the_rules_in_force(db, mcp_fi
     assert superseded == {"r1": False, "r2": True, "r3": False}
     assert db.execute("SELECT run_id FROM v_valuations_current").fetchall() == [("r1",)]      # newest, not superseded
     assert db.execute("SELECT run_id FROM v_valuation_prices_current").fetchall() == [("r1",)]
+
+
+def test_version_4_adds_the_forecast_and_roster_layer(tmp_path):
+    con = connect(tmp_path / "v4.duckdb")
+    assert apply_schema(con) == 4 and SCHEMA_VERSION == 4
+    names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
+    assert V4_OBJECTS <= names
+    assert _columns(con, "predictions") == ["lineup_run_id", "season_id", "giornata", "player_id", "p_start_published",
+                                            "p_start", "fv_if_plays", "fv_sd", "expected_points", "source"]
+    assert _columns(con, "lineup_runs")[:6] == ["lineup_run_id", "season_id", "giornata", "run_id", "model_hash",
+                                                "probabili_file_id"]
+    assert _columns(con, "rosters") == ["snapshot_id", "team_id", "team_name", "owner", "player_id", "cost", "position"]
+    # a version-3 file upgrades in place: apply twice, version row once per level
+    assert apply_schema(con) == 4
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 4").fetchone()[0] == 1
+    con.close()
