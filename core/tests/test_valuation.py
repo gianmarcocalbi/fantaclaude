@@ -132,6 +132,7 @@ def test_run_valuation_projects_prices_and_stamps(tmp_path, fixture_json, mcp_fi
         by_id = {p.player_id: p for p in result.projections}
         lautaro = by_id[2764]
         assert lautaro.role_class == "Pc" and lautaro.explain["rate_source"] == "history"
+        assert "penalty_rate_season" in lautaro.explain
         assert lautaro.explain["rotation_factor"] == 1.0 and by_id[2640].explain["rotation_factor"] == 0.85
         assert all(result.vor[pid] >= 0 for pid in by_id)                                    # no negative VOR
         assert all(1 <= result.tiers[pid] <= PricingConfig().tiers_per_class + 1 for pid in by_id)
@@ -326,12 +327,13 @@ def test_a_taker_at_a_club_the_voti_history_never_names_warns(tmp_path, fixture_
     team_name -- two free-text sources, no id, and no alias table on the voti
     side. A promoted club, a rename, or "Hellas Verona" against "Verona" all
     miss. The warning is still owed: the profile's statement about who takes
-    the penalties has no effect, and a spelling difference is a fixable join.
+    the penalties has no effect on the club's own history, and a spelling
+    difference is a fixable join.
 
-    But the projection no longer acts on a rate it never observed (finding A):
-    the taker keeps his own penalties and so does every club-mate, rather than
-    the whole squad being zeroed for a club nobody has data on -- which made
-    naming a taker strictly worse than naming none.
+    Model 3 (open question 11) no longer treats an unmatched club as having no
+    rate at all: it prices the taker on the league average instead, the same
+    fallback a truly promoted club gets. So the redistribution DOES run here,
+    on the league-average rate, not on Inter's own (unreachable) history.
 
     A club the workbook does name but that simply took no penalties is a real
     0.0 and must stay quiet -- the warning is about the join, not the number."""
@@ -341,12 +343,14 @@ def test_a_taker_at_a_club_the_voti_history_never_names_warns(tmp_path, fixture_
     result, con = run(tmp_path)
     con.close()
     inter = [w for w in result.warnings if w.startswith("Inter:")]
-    assert len(inter) == 1 and "penalty rate" in inter[0] and "'Inter'" in inter[0], result.warnings
+    assert len(inter) == 1 and "league-average rate" in inter[0] and "'Inter'" in inter[0], result.warnings
     assert "Martinez L." in inter[0]
     by_id = {p.player_id: p for p in result.projections}
-    # PENALTY_ROWS gives Martinez and Bastoni one penalty each per giornata, over 30 giornate
-    assert by_id[2764].explain["penalties_per_presenza"] == pytest.approx(1.0)     # the taker keeps his own
-    assert by_id[2120].explain["penalties_per_presenza"] == pytest.approx(1.0)     # and so does every club-mate
+    # "Inter Milan" (60 penalties over 30 giornate = 2.0/giornata) never matches the
+    # listone's "Inter"; the league average over Inter Milan/Napoli/Roma (2.0, 0.0, 0.0)
+    # is 2/3 per giornata, and that is what the taker is now priced on
+    assert by_id[2764].explain["penalties_per_presenza"] == pytest.approx((2 / 3) * ProjectionConfig().pen_conversion)
+    assert by_id[2120].explain["penalties_per_presenza"] == 0.0     # not the taker: redistributed away, same as ever
     # Roma is in the workbook and took no penalty: 0.0 is the honest answer, not a broken join
     assert not any(w.startswith("Roma:") and "penalty rate" in w for w in result.warnings), result.warnings
 
@@ -496,6 +500,7 @@ def test_a_filtered_run_records_the_scenarios_it_actually_ran(tmp_path, fixture_
 
 def test_new_run_id_and_model_version():
     assert new_run_id(NOW, "bc74428832035639", "0123456789abcdef") == "20260830T100000Z-0123bc74"
+    assert MODEL_VERSION == "3"
     assert MODEL_VERSION and model_hash(ProjectionConfig(), PricingConfig(), PREFS, load_d_factor()) != \
         model_hash(ProjectionConfig(prior_presenze=9), PricingConfig(), PREFS, load_d_factor())
 

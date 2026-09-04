@@ -147,6 +147,7 @@ class PlayerInputs:
     # played and won no penalty, and the redistribution below is right to apply
     # it; None is no observation, and there the redistribution does not run.
     club_penalty_rate: float | None
+    club_penalty_rate_season: int | None = None      # the season the rate came from; None = league average
 
 
 @dataclass(frozen=True)
@@ -363,7 +364,8 @@ def project_player(inp: PlayerInputs, *, cfg: ProjectionConfig, prior: RolePrior
     explain = {"n_eff": n_eff, "shrink_weight": shrink, "shrink_target": target, "fantamedia_raw": fm_raw,
                "voto_raw": voto_raw, "sigma_fantamedia": sigma_fm, "sd_match": sd_match,
                "base_rate": base_rate, "rate_prior": rate_prior, "rate_n": rate_den, "sigma_rate": sigma_rate,
-               "rate_source": source, "rate": rate, "depth": note.depth if note else None,
+               "rate_source": source, "rate": rate, "penalty_rate_season": inp.club_penalty_rate_season,
+               "depth": note.depth if note else None,
                "availability": availability, "rotation_factor": inp.rotation_factor, "rotation_shift": shift,
                "sigma_presenze": sigma_pres,
                "d_factor_uplift": uplift, "flex_bonus": flex, "giornate_remaining": g, **per_presenza}
