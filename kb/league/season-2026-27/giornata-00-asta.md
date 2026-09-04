@@ -38,9 +38,18 @@ but the direction is worth remembering. And I let two of the board's tier-one
 goalkeepers go for a fraction of their max — Falcone to radyandre, Maignan to
 Patri — after bidding once or not at all.
 
-Under the corrected run (`20260903T233449Z-7694bd6a`) Douvikas is a starter
-worth every credit and Kean is the weakest buy on the roster: the Como profile
-never mentions Kean at all, which is a knowledge-base gap, not a model verdict.
+The two strikers turned out to be one question, not two. The Como profile
+never mentioned Kean at all, so the model read Douvikas as a settled starter
+and Kean as a part-timer on an unrelated history. Researched on 2026-09-04:
+Kean is a Como signing the club is obliged to buy, he was promised nothing,
+and the centre-forward's shirt is a tight duel with frequent alternation
+expected. Both are now `contested`, and run `20260904T090510Z-7694bd6a`
+prices them as what they are — two men sharing one place, worth about 150
+each rather than 226 and 149.
+
+So I paid 152 credits, nearly a third of the budget, for a single shared
+shirt. That is the clearest mistake of my auction, and it was invisible on
+the night because the knowledge base had a hole exactly where the money went.
 
 ## What the room did
 
@@ -122,11 +131,16 @@ Two runs the morning after measure the fix in two steps:
   long-history certainties (Falcone, Politano, Hojlund) and lifts a player
   with one appearance in a season (Beto) off zero.
 
-Under the auction-night run my roster valued first in the room by a wide
-margin; under model 2 it is first by a hair over CavA, with Pier third. The
-margin was an artefact of the defect. The five value adjustments in
-`data/adjustments.yml` now double-count against any board priced on a run
-with notes and must be dropped before the board is used again.
+The standings moved every time the model got more honest. Under the
+auction-night run my roster valued first in the room by a wide margin; under
+model 2 it was first by a hair; after the Como correction it is **third**,
+behind CavA and Fantacristo. Each step removed something I had been credited
+for and had not earned — first the phantom certainty of five thin histories,
+then a striker who does not own his shirt. The wide margin was never real.
+
+The five value adjustments that stood in for the missing notes were dropped
+on 2026-09-04 once `asta serve` was stopped; against a run that has the notes
+they double-count.
 
 ```
 fantaclaude query --sql "SELECT name, role_class, round(value_p50) AS v, tier FROM read_parquet('records/valuations/20260903T233449Z-7694bd6a.parquet') ORDER BY value_p50 DESC LIMIT 30"
@@ -185,11 +199,18 @@ Two things the check turned up that are worth keeping:
 - `verify-transfer` as a command: the comparison above was done by hand and
   belongs in the CLI, now that the API is known to carry the costs. The two
   files under `records/asta/` stay until it exists.
-- **Profiles to refresh** before the notes are trusted for the season: Como
-  (Kean is absent), Atalanta (Rowe), Fiorentina (Njie, the striker line),
-  Roma (De Roon), Monza (Mota, Tourè I.), Sassuolo (Esposito Se.), Inter
-  (Provedel), Juventus (Woltemade). The note-writing pass listed every
-  unmentioned listone player of note per club.
+- **Profiles to refresh.** Como is done (above) because 152 credits of my own
+  roster hung on it. Still open: Atalanta (Rowe), Fiorentina (Njie and the
+  striker line), Roma (De Roon), Monza (Mota, Tourè I.), Sassuolo (Esposito
+  Se.), Inter (Provedel), Juventus (Woltemade). Fiorentina was attempted on
+  2026-09-04 and abandoned: the sources still disagree about whether Kean
+  ever left and who leads that line, and a confident guess there would be
+  worse than the gap. The note-writing pass listed every unmentioned listone
+  player of note per club.
+- **The goalkeeper at Como.** The probable-formation guide calls it an open
+  contest with a keeper the profile never named (`Sanchez Ro.` in the
+  listone); Butez started the opening day. One query in a fortnight settles
+  it.
 - **Room facts not in the knowledge base**: Djimsiti leaving, Thuram K.
   injured, Sorensen O. left — reported in the room, excluded from my bidding,
   never verified.
