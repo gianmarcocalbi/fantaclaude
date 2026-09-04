@@ -13,6 +13,7 @@ is the latest non-late one. Nothing here updates or deletes.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,8 @@ import duckdb
 
 from fantaclaude.analysis.exports import write_parquet
 from fantaclaude.asta.pinned import newest_run_id
+from fantaclaude.model.modules import Module, assign_weighted, load_modules
+from fantaclaude.model.roles import Role
 from fantaclaude.timeutil import to_db
 
 
@@ -161,6 +164,107 @@ def export_lineup_records(con: duckdb.DuckDBPyConnection, lineup_run_id: int, re
     return [path for path, query in targets if write_parquet(con, query, path)]
 
 
+ADAPTED_MALUS = 1.0      # Mantra: a player out of position scores his voto minus one
+
+
+@dataclass(frozen=True)
+class RosterPlayer:
+    player_id: int
+    name: str
+    roles: frozenset[Role]
+    cost: int
+    in_listone: bool
+
+
+def my_roster(con: duckdb.DuckDBPyConnection, team_id: int) -> list[RosterPlayer]:
+    """The team's roster in the latest snapshot, with the listone's roles; an id
+    the listone lacks is kept with no roles (it can be fielded nowhere)."""
+    rows = con.execute(
+        "SELECT r.player_id, r.cost, p.name, p.mantra_roles FROM v_rosters_current r "
+        "LEFT JOIN v_players_current p ON p.player_id = r.player_id WHERE r.team_id = ? ORDER BY r.position",
+        [team_id]).fetchall()
+    if not rows:
+        raise ForecastError(f"team {team_id} has no roster in the latest snapshot -- run `fantaclaude ingest rosters`")
+    return [RosterPlayer(int(pid), str(name) if name is not None else f"#{pid}",
+                         frozenset(Role(r) for r in (roles or [])), int(cost), name is not None)
+            for pid, cost, name, roles in rows]
+
+
+@dataclass(frozen=True)
+class XiSlot:
+    slot: str
+    player_id: int
+    name: str
+    fit: str
+    expected_points: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"slot": self.slot, "player_id": self.player_id, "name": self.name, "fit": self.fit,
+                "expected_points": self.expected_points}
+
+
+@dataclass(frozen=True)
+class XiChoice:
+    module: str
+    total: float
+    slots: list[XiSlot]
+    module_scores: dict[str, float | None]
+    unlisted: list[int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"module": self.module, "total": self.total, "slots": [s.to_dict() for s in self.slots],
+                "module_scores": dict(self.module_scores), "unlisted": list(self.unlisted)}
+
+
+def choose_xi(roster: list[RosterPlayer], forecast_by_id: dict[int, ForecastRow], modules: dict[str, Module],
+              allowed: Sequence[str]) -> XiChoice:
+    """One exact solve per permitted module; the best total wins. A roster
+    player the page does not list is worth zero this week and is named."""
+    natural: list[float] = []
+    adapted: list[float] = []
+    for p in roster:
+        row = forecast_by_id.get(p.player_id)
+        points = row.expected_points if row else 0.0
+        natural.append(points)
+        adapted.append(points - (row.p_start * ADAPTED_MALUS if row else 0.0))
+    roles = [p.roles for p in roster]
+    scores: dict[str, float | None] = {}
+    best: tuple[str, float, list[int]] | None = None
+    for code in allowed:
+        module = modules.get(str(code))
+        if module is None:
+            raise ForecastError(f"the league permits module {code!r}, which is not in modules.yml")
+        solved = assign_weighted(module, roles, natural, adapted)
+        scores[str(code)] = None if solved is None else solved[0]
+        if solved is not None and (best is None or solved[0] > best[1]):
+            best = (str(code), solved[0], solved[1])
+    if best is None:
+        raise ForecastError("no permitted module can be fielded from this roster")
+    code, total, chosen = best
+    slots = []
+    for k, i in enumerate(chosen):
+        fit = modules[code].slots[k].fit(roster[i].roles)
+        points = natural[i] if fit.value == "natural" else adapted[i]
+        slots.append(XiSlot(modules[code].slots[k].label, roster[i].player_id, roster[i].name, fit.value, points))
+    unlisted = [p.player_id for p in roster if p.player_id not in forecast_by_id]
+    return XiChoice(code, total, slots, scores, unlisted)
+
+
+def matchday_cross_check(con: duckdb.DuckDBPyConnection, round_: Round) -> str | None:
+    """A warning when the freshest roster snapshot's mday/mstr disagree with
+    the calendar's round; None when they agree or nothing has been fetched."""
+    row = con.execute("SELECT matchday, matchday_start, fetched_at FROM roster_snapshots "
+                      "WHERE matchday IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+    if row is None:
+        return None
+    matchday, start, fetched_at = row
+    if int(matchday) == round_.giornata and (start is None or start == round_.first_kickoff):
+        return None
+    return (f"the league API's status read on {fetched_at:%Y-%m-%d %H:%M} UTC said matchday {matchday} starting "
+            f"{start}; the calendar says giornata {round_.giornata} at {round_.first_kickoff} -- if the platform is "
+            f"fresher, pass --giornata")
+
+
 TOP_PER_ROLE = 8
 
 
@@ -212,6 +316,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     uncompiled = con.execute("SELECT uncompiled FROM probabili_files WHERE file_id = ?", [file_id]).fetchone()[0]
     rows = forecast(con, run_id=run_id, probabili_file_id=file_id)
     warnings: list[str] = []
+    if (mismatch := matchday_cross_check(con, round_)):
+        warnings.append(mismatch)
     if uncompiled:
         warnings.append(f"{uncompiled} match(es) of giornata {round_.giornata} not yet compiled on the page fetched "
                         f"{fetched_at:%Y-%m-%d %H:%M} UTC")
@@ -219,7 +325,19 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     if my_team is None:
         no_xi_reason = "league.yml has no my_team leaf (asta verify-transfer prints it)"
     else:
-        no_xi_reason = "the XI lands with Task 8"          # replaced in Task 8
+        try:
+            roster = my_roster(con, my_team)
+            allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
+            if allowed_row is None or not allowed_row[0]:
+                raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
+            choice = choose_xi(roster, {r.player_id: r for r in rows}, load_modules(), list(allowed_row[0]))
+            xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
+            xi_rows = [s.to_dict() for s in choice.slots]
+            if choice.unlisted:
+                warnings.append(f"{len(choice.unlisted)} roster player(s) not on the page, counted as 0: "
+                                + ", ".join(next(p.name for p in roster if p.player_id == pid) for pid in choice.unlisted))
+        except ForecastError as exc:
+            no_xi_reason = str(exc)
     lineup_run_id = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
                                      probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
                                      module=module, xi=xi_rows, module_scores=scores)

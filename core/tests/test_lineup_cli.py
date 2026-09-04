@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import respx
-from conftest import FIXTURE_DIR, seed_fixtures, seed_probabili
+from conftest import FIXTURE_DIR, seed_fixtures, seed_probabili, seed_rosters
 from fantaclaude.cli.app import ExitCode, app
 from fantaclaude.db.connection import connect
 from test_rank_cli import _workspace
@@ -95,3 +95,38 @@ def test_ingest_probabili_maps_a_changed_page_to_exit_1(monkeypatch, tmp_path, f
     respx.get("https://www.fantacalcio.it/probabili-formazioni-serie-a").mock(return_value=httpx.Response(200, text="<html></html>"))
     result = runner.invoke(app, ["ingest", "probabili"])
     assert result.exit_code == ExitCode.ERROR and "player-item" in result.stderr
+
+
+def test_lineup_names_the_xi_when_league_yml_names_my_team(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]     # the 17 can field 3-4-3
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    xi = payload["xi"]
+    assert payload["my_team"] == 4242 and xi["module"] in payload["xi"]["module_scores"] and len(xi["slots"]) == 11
+    assert payload["predictions"] == 17
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT my_team, module FROM lineup_runs").fetchone() == (4242, xi["module"])
+    con.close()
+    plain = runner.invoke(app, ["lineup"])
+    assert plain.exit_code == ExitCode.OK and f"XI: {xi['module']}" in plain.stdout
+
+
+def test_lineup_with_my_team_but_no_roster_still_writes_the_forecast(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    _page(tmp_path)
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["xi"] is None and "ingest rosters" in payload["no_xi_reason"] and payload["predictions"] == 6

@@ -1,17 +1,27 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from conftest import seed_fixtures, seed_probabili
+from conftest import seed_fixtures, seed_probabili, seed_rosters
 from fantaclaude.analysis.weekly import (
+    ADAPTED_MALUS,
     ForecastError,
+    ForecastRow,
     LateForecast,
+    RosterPlayer,
     Round,
+    choose_xi,
     export_lineup_records,
     forecast,
+    matchday_cross_check,
+    my_roster,
     newest_probabili_file,
     target_round,
     write_lineup_run,
 )
+from fantaclaude.model.modules import load_modules
+from fantaclaude.model.roles import Role
+
+R = frozenset
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 G3 = [datetime(2026, 9, 4, 18, 45, tzinfo=UTC), datetime(2026, 9, 5, 16, 0, tzinfo=UTC), datetime(2026, 9, 7, 18, 45, tzinfo=UTC)]
@@ -116,3 +126,66 @@ def test_records_are_exported_once_by_giornata_and_write_time(db, tmp_path):
         ["lineup_runs/21-03-20260904T120000Z.parquet", "predictions/21-03-20260904T120000Z.parquet"]
     assert export_lineup_records(db, lineup_run_id, tmp_path / "records") == []          # never rewritten
     assert db.execute("SELECT count(*) FROM read_parquet(?)", [str(written[1])]).fetchone()[0] == 1
+
+
+def _row(pid, role, p, fv):
+    return ForecastRow(pid, f"p{pid}", None, role, (), int(p * 100), p, fv, None, p * fv, "published")
+
+
+def test_choose_xi_takes_the_best_module_and_scores_every_permitted_one():
+    modules = load_modules()
+    roles = [R({Role.Por}), R({Role.Dc}), R({Role.Dc}), R({Role.B}), R({Role.E}), R({Role.M}), R({Role.C}),
+             R({Role.E}), R({Role.W}), R({Role.Pc}), R({Role.A}), R({Role.Dd})]
+    roster = [RosterPlayer(100 + i, f"p{100 + i}", r, 1, True) for i, r in enumerate(roles)]
+    forecast = {p.player_id: _row(p.player_id, "C", 0.9, 6.0) for p in roster}
+    forecast[111] = _row(111, "D", 1.0, 8.0)                  # the Dd: worth 8 natural, 8 - 1.0 adapted at E
+    choice = choose_xi(roster, forecast, modules, ["343", "442"])
+    assert set(choice.module_scores) == {"343", "442"}
+    assert choice.module in {"343", "442"} and choice.total == pytest.approx(max(v for v in choice.module_scores.values() if v is not None))
+    assert len(choice.slots) == 11 and len({s.player_id for s in choice.slots}) == 11
+    assert choice.unlisted == []
+    fielded = {s.player_id: s for s in choice.slots}
+    if 111 in fielded:
+        assert fielded[111].fit == "adapted" and fielded[111].expected_points == pytest.approx(8.0 - 1.0 * ADAPTED_MALUS)
+
+
+def test_choose_xi_counts_an_unlisted_player_as_zero_and_says_so():
+    modules = load_modules()
+    roles = [R({Role.Por}), R({Role.Dc}), R({Role.Dc}), R({Role.B}), R({Role.E}), R({Role.M}), R({Role.C}),
+             R({Role.E}), R({Role.W}), R({Role.Pc}), R({Role.A})]
+    roster = [RosterPlayer(200 + i, f"p{200 + i}", r, 1, True) for i, r in enumerate(roles)]
+    forecast = {p.player_id: _row(p.player_id, "C", 0.9, 6.0) for p in roster[:-1]}    # the A is not on the page
+    choice = choose_xi(roster, forecast, modules, ["343"])
+    assert choice.unlisted == [210] and choice.module == "343"
+    assert next(s for s in choice.slots if s.player_id == 210).expected_points == 0.0
+
+
+def test_choose_xi_refuses_when_no_permitted_module_can_be_fielded():
+    modules = load_modules()
+    roster = [RosterPlayer(i, f"p{i}", R({Role.Dc}), 1, True) for i in range(12)]
+    with pytest.raises(ForecastError, match="no permitted module"):
+        choose_xi(roster, {}, modules, ["343"])
+    with pytest.raises(ForecastError, match="not in modules.yml"):
+        choose_xi(roster, {}, modules, ["999"])
+
+
+def test_my_roster_reads_the_latest_snapshot_and_keeps_an_id_the_listone_lacks(db):
+    db.execute("INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) VALUES (now(), 'seed', 'seed', 'seed', 1)")
+    db.execute("INSERT INTO players VALUES (1, 2764, 'Martinez L.', 1, 'Inter', 'INT', 'A', ['Pc'], [16], 30, 30, 40, 40, 100, 100, 29, 'ARG', false, '{}')")
+    seed_rosters(db, 1, 21, {10: ("Mine", {2764: 120, 795: 1})})
+    roster = my_roster(db, 10)
+    assert [(p.player_id, p.name, p.roles, p.cost, p.in_listone) for p in roster] == \
+        [(2764, "Martinez L.", R({Role.Pc}), 120, True), (795, "#795", R(), 1, False)]
+    with pytest.raises(ForecastError, match="ingest rosters"):
+        my_roster(db, 11)
+
+
+def test_the_platforms_matchday_is_a_cross_check_on_the_calendar(db):
+    seed_fixtures(db, 21, {3: G3})
+    r = target_round(db, NOW, season_id=21)
+    assert matchday_cross_check(db, r) is None                                   # nothing fetched yet
+    seed_rosters(db, 1, 21, {10: ("Mine", {})}, matchday=3)
+    db.execute("UPDATE roster_snapshots SET matchday_start = ? WHERE matchday = 3", [datetime(2026, 9, 4, 18, 45)])  # noqa: DTZ001 -- naive UTC, as stored
+    assert matchday_cross_check(db, r) is None                                   # agrees
+    seed_rosters(db, 1, 21, {10: ("Mine", {})}, matchday=4)
+    assert "matchday 4" in matchday_cross_check(db, r)                           # the platform moved on
