@@ -1,13 +1,13 @@
 ---
-updated: 2026-09-02
+updated: 2026-09-04
 ttl: 90d
 confidence: medium
-source: "interview 2026-09-02"
+source: "interview 2026-09-02; auction FA-rb8-460, 2026-09-03 (records/asta)"
 nick: KingNazzario
 team: KingKlavan FC
 budget_style: steady
 favourite_clubs: [Inter]
-overpays: []
+overpays: [Pc, W]
 avoids: []
 max_single_share: 0.3
 ---
@@ -41,3 +41,23 @@ a Premier League side cannot appear in a Serie A auction.
   time a real figure is seen.
 - Whether being league president changes how he bids in A RILANCI: an admin
   running the room has less attention for the ladder than a pure bidder.
+
+## Observed: auction 2026-09-03
+
+Facts from the mirrored session, not from an interview: the closing state is
+`records/asta/FA-rb8-460-20260903T232031Z.json` and every raise the room made is `records/asta/FA-rb8-460-20260903-bids.json`. Read them with
+`fantaclaude query --sql "SELECT * FROM read_json_auto('records/asta/FA-rb8-460-20260903-bids.json')"`
+or plain `jq`; nothing below restates a price that those two files do not hold.
+
+- Team 0 (`host`) in the session, ran the room and bid a great deal: over a
+  hundred lots contested, the second-highest number of raises of anyone,
+  and roughly a quarter of them opened by him. He finished one player short
+  of a full thirty and with a handful of credits unspent.
+- Paid well over the modelled expectation for a striker (Ramos G.) and a
+  winger (Goncalves P.), and at the expectation for the rest of his big
+  lots (Woltemade, Bremer, Laurientè, Butez). `overpays` now carries Pc and
+  W on that evidence; his largest single lot stayed under a fifth of the
+  budget, comfortably inside the `max_single_share` stated above.
+- Lost his contested lots mostly to Patri, Gene and CavA — the three other
+  high-volume bidders — so the four of them set most of the room's prices
+  between them.

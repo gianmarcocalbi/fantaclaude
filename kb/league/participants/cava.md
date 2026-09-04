@@ -1,13 +1,13 @@
 ---
-updated: 2026-09-02
+updated: 2026-09-04
 ttl: 90d
 confidence: medium
-source: "interview 2026-09-02"
+source: "interview 2026-09-02; auction FA-rb8-460, 2026-09-03 (records/asta)"
 nick: CavA
 team: Rickymaravilla FC
 budget_style: hoarder
 favourite_clubs: []
-overpays: []
+overpays: [A, E]
 avoids: []
 ---
 
@@ -41,3 +41,24 @@ mislead the model.
   than guessing — an invented cap changes every ceiling he is given.
 - Whether the Juventus aversion holds. It is the kind of habit that reverses
   without warning, and if it does, this dossier is actively harmful.
+
+## Observed: auction 2026-09-03
+
+Facts from the mirrored session, not from an interview: the closing state is
+`records/asta/FA-rb8-460-20260903T232031Z.json` and every raise the room made is `records/asta/FA-rb8-460-20260903-bids.json`. Read them with
+`fantaclaude query --sql "SELECT * FROM read_json_auto('records/asta/FA-rb8-460-20260903-bids.json')"`
+or plain `jq`; nothing below restates a price that those two files do not hold.
+
+- Team 5 (`CavA Goat`). Spent the least of anyone in the first third of the
+  auction, then all five hundred credits by the end, on twenty-nine
+  players — the hoarder's pace, but not a hoarder's finish.
+- His two big lots went far past the modelled expectation: Paz N. (nearly
+  twice it) and Dimarco. `overpays` now carries A and E. Davis K. and
+  Carnesecchi were paid a little over expectation, Yildiz and McKennie
+  under it.
+- Took Adams A. for one credit — a player the auction-night run had in its
+  top tier — so he also picks up what the room overlooks.
+- Under both post-auction runs his roster values second in the room, a
+  few points behind mine; under the auction-night run it was second by a
+  wide margin. The most complete rival roster of the night.
+- Lost his contested lots mostly to KingNazzario, Pier and Patri.

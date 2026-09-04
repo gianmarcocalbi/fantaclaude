@@ -1,13 +1,13 @@
 ---
-updated: 2026-09-02
+updated: 2026-09-04
 ttl: 90d
-confidence: low
-source: "interview 2026-09-02"
+confidence: medium
+source: "interview 2026-09-02; auction FA-rb8-460, 2026-09-03 (records/asta)"
 nick: Gene
 team: pipponi GENErazionali
 budget_style: steady
 favourite_clubs: [Inter]
-overpays: []
+overpays: [A, W]
 avoids: []
 ---
 
@@ -37,3 +37,24 @@ Not recorded.
   ceiling — so it is the honest placeholder until his timing is observed.
 - Which Inter players specifically. `fantaclaude asta explain` on the Inter
   names on the night will say which are traps and which are the one to fight for.
+
+## Observed: auction 2026-09-03
+
+Facts from the mirrored session, not from an interview: the closing state is
+`records/asta/FA-rb8-460-20260903T232031Z.json` and every raise the room made is `records/asta/FA-rb8-460-20260903-bids.json`. Read them with
+`fantaclaude query --sql "SELECT * FROM read_json_auto('records/asta/FA-rb8-460-20260903-bids.json')"`
+or plain `jq`; nothing below restates a price that those two files do not hold.
+
+- Team 6 (`Gene`): the most active bidder in the room by a distance — the
+  most lots contested and the most raises of anyone — yet he opened fewer
+  lots than most. He bids on other people's lots rather than calling his
+  own: a sniper's pattern, and the pressure model should read him as keen
+  on almost everything at the second tier.
+- Paid more than twice the modelled expectation for Dybala and nearly
+  twice for De Bruyne: he pays for the name. `overpays` now carries A and
+  W. Scamacca, Krstovic, Ederson, Chalobah and Meret went at or a little
+  over expectation.
+- Bought one player our listone never carried (id 795, three credits):
+  the room's list is not ours, see the journal.
+- Finished with a full thirty and four credits; lost his contested lots
+  mostly to gio, Congo and KingNazzario.
