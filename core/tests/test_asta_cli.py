@@ -758,6 +758,49 @@ def test_market_prices_reports_paid_over_expected_per_class_for_the_run_the_nigh
     assert plain.exit_code == ExitCode.OK and "paid/expected" in plain.stdout and "unpriced" in plain.stdout
 
 
+def test_market_prices_source_reports_each_half_of_the_pair_independently(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`source` must never claim a half was pinned (or defaulted) that wasn't
+    -- a `--run` with no `--scenario` and no closing state is the regression
+    this covers: the run is pinned but the scenario is the run's own
+    default, and the two must be reported as two different provenances, not
+    folded into the flag-pair literal."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: cls for pid, cls in con.execute(
+        "SELECT player_id, role_class FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pid = min(prices)
+    seed_rosters(con, 2578630, 21, {1: ("A", {pid: 10}), 2: ("B", {})})
+    con.close()
+
+    # --run alone, nothing under records/asta yet: the scenario comes from the
+    # run's own default, not from a pinned --scenario -- the bug this guards.
+    only_run = json.loads(runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--json"]).stdout)
+    assert only_run["run_id"] == run_id and only_run["scenario"] == "balanced"
+    assert only_run["source"] == "--run/the run's default scenario"
+
+    # --scenario alone: the run comes from the newest-run fallback, not from --run.
+    only_scenario = json.loads(runner.invoke(app, ["asta", "market-prices", "--scenario", "balanced", "--json"]).stdout)
+    assert only_scenario["run_id"] == run_id and only_scenario["source"] == "the newest run/--scenario"
+
+    # neither flag: both halves fall back independently, from two different rules.
+    neither = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert neither["source"] == "the newest run/the run's default scenario"
+
+    # a closing state now exists: --run alone takes the *scenario* half from it
+    # (the run stays pinned by flag) -- a mixed pair, not "all from the file".
+    assert runner.invoke(app, ["asta", "replay", str(FIXTURE), "--me", "1", "--write-state"]).exit_code == ExitCode.OK
+    assert runner.invoke(app, ["asta", "close", "--session", "FA-test"]).exit_code == ExitCode.OK
+    mixed = json.loads(runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--json"]).stdout)
+    run_half, _, scenario_half = mixed["source"].partition("/")
+    assert run_half == "--run" and scenario_half.startswith("records/asta/FA-test")
+
+    # neither flag, closing state present: both halves come from the same file
+    # -- the existing single-label case (no field/field duplication) still holds.
+    both_from_state = json.loads(runner.invoke(app, ["asta", "market-prices", "--json"]).stdout)
+    assert both_from_state["source"].startswith("records/asta/FA-test") and both_from_state["source"].count(".json") == 1
+
+
 def test_market_prices_needs_an_auction_in_the_rosters(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     result = runner.invoke(app, ["asta", "market-prices"])

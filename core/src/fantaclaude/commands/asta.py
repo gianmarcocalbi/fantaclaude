@@ -746,18 +746,31 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
                   scenario: str | None = None) -> MarketReport:
     """What the room paid over what the run expected, per class, off the
     earliest non-empty roster snapshot of the season (spec: `v_market_prices`).
-    The run and scenario default to the pair the newest closing state under
-    records/asta names -- the board the night was priced against."""
-    source = "--run/--scenario"
+    The run and scenario each default independently to the pair the newest
+    closing state under records/asta names -- the board the night was priced
+    against -- and `source` reports where *each half* actually came from, so
+    a flag pinning one of the two while the other is defaulted never reads
+    as if both were pinned, or both defaulted from the same place."""
+    # run_source/scenario_source are tracked separately, never folded into one
+    # variable early: `--run` with no `--scenario` and no closing state must
+    # not claim the scenario was pinned too (or vice-versa) -- and a closing
+    # state that only fills the *other* half must not be credited for the one
+    # that was already pinned by flag.
+    run_source = "--run" if run_id is not None else None
+    scenario_source = "--scenario" if scenario is not None else None
     if run_id is None or scenario is None:
         record = _newest_closing_state(paths.records)
         if record is not None:
             stored = read_state(record)
-            run_id, scenario = run_id or stored.run_id, scenario or stored.scenario
-            source = record.relative_to(paths.records.parent).as_posix() if record.is_relative_to(paths.records.parent) else str(record)
+            label = (record.relative_to(paths.records.parent).as_posix()
+                     if record.is_relative_to(paths.records.parent) else str(record))
+            if run_id is None:
+                run_id, run_source = stored.run_id, label
+            if scenario is None:
+                scenario, scenario_source = stored.scenario, label
     if run_id is None:
         run_id = newest_run_id(con)
-        source = "the newest run"
+        run_source = "the newest run"
         if run_id is None:
             raise NotReady("no valuation run -- run `fantaclaude rank`")
     if scenario is None:
@@ -765,6 +778,12 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
         if row is None:
             raise NotReady(f"run {run_id!r} is not in valuation_runs")
         scenario = str(row[0])
+        scenario_source = "the run's default scenario"
+    # Equal halves (both pinned by the same closing state file) collapse to
+    # one label rather than doubling it; unequal halves are shown side by
+    # side so a mixed pair -- one pinned by flag, the other defaulted --
+    # never gets misreported as either "all pinned" or "all defaulted".
+    source = run_source if run_source == scenario_source else f"{run_source}/{scenario_source}"
     first = con.execute("SELECT min(snapshot_id) FROM v_rosters_first").fetchone()[0]
     if first is None:
         raise NotReady("no roster snapshot with players -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
