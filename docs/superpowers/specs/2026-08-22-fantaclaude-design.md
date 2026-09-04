@@ -1696,11 +1696,20 @@ often than to bad models.
    decisive test: diff the listone the moment one player is assigned. Purging the
    auction store assumes the answer is yes. Until it is verified, keep the file —
    the cost of being wrong is losing the only record of what the room paid.
-   **Status 2026-09-04:** still open. The auction closed on 2026-09-03 and the
-   admin has not yet transferred it; the room's closing state and its full bid
-   ladder are committed under `records/asta/` (the raw Firebase capture is
-   128 MB and stays in `data/raw/`, gitignored), so the record no longer
-   depends on the answer. `verify-transfer` waits for the transfer.
+   **Resolved 2026-09-04: yes.** After the admin transferred the auction, every
+   team object from `/onboarding/v1/league/teams` carries `cal` — the player
+   ids it owns, semicolon-separated — and `cs`, the price paid for each in the
+   same order, summing exactly to `crs` (credits spent). That is the roster and
+   the cost, on an endpoint already mapped. The transfer was verified by hand
+   the same day: all nine rival teams reconcile with the FantaAstaLive mirror
+   player for player and credit for credit, the only differences being
+   one-credit players the lega added after the room closed. `verify-transfer`
+   is therefore buildable — the comparison is a set-diff of `{id: cost}` per
+   team, matched to a mirror team by roster overlap rather than by name, since
+   the room's labels do not match the lega's owners. Until it is a command the
+   two files under `records/asta/` stay, and nothing deletes
+   `data/asta-state.json` (the raw Firebase capture is 128 MB and stays
+   gitignored in `data/raw/`).
 10. **~~Does FantaAstaLive expose anything during active bidding?~~ Resolved
     2026-09-03.** Yes. In A RILANCI the session node carries `currentBid
     {playerId, teamId, value, timestamp, comment}` and every client sees each
@@ -1780,7 +1789,24 @@ often than to bad models.
     the list itself is never published. During an auction the answer is
     `asta adjust --type exclude`, never a re-ingest. Whether a fresh listone
     ingest after the auction carries 795 is the cheap test of "their list is
-    simply newer than ours".
+    simply newer than ours". **Sharpened 2026-09-04:** it is not newer. 795 is
+    in none of the three listone snapshots, and the lega has since accepted him
+    onto Gene's transferred roster at the price the room recorded — so
+    `/onboarding/v1/league/players` does not return every player the league
+    will let a manager buy, and no re-ingest will close the gap. A pick the run
+    cannot name is the only signal, and the board already raises it.
+
+16. **The team list's identities are not the room's. Found 2026-09-04.**
+    FantaAstaLive team names and connection labels are free text: four of the
+    ten teams carried a name that matched no lega owner, and one dossier was
+    bound to the wrong manager for the whole auction as a result (`--map
+    0=KingNazzario` named the team that hosted the room, which is another
+    manager's). After a transfer the rosters settle it exactly — each lega
+    `cal`/`cs` matches one mirror team player for player — but during the
+    auction there is nothing to reconcile against, so the mapping screen's
+    bindings are only as good as the operator's knowledge of who is who. The
+    fix is procedural (confirm with the admin before bidding) unless the
+    platform is ever found to expose a stable per-manager id.
 
 15. **~~Are the session's `roles` pairs `[classic, mantra]`?~~ Resolved
     2026-09-03.** No: they are `[min, max]`. FA-rb8-460 shipped

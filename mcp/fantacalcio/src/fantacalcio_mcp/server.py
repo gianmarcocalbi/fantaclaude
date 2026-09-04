@@ -66,6 +66,40 @@ def _without_emails(value: Any) -> Any:
     return value
 
 
+# The team list pages by ten. Bounded so a server that always answers
+# `nextPage: true` cannot spin the loop.
+MAX_TEAM_PAGES = 20
+
+
+async def _all_teams(api: Any, *, league: str | None) -> tuple[Any, list[Any], str | None]:
+    """Every page of the team list, with the first page's envelope and a
+    note when the rows still do not add up to the divisions' own count.
+
+    Reading page 1 alone is how a league silently loses its newest teams:
+    on 2026-09-04 the real league carried eleven teams over two pages and
+    the one that fell off was the signed-in user's own.
+    """
+    envelope = await api.teams(page=1, league=league)
+    if not isinstance(envelope, dict):
+        return envelope, list(envelope or []), None
+    rows = list(envelope.get("data") or [])
+    page = 1
+    while envelope.get("nextPage") and page < MAX_TEAM_PAGES:
+        page += 1
+        more = await api.teams(page=page, league=league)
+        chunk = more.get("data") if isinstance(more, dict) else None
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if not more.get("nextPage"):
+            break
+    counted = sum(int(d.get("count") or 0)
+                  for d in (envelope.get("divisions") or []) if isinstance(d, dict))
+    incomplete = (f"{len(rows)} team(s) over {page} page(s), but the divisions count {counted}"
+                  if counted and counted != len(rows) else None)
+    return envelope, rows, incomplete
+
+
 def build_server(api: Any) -> FastMCP:
     """Build the FastMCP server exposing exactly seven read-only tools over `api`.
 
@@ -147,9 +181,8 @@ def build_server(api: Any) -> FastMCP:
         with any email address stripped). Pass `league` (the alias) only if
         the account belongs to more than one league.
         """
-        envelope = await api.teams(page=1, league=league)
-        rows = envelope.get("data") if isinstance(envelope, dict) else envelope
-        teams = [Team.from_api(row) for row in rows or []]
+        envelope, rows, incomplete = await _all_teams(api, league=league)
+        teams = [Team.from_api(row) for row in rows]
 
         roster = await api.participants(league=league)
         managers = {p.team_id: p.managers
@@ -160,6 +193,8 @@ def build_server(api: Any) -> FastMCP:
                       for team in teams],
             "divisions": envelope.get("divisions") if isinstance(envelope, dict) else None,
         }
+        if incomplete is not None:
+            payload["incomplete"] = incomplete
         if include_pending:
             # Recursive, key-based scrub -- see _without_emails. Also keeps
             # a paginated envelope intact instead of iterating its keys,

@@ -2,13 +2,13 @@
 updated: 2026-09-04
 ttl: 90d
 confidence: medium
-source: "interview 2026-09-02; auction FA-rb8-460, 2026-09-03 (records/asta)"
+source: "interview 2026-09-02; auction FA-rb8-460, 2026-09-03, bound by roster reconciliation against the lega (records/asta)"
 nick: KingNazzario
 team: KingKlavan FC
 budget_style: steady
 favourite_clubs: [Inter]
-overpays: [Pc, W]
-avoids: []
+overpays: [C]
+avoids: [Dc, M, W]
 max_single_share: 0.3
 ---
 
@@ -44,20 +44,26 @@ a Premier League side cannot appear in a Serie A auction.
 
 ## Observed: auction 2026-09-03
 
-Facts from the mirrored session, not from an interview: the closing state is
-`records/asta/FA-rb8-460-20260903T232031Z.json` and every raise the room made is `records/asta/FA-rb8-460-20260903-bids.json`. Read them with
-`fantaclaude query --sql "SELECT * FROM read_json_auto('records/asta/FA-rb8-460-20260903-bids.json')"`
-or plain `jq`; nothing below restates a price that those two files do not hold.
+The binding is the rosters themselves: this manager's lega roster and one
+FantaAstaLive team agree player for player and credit for credit, which is
+what identifies him. Facts below come from
+`records/asta/FA-rb8-460-20260903T232031Z.json` and
+`records/asta/FA-rb8-460-20260903-bids.json`; nothing restates a price those
+files do not hold. An earlier version of this section described the team that hosted
+the room; that team is not his. See the journal for how the mix-up happened.
 
-- Team 0 (`host`) in the session, ran the room and bid a great deal: over a
-  hundred lots contested, the second-highest number of raises of anyone,
-  and roughly a quarter of them opened by him. He finished one player short
-  of a full thirty and with a handful of credits unspent.
-- Paid well over the modelled expectation for a striker (Ramos G.) and a
-  winger (Goncalves P.), and at the expectation for the rest of his big
-  lots (Woltemade, Bremer, Laurientè, Butez). `overpays` now carries Pc and
-  W on that evidence; his largest single lot stayed under a fifth of the
-  budget, comfortably inside the `max_single_share` stated above.
-- Lost his contested lots mostly to Patri, Gene and CavA — the three other
-  high-volume bidders — so the four of them set most of the room's prices
-  between them.
+- He is the busiest kind of bidder: over a hundred lots contested and about
+  thirty opened, twenty-eight won, 496 of 500 spent.
+- **He pays for central midfield and lets the defence go.** Against the
+  model's expected prices he paid roughly half again for the C class
+  (Rabiot, Jones C.) and about two fifths of expectation for centre-backs,
+  midfielders and wingers alike — the widest spread in the room. `overpays`
+  and `avoids` now say so; the cheap defenders on this board are the ones he
+  is bidding on, and he will not chase them far.
+- Milan and Inter account for ten of his twenty-eight players, so the stated
+  Inter preference holds and Milan belongs beside it — Thuram, Rabiot,
+  Pulisic and Maignan are the shape of his budget.
+- His largest lot was well under the third of the budget this dossier
+  allows, so `max_single_share` stands as stated.
+- He lost his contested lots mostly to Fantacristo, radyandre and the team
+  that hosted the room.

@@ -64,6 +64,12 @@ before, the drills, and the after.
 - `fantaclaude asta serve --session FA-xxx-xxx` — the run is named on the
   status line; the mapping screen asks who is who (dossiers optional, they
   feed the pressure model); SESSION ≠ LEAGUE conflicts show before bidding.
+- **Confirm who is who with the admin, out loud, before the first lot.**
+  FantaAstaLive names and labels are free text and do not have to match the
+  lega. On 2026-09-03 four of ten did not, one dossier spent the night bound
+  to the wrong manager, and three teams that had dossiers were run without
+  one. Nothing in the feed can catch this; only the rosters can, and they
+  only exist afterwards.
 - The feed dot is always on screen: green live, amber reconnecting, red
   offline. Red with the room still bidding = the printed tier board.
 - Facts from the room go in as adjustments with reasons — dashboard form,
@@ -89,6 +95,12 @@ before, the drills, and the after.
   by hand on 2026-09-04; worth a command).
 - Drop the `value` adjustments that stood in for missing player notes before
   the board is priced on a run that has the notes: they double-count.
+- Once the admin has transferred the auction, the lega carries each team's
+  players and the price paid for each (`cal` / `cs` on the team object), so
+  the transfer can be checked: match each lega roster to a mirror team by
+  roster overlap — never by name — and set-diff `{id: cost}`. Expect
+  one-credit additions where a manager finished short; those are the lega
+  moving on, not a bad transfer.
 - The state files are **kept** until `verify-transfer` (post-auction task,
   open question 9) confirms the lega matches the room. Review any time with
   `fantaclaude asta serve --state records/asta/<file>.json` — this

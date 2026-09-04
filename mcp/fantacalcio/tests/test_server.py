@@ -230,3 +230,41 @@ async def test_list_teams_pending_invites_strip_a_top_level_email_too(fake_api):
     text = result.content[0].text
     assert "@" not in text
     assert json.loads(text)["pending_invites"] == [{"id": 7, "name": "Flat Invitee"}]
+
+
+async def test_list_teams_reads_every_page_and_says_when_one_is_missing(fake_api, fixture_json):
+    """The endpoint pages by ten. On 2026-09-04 the real league had eleven
+    teams, `divisions[A].count` said 11, and this tool returned the ten on
+    page 1 -- the missing one was the signed-in user's own team, which is
+    the worst possible row to drop. Every page is read, and a total that
+    still disagrees with the division count is said in the payload rather
+    than left for the caller to notice."""
+    base = fixture_json("teams")
+    row = base["data"][0]
+    page1 = {**base, "data": base["data"], "nextPage": True, "pages": 2,
+             "divisions": [{"division": "A", "count": len(base["data"]) + 1}]}
+    page2 = {**base, "page": 2, "nextPage": False, "prevPage": True, "pages": 2,
+             "data": [{**row, "id": 99, "idu": 99, "n": "Ultimo Arrivato", "nu": "latecomer"}],
+             "divisions": page1["divisions"]}
+    pages = {1: page1, 2: page2}
+
+    async def by_page(page=1, league=None):
+        fake_api._record("teams", page=page, league=league)
+        return json.loads(json.dumps(pages[page]))
+
+    fake_api.teams = by_page
+    async with Client(build_server(fake_api)) as client:
+        payload = json.loads((await client.call_tool("list_teams", {})).content[0].text)
+    assert [p for name, p in fake_api.calls if name == "teams"] == [{"page": 1, "league": None},
+                                                                    {"page": 2, "league": None}]
+    assert "Ultimo Arrivato" in {t["name"] for t in payload["teams"]}
+    assert len(payload["teams"]) == len(base["data"]) + 1 and payload.get("incomplete") is None
+
+    async def one_page_only(page=1, league=None):
+        fake_api._record("teams", page=page, league=league)
+        return json.loads(json.dumps({**page1, "nextPage": False, "pages": 1}))
+
+    fake_api.teams = one_page_only
+    async with Client(build_server(fake_api)) as client:
+        short = json.loads((await client.call_tool("list_teams", {})).content[0].text)
+    assert str(len(base["data"])) in short["incomplete"] and str(len(base["data"]) + 1) in short["incomplete"]
