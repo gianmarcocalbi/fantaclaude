@@ -57,7 +57,11 @@ export function TierBoard({ board }: { board: BoardPayload }) {
   // ones and pushes Por -- done first and least likely to be looked at again --
   // to the very end.
   const planned = (c: string) => (board.composition[c] ?? 0) > 0;
-  const classes = [...ordered.filter(planned), ...ordered.filter(c => !planned(c)).reverse()];
+  // The block the room is calling leads: its classes first, in the server's
+  // order (most populous first), then the rest as before.
+  const lead = board.block?.classes ?? [];
+  const rest = ordered.filter(c => !lead.includes(c));
+  const classes = [...lead.filter(c => byClass.has(c)), ...rest.filter(planned), ...rest.filter(c => !planned(c)).reverse()];
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-2 text-xs text-neutral-600">
@@ -109,6 +113,18 @@ export function TierBoard({ board }: { board: BoardPayload }) {
                   className={`text-xs ${(board.my_coverage?.[cls] ?? 0) === 0 ? "text-red-300" : "text-neutral-600"}`}
                   title={`you own ${board.my_coverage?.[cls] ?? 0} player(s) who can field as ${cls} — counted by role, not by the class the pricer pinned them to`}
                 > · have {board.my_coverage?.[cls] ?? 0}</span>
+                {/* The pricer's own room: ranks my squad covers over the ranks it
+                    still has open here. "3/3" is full; "0/0" has no rank at all,
+                    which is what a band of 0 means on this panel. */}
+                {board.room_by_class && cls in board.room_by_class && (
+                  <span
+                    className={`text-xs ${(board.room_by_class[cls] ?? 0) === 0 ? "text-amber-500/70" : "text-neutral-600"}`}
+                    title={`ranks covered / ranks the pricer has for ${cls}: ${board.room_by_class[cls]} more may still be bought here`}
+                  > · room {board.occupancy?.[cls] ?? 0}/{(board.occupancy?.[cls] ?? 0) + (board.room_by_class[cls] ?? 0)}</span>
+                )}
+                {board.block?.classes.includes(cls) && (
+                  <span className="text-xs text-sky-400" title={`the room is calling the ${board.block.classic_role} block`}> · block {board.block.classic_role}</span>
+                )}
               </h3>
               <table className="w-full text-sm">
                 <tbody>

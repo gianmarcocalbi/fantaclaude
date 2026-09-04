@@ -5,9 +5,11 @@ from fantaclaude.analysis.valuation import record_run
 from fantaclaude.asta.adjustments import Adjustment, resolve
 from fantaclaude.asta.advisor import Board, Ledger, TeamMapping, build_ledgers, derive
 from fantaclaude.asta.pinned import load_pinned_run
+from fantaclaude.asta.pricing import PricingConfig
 from fantaclaude.asta.session import session_from_feed
 from fantaclaude.asta.state import (
     AuctionState,
+    Pick,
     apply_snapshot,
     parse_snapshot,
     read_snapshots,
@@ -193,3 +195,82 @@ def test_an_impossible_roster_is_a_problem_not_a_crash(tmp_path, fixture_json, m
     assert json.loads(json.dumps(board.to_dict(), allow_nan=False))["completion_value"] is None
     ledgers, problems = build_ledgers(node([]), five_keepers, pinned, TeamMapping(mine=1))
     assert sorted(ledgers) == [0, 1, 2] and problems == []
+
+
+def test_a_ledger_reads_ranged_bounds_and_counts_the_classic_blocks(tmp_path, fixture_json, mcp_fixture_json):
+    """The night's bounds were ranges (gk 2-4, mov 23-28, roster 25-30). A
+    full roster owes nothing more; a short one owes only what the floors say.
+    And every ledger counts its picks by classic role, because the room calls
+    the auction in P, D, C, A blocks."""
+    settings = session_from_feed({"budget": 500, "game": 2,
+                                  "roles": {"gk": [2, 4], "mov": [23, 28], "size": [25, 30]}}, team_count=10)
+    picks = tuple(Pick(i, 3, 1, i) for i in range(30))
+    full = Ledger(3, "Claudio", None, 500, 480, picks, 3, 27, 0)
+    assert full.missing(settings) == (0, 0) and full.room(settings) == (1, 1)
+    assert full.open_slots(settings) == 0 and full.required_slots(settings) == 0
+    short = Ledger(7, "radyandre", None, 500, 499, picks[:27], 4, 23, 0)
+    assert short.missing(settings) == (0, 0) and short.room(settings) == (0, 5) and short.open_slots(settings) == 3
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    ledgers, _ = build_ledgers(node([(2764, 0, 90), (2120, 0, 30), (5841, 1, 20)]), settings, pinned, TeamMapping(mine=1))
+    assert ledgers[0].classic == {"A": 1, "D": 1} and ledgers[1].classic == {"P": 1} and ledgers[2].classic == {}
+    assert ledgers[0].to_dict(settings)["classic"] == {"A": 1, "D": 1}
+
+
+def test_the_board_re_pins_against_the_ranks_my_roster_leaves_open(tmp_path, fixture_json, mcp_fixture_json):
+    """At minute zero every pin is the run's. Once my squad covers a class,
+    an unsold man pinned there is priced under another role he holds: the
+    class that has ranks left for him, never a band of 0 for a man the
+    completion would still pay for as a W."""
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json,
+                           pricing_cfg=PricingConfig(max_per_class=1, max_goalkeepers=2))
+    settings = session_from_feed({**SESSION, "roles": {"gk": [2, 2], "mov": [20, 30], "size": [22, 32]}}, team_count=3)
+    dimarco = pinned.players[254]
+    assert set(dimarco.roles) == {"E", "W"} and dimarco.role_class == "E"
+    zero = derive(node([]), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
+    assert all(price.role_class == pinned.players[pid].role_class for pid, price in zero.pricing.prices.items())
+    assert zero.pins == {}
+    covered = derive(node([(791, 1, 5), (5877, 1, 5)]), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
+    assert covered.pricing.prices[254].role_class == "W" and covered.pins == {254: "W"}
+    assert covered.pricing.occupancy["E"] >= 1 and covered.to_dict()["prices"]["254"]["role_class"] == "W"
+    assert 254 in {r["player_id"] for r in covered.tiers()["W"]} and 254 not in {r["player_id"] for r in covered.tiers().get("E", [])}
+
+
+def test_the_board_names_the_block_the_room_is_calling(tmp_path, fixture_json, mcp_fixture_json):
+    """The room calls the auction in classic-role blocks (P, D, C, A). The
+    board reads the block off the lot on the block, else off the latest
+    pick, and puts that block's classes first on the tier board."""
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    settings = session_from_feed(SESSION, team_count=3)
+    quiet = derive(node([]), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
+    assert quiet.block is None and quiet.to_dict()["block"] is None
+    defenders = derive(node([(2120, 0, 30)]), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
+    assert defenders.block == {"classic_role": "D", "classes": defenders.block["classes"]}
+    unsold_d = {price.role_class for pid, price in defenders.pricing.prices.items() if pinned.players[pid].classic_role == "D"}
+    assert set(defenders.block["classes"]) == unsold_d and "Dc" in unsold_d
+    assert list(defenders.tiers())[:len(unsold_d)] == defenders.block["classes"]
+    keeper_up = derive(node([(2120, 0, 30)], selected=5841), run=pinned, settings=settings, mapping=TeamMapping(mine=1))
+    assert keeper_up.block["classic_role"] == "P" and keeper_up.block["classes"] == ["Por"]
+    assert next(iter(keeper_up.tiers())) == "Por"
+
+
+def test_a_row_carries_the_adjusted_value_and_the_list_hash_rides_on_the_board(tmp_path, fixture_json, mcp_fixture_json):
+    """The band came from the pricer, which saw the adjustment; value_p50
+    came from the run, which did not -- so a halved man sorted among the
+    band-0 rows by his pre-adjustment value (Franjic, 2026-09-03). The row
+    carries what he is worth to this board. And the room's own list is a
+    fact the mirror stores only as a hash: the board says which list it saw."""
+    _, pinned = pinned_run(tmp_path, fixture_json, mcp_fixture_json)
+    layer = resolve([Adjustment("value", "knee", player="Hojlund", factor=0.5)], pinned.candidates(), sha256="s")
+    snap = parse_snapshot({"picks": [], "teams": [{"id": t, "connection": {"label": f"t{t}"}} for t in (0, 1, 2)],
+                           "settings": SESSION, "playerListHash": "9da873c6"})
+    board = derive(apply_snapshot(AuctionState.empty(), snap)[0], run=pinned, settings=session_from_feed(SESSION, team_count=3),
+                   layer=layer, mapping=TeamMapping(mine=1))
+    payload = board.to_dict()
+    assert payload["prices"]["6052"]["value_p50"] == pytest.approx(pinned.players[6052].value_p50 * 0.5)
+    assert payload["prices"]["2764"]["value_p50"] == pytest.approx(pinned.players[2764].value_p50)
+    pc = board.tiers(10)["Pc"]
+    assert [r["player_id"] for r in pc] == sorted((r["player_id"] for r in pc),
+                                                   key=lambda pid: (-board.pricing.prices[pid].band.p50,
+                                                                    -payload["prices"][str(pid)]["value_p50"], pid))
+    assert payload["player_list_hash"] == "9da873c6" and payload["occupancy"]["Por"] == 0
+    assert payload["room_by_class"]["Por"] == len(board.pool_state.weights["Por"]) == 3     # the session's three keepers: three ranks

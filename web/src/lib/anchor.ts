@@ -15,12 +15,14 @@ import type { BoardPayload, PriceRow } from "@/api/types";
  */
 export type Anchor = { cls: string; band: number; via: string };
 
-/** His value with any adjustment applied. The server sends the band from the
- * pricer (which saw the adjustment layer) but `value_p50` straight off the
- * run (which did not), so an adjusted player reports his *pre*-adjustment
- * value. Everything on screen that reads a value goes through here. */
-export function adjustedValue(row: PriceRow, board: BoardPayload): number {
-  return row.value_p50 * (board.adjustments.value_factor[String(row.player_id)] ?? 1);
+/** His value as the board priced him. The server used to send the band from
+ * the pricer (which saw the adjustment layer) but `value_p50` straight off the
+ * run (which did not), and this helper re-applied the factor. Since 2026-09-04
+ * the row's `value_p50` already carries the adjustment (advisor.Board._row),
+ * so applying `value_factor` again here would double-count it. Kept as the one
+ * accessor everything on screen reads a value through. */
+export function adjustedValue(row: PriceRow, _board: BoardPayload): number {
+  return row.value_p50;
 }
 
 /** class -> its unsold players, by value ascending, with the band each got. */

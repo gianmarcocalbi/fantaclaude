@@ -4,7 +4,6 @@ import time
 import numpy as np
 import pytest
 from fantaclaude.asta.pricing import (
-    _occupancy,
     Band,
     BoardPricing,
     OwnedPlayer,
@@ -13,7 +12,9 @@ from fantaclaude.asta.pricing import (
     PoolState,
     PricingConfig,
     _curve,
+    _occupancy,
     explain,
+    occupancy,
     price_board,
 )
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
@@ -456,3 +457,23 @@ def test_occupancy_never_counts_one_player_in_two_classes():
     board = price_board(state(owned=squad), CFG)
     covered = [c for c in ("Dc", "E", "M") if board.composition.get(c, 0) == 0]
     assert len(covered) < 3, "one player cannot saturate three classes at once"
+
+
+def test_the_board_says_how_many_more_of_each_class_it_may_still_buy():
+    """j_max and the occupancy behind it were internal, so the header could
+    not tell "full 3/3" from "could buy, chose not to", and a class whose
+    every unsold man was pinned elsewhere vanished from the board with its
+    open slot. Both ride on the pricing now."""
+    empty = price_board(state(), CFG)
+    assert empty.occupancy == {cls: 0 for cls in WEIGHTS}
+    # the room is the ranks the demand gives the class, capped by the config and the bounds: two for Por here
+    assert empty.room_by_class["Por"] == min(CFG.max_goalkeepers, len(WEIGHTS["Por"])) == 2
+    assert all(n > 0 for n in empty.room_by_class.values())
+    one_keeper = (OwnedPlayer(1, "Por", 100.0, ("Por",)),)
+    board = price_board(state(owned=one_keeper), CFG)
+    assert board.occupancy["Por"] == 1 and board.room_by_class["Por"] == 1
+    full = price_board(state(owned=one_keeper + (OwnedPlayer(2, "Por", 90.0, ("Por",)),)), CFG)
+    assert full.room_by_class["Por"] == 0 and all(p.band.p50 == 0 for p in full.prices.values() if p.role_class == "Por")
+    assert occupancy(one_keeper, WEIGHTS) == board.occupancy
+    payload = json.loads(json.dumps(full.to_dict(), allow_nan=False))
+    assert payload["room_by_class"]["Por"] == 0 and payload["occupancy"]["Por"] == 2

@@ -61,6 +61,7 @@ class SettingsOut(_Model):
     game: int
     team_count: int
     source: Literal["session", "league"]
+    classic_buckets: dict[str, list[int]] = {}      # def / mid / atk as [low, high]: the room's blocks, not bounds
 
 
 class LedgerOut(_Model):
@@ -77,6 +78,12 @@ class LedgerOut(_Model):
     missing_goalkeepers: int
     missing_outfield: int
     open_slots: int
+    classic: dict[str, int] = {}    # picks by classic role (P, D, C, A)
+
+
+class BlockOut(_Model):
+    classic_role: str               # the block the room is calling: P, D, C or A
+    classes: list[str]              # the classes its unsold players are priced under, most populous first
 
 
 class LotOut(_Model):
@@ -166,6 +173,11 @@ class BoardPayload(_Model):
     my_coverage: dict[str, int] = {}
     module_demand: dict[str, dict[str, float]] = {}
     my_squad: list[SquadMemberOut] = []
+    room_by_class: dict[str, int] = {}          # how many more of each class the completion may still buy
+    occupancy: dict[str, int] = {}              # how many ranks of each class my squad already covers
+    pins: dict[str, str] = {}                   # unsold players priced under a class other than the run's pin
+    block: BlockOut | None = None
+    player_list_hash: str | None = None         # the room's own player list, as FantaAstaLive hashes it
     reserve: int
     budget: int
     slot_price: float

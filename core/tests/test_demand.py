@@ -8,6 +8,7 @@ from fantaclaude.model.demand import (
     pin_class,
     player_classes,
     rank_weights,
+    remaining_weights,
     role_class,
     satisfiable_demand,
 )
@@ -177,3 +178,21 @@ def test_pin_class_takes_the_class_with_the_most_demand():
     assert pin_class(R({Role.B}), weights) == "Dc"
     with pytest.raises(ValueError):
         pin_class(R(), weights)
+
+
+def test_a_pin_follows_the_ranks_my_roster_leaves_open():
+    """pin_class values a multi-role player under the class with the most
+    demand league-wide, fixed when the run is written. On the night of
+    2026-09-03 twelve unsold men sat pinned to a full E at band 0 while
+    holding T, C or M roles the completion still paid 0.55-0.86 for. The
+    board re-pins against the ranks my roster leaves open: the same
+    criterion over the remaining weights, so an empty roster pins exactly
+    as the run did and a full class hands its men to their other roles."""
+    weights = {**{cls: (0.0,) for cls in ROLE_CLASSES}, "E": (0.9, 0.8), "T": (0.6, 0.1)}
+    both = R({Role.E, Role.T})
+    assert pin_class(both, weights) == "E"
+    assert remaining_weights(weights, {}) == weights
+    assert remaining_weights(weights, {"E": 1})["E"] == (0.8,) and remaining_weights(weights, {"E": 5})["E"] == ()
+    assert pin_class(both, remaining_weights(weights, {"E": 1})) == "E"          # 0.8 still beats 0.7
+    assert pin_class(both, remaining_weights(weights, {"E": 2})) == "T"          # E is full: his T role is what is left
+    assert pin_class(R({Role.E}), remaining_weights(weights, {"E": 2})) == "E"   # a one-role man has nowhere else to go

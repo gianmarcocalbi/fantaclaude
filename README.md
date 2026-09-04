@@ -12,7 +12,7 @@ season that follows it.
 - **Ingestion** — listone, Understat history, Serie A/UEFA calendar, per-giornata votes, all deduped and re-runnable
 - **Valuation** — projections and auction-ready pricing over the ingested history
 - **Knowledge base (kb)** — team profiles, opponent dossiers, house rules, and a season journal, with front-matter TTLs and an audit for what's gone stale
-- **Auction (asta)** — `fantaclaude asta board|explain|replay|adjust|close`: the pinned valuation run priced against the auction as last mirrored, one player's trace, a rehearsal over a captured session, an adjustment with its reason, and the closing copy into `records/`. All local — the database read-only, no network
+- **Auction (asta)** — `fantaclaude asta board|explain|replay|adjust|close`: the pinned valuation run priced against the auction as last mirrored — the session's bounds read as ranges, every multi-role player re-pinned to the class my roster still has ranks open for, the room per class, the block the room is calling — one player's trace, a rehearsal over a captured session, an adjustment with its reason, and the closing copy into `records/`. All local — the database read-only, no network
 - **Auction night** — `fantaclaude asta serve` mirrors the FantaAstaLive
   session over its Firebase feed and serves the live dashboard, the
   WebSocket and the `fantaclaude-asta` MCP from one localhost process;

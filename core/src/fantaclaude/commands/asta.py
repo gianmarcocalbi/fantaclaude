@@ -442,9 +442,13 @@ def adjust(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, adjustment: Adju
         if probe.problems:
             raise UsageError(probe.problems[0])
         player_id = probe.entries[0].player_id
-    cls = adjustment.role_class if adjustment.kind == "target" else run.players[player_id].role_class
     kw = {"run_id": run_id, "scenario": scenario, "state_file": state_file, "fresh": fresh}
     before = board_report(con, paths=paths, **kw)
+    # The class shown is the one the board prices him under -- the re-pinned
+    # one when my roster moved him off the run's pin -- else the run's.
+    priced = None if player_id is None else before.board.pricing.prices.get(player_id)
+    cls = (adjustment.role_class if adjustment.kind == "target"
+           else priced.role_class if priced is not None else run.players[player_id].role_class)
     try:
         entries = append_adjustment(paths.adjustments, adjustment)
     except AdjustmentsError as exc:

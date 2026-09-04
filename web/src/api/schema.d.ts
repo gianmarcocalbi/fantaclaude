@@ -173,6 +173,13 @@ export interface components {
             /** Reasons */
             reasons: string[];
         };
+        /** BlockOut */
+        BlockOut: {
+            /** Classic Role */
+            classic_role: string;
+            /** Classes */
+            classes: string[];
+        };
         /** BoardPayload */
         BoardPayload: {
             /** Run Id */
@@ -238,6 +245,30 @@ export interface components {
              * @default []
              */
             my_squad: components["schemas"]["SquadMemberOut"][];
+            /**
+             * Room By Class
+             * @default {}
+             */
+            room_by_class: {
+                [key: string]: number;
+            };
+            /**
+             * Occupancy
+             * @default {}
+             */
+            occupancy: {
+                [key: string]: number;
+            };
+            /**
+             * Pins
+             * @default {}
+             */
+            pins: {
+                [key: string]: string;
+            };
+            block?: components["schemas"]["BlockOut"] | null;
+            /** Player List Hash */
+            player_list_hash?: string | null;
             /** Reserve */
             reserve: number;
             /** Budget */
@@ -344,6 +375,13 @@ export interface components {
             missing_outfield: number;
             /** Open Slots */
             open_slots: number;
+            /**
+             * Classic
+             * @default {}
+             */
+            classic: {
+                [key: string]: number;
+            };
         };
         /** LotOut */
         LotOut: {
@@ -460,6 +498,13 @@ export interface components {
              * @enum {string}
              */
             source: "session" | "league";
+            /**
+             * Classic Buckets
+             * @default {}
+             */
+            classic_buckets: {
+                [key: string]: number[];
+            };
         };
         /** SquadMemberOut */
         SquadMemberOut: {

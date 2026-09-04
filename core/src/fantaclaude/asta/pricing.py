@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -171,13 +172,21 @@ class BoardPricing:
     budget: int
     slot_price: float
     targets_departed: tuple[str, ...]
+    # Per class, how many more the completion may still buy (the DP's j_max)
+    # and how many ranks my squad already covers (occupancy). Internal until
+    # 2026-09-03, when the header could not tell "full 3/3" from "could buy,
+    # chose not to", and a class whose every unsold man was pinned elsewhere
+    # vanished from the board with its open slot.
+    room_by_class: dict[str, int] = field(default_factory=dict)
+    occupancy: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return json_safe({"prices": {str(k): v.to_dict() for k, v in self.prices.items()}, "inflation": self.inflation,
                           "expected_prices": {str(k): v for k, v in self.expected_prices.items()},
                           "composition": self.composition, "credits_by_class": self.credits_by_class,
                           "completion_value": self.completion_value, "reserve": self.reserve, "budget": self.budget,
-                          "slot_price": self.slot_price, "targets_departed": list(self.targets_departed)})
+                          "slot_price": self.slot_price, "targets_departed": list(self.targets_departed),
+                          "room_by_class": dict(self.room_by_class), "occupancy": dict(self.occupancy)})
 
 
 @dataclass(frozen=True)
@@ -274,7 +283,7 @@ def _expected_prices(state: PoolState, cfg: PricingConfig) -> tuple[float, dict[
     return inflation, {p.player_id: max(1, round(p.quotazione * inflation)) for p in state.pool}
 
 
-def _occupancy(state: PoolState) -> dict[str, int]:
+def occupancy(owned: tuple[OwnedPlayer, ...], weights: Mapping[str, tuple[float, ...]]) -> dict[str, int]:
     """How many of each class's ranks my squad already covers.
 
     Counting by pinned class (what this used to do) undercounts a multi-role
@@ -291,18 +300,22 @@ def _occupancy(state: PoolState) -> dict[str, int]:
     interchangeable to any player who holds it -- places as many players as a
     matching would.
     """
-    slots = sorted(((w, cls, k) for cls, ranks in state.weights.items() for k, w in enumerate(ranks)),
+    slots = sorted(((w, cls, k) for cls, ranks in weights.items() for k, w in enumerate(ranks)),
                    key=lambda s: (-s[0], s[1], s[2]))
     placed: set[int] = set()
-    out: dict[str, int] = {cls: 0 for cls in state.weights}
+    out: dict[str, int] = {cls: 0 for cls in weights}
     for _, cls, _k in slots:
-        for o in state.owned:
+        for o in owned:
             if o.player_id in placed or cls not in o.can_field:
                 continue
             placed.add(o.player_id)
             out[cls] += 1
             break
     return out
+
+
+def _occupancy(state: PoolState) -> dict[str, int]:
+    return occupancy(state.owned, state.weights)
 
 
 def _classes(state: PoolState, cfg: PricingConfig, expected: dict[int, int], budget: int) -> list[_Class]:
@@ -492,7 +505,8 @@ def price_board(state: PoolState, cfg: PricingConfig) -> BoardPricing:
     departed = tuple(cls for cls, n in state.targets.items()
                      if solution.composition.get(cls, 0) + owned.get(cls, 0) < n)
     return BoardPricing(prices, inflation, expected, solution.composition, solution.credits,
-                        float(solution.total[budget]), reserve, budget, penalty, departed)
+                        float(solution.total[budget]), reserve, budget, penalty, departed,
+                        room_by_class={c.name: c.j_max for c in classes}, occupancy=_occupancy(state))
 
 
 def explain(board: BoardPricing, player_id: int) -> dict[str, Any]:

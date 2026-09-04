@@ -9,15 +9,20 @@ makes the offline board the committed board.
 Observed 2026-08-23 (captured/fantaastalive-state-2026-08-23.json, the
 app's local state, pre-auction): `settings.budget 500`, `settings.game 2`,
 `settings.participants 2`, `settings.roles = {gk: [3, 3], def: [8, 8],
-mid: [8, 8], atk: [6, 6], mov: [22, 22], size: [25, 25]}`, with `mov = def
-+ mid + atk` and `size = gk + mov`: exact counts, one per game type. The
-pairs are read as [classic, mantra] -- the spec's reading, confirmable only
-at the rehearsal; with every observed pair equal the reading cannot yet be
-wrong, and `_pair` is the one place to change if it is. In Mantra the
-enforced buckets are `gk` and `mov` (`teams[].missingPlayers` counts those
-two). The league's own bounds are ranges (2-6 goalkeepers, 23-40 players),
-so every bucket is carried as a (low, high) pair either way, and a
-session's exact count is the pair (n, n).
+mid: [8, 8], atk: [6, 6], mov: [22, 22], size: [25, 25]}`. Every pair was
+two equal counts, so the reading could not yet be told apart from
+[classic, mantra]. The live session settled it (FA-rb8-460, 2026-09-03):
+`gk: [2, 4], mov: [23, 28], size: [25, 30]`, and the room ended the night
+with two, three and four keepers on rosters of twenty-seven to thirty --
+a pair is **(min, max)**, one range per bucket, whatever the game. In
+Mantra the enforced buckets are `gk` and `mov` (`teams[].missingPlayers`
+counts those two) and `size` caps the whole roster; `def`/`mid`/`atk` are
+the classic-role buckets, which the room calls its blocks in (P, then D,
+C, A) but does not enforce here -- one team held nine defenders against
+`def: [8, 8]` -- so they are carried as `classic_buckets`, beside the
+bounds and never as bounds. The league's own bounds are ranges too (2-6
+goalkeepers, 23-40 players), so every bucket is a (low, high) pair either
+way, and a bare count is the pair (n, n).
 
 Nothing here assumes the game. A session states it in `settings.game`; a
 league row states it in its profile's `tipo` (design spec: "league type --
@@ -68,6 +73,10 @@ class SessionSettings:
     # The formations the league allows. Read off the league's own settings, so
     # it is empty for a session-sourced view; the board carries the league's.
     modules: tuple[str, ...] = ()
+    # The classic-role buckets (def / mid / atk) a session states beside the
+    # bounds it enforces: the blocks the room calls the auction in. Empty for a
+    # league-sourced view and for a session that does not state them.
+    classic_buckets: dict[str, Bounds] = field(default_factory=dict)
 
     @property
     def is_mantra(self) -> bool:
@@ -75,7 +84,8 @@ class SessionSettings:
 
     def to_dict(self) -> dict[str, Any]:
         return {"budget": self.budget, "goalkeepers": list(self.goalkeepers), "outfield": list(self.outfield),
-                "size": list(self.size), "game": self.game, "team_count": self.team_count, "source": self.source}
+                "size": list(self.size), "game": self.game, "team_count": self.team_count, "source": self.source,
+                "classic_buckets": {key: list(bounds) for key, bounds in self.classic_buckets.items()}}
 
 
 def _count(value: Any, where: str) -> int:
@@ -91,24 +101,28 @@ def _game(value: Any, where: str) -> int:
     return int(value)
 
 
-def _pair(roles: Mapping[str, Any], key: str, game: int) -> Bounds:
-    """One bucket of settings.roles as (low, high): a [classic, mantra] pair
-    read by the game in play, or a bare count for either game.
-
-    The [classic, mantra] reading is an assumption over an undocumented
-    field -- every pair observed on 2026-08-23 held two equal counts, so
-    nothing yet distinguishes it from [mantra, classic] or from a
-    (min, max). It is isolated here on purpose: if the rehearsal shows the
-    pair means something else, this function is the only thing to change.
-    """
+def _pair(roles: Mapping[str, Any], key: str) -> Bounds:
+    """One bucket of settings.roles as (low, high): a [min, max] pair, or a
+    bare count for an exact bucket. Until 2026-09-03 the pair was read as
+    [classic, mantra] by the game in play, which the live session's
+    `gk: [2, 4]` (three teams finished with four keepers) showed to be
+    wrong: the mirror collapsed it to (2, 2) and reported a full roster as
+    still owing a player. A pair that runs high to low is refused: it is
+    not a range, and guessing which end is which would poison every
+    completion the board solves against."""
     value = roles.get(key)
     if isinstance(value, list) and len(value) == 2:
-        n = _count(value[1 if game == GAME_MANTRA else 0], f"settings.roles.{key}")
-        return n, n
+        low, high = (_count(v, f"settings.roles.{key}") for v in value)
+        if low > high:
+            raise SessionError(f"settings.roles.{key} is {value!r}; expected [min, max]")
+        return low, high
     if isinstance(value, int) and not isinstance(value, bool):
         n = _count(value, f"settings.roles.{key}")
         return n, n
-    raise SessionError(f"settings.roles.{key} is {value!r}; expected a [classic, mantra] pair of counts")
+    raise SessionError(f"settings.roles.{key} is {value!r}; expected a [min, max] pair of counts")
+
+
+CLASSIC_BUCKETS = ("def", "mid", "atk")
 
 
 def session_from_feed(settings: Mapping[str, Any], *, team_count: int) -> SessionSettings:
@@ -119,22 +133,17 @@ def session_from_feed(settings: Mapping[str, Any], *, team_count: int) -> Sessio
     roles = settings.get("roles")
     if not isinstance(roles, Mapping):
         raise SessionError(f"settings.roles is {roles!r}; expected the per-bucket counts")
-    gk, mov, size = _pair(roles, "gk", game), _pair(roles, "mov", game), _pair(roles, "size", game)
-    if size[0] != gk[0] + mov[0]:
-        # FA-rb8-460, 2026-09-03: the live session shipped gk 4, mov 28, size 30
-        # and the mirror refused it mid-auction. Refusing is the right default --
-        # the roster shape is what every completion is solved against, so a wrong
-        # guess poisons every max price. Here `size` and `mov` agree with each
-        # other (28 + 2 = 30) and only `gk` does not, so the goalkeeper count is
-        # the outlier and is derived rather than trusted; the operator confirmed
-        # 2 goalkeepers. Announced on stdout, never silent.
-        derived = (size[0] - mov[0], size[1] - mov[1])
-        if derived[0] < 0 or derived[1] < 0:
-            raise SessionError(f"settings.roles.mov {mov[0]} exceeds size {size[0]}; the session is unusable")
-        print(f"SESSION INCONSISTENT: roles.size {size[0]} != gk {gk[0]} + mov {mov[0]}; "
-              f"size and mov agree, so deriving gk {derived[0]} (session said {gk[0]})", flush=True)
-        gk = derived
-    return SessionSettings(int(budget), gk, mov, size, game, int(team_count), "session", dict(settings))
+    gk, mov, size = _pair(roles, "gk"), _pair(roles, "mov"), _pair(roles, "size")
+    # The three buckets need not add up -- FA-rb8-460 capped keepers at 4 and
+    # outfield at 28 under a roster of 30 -- but they have to be reconcilable:
+    # a roster the floors cannot fit into, or the ceilings cannot fill, has no
+    # legal completion and every max price solved against it is wrong.
+    if gk[0] + mov[0] > size[1]:
+        raise SessionError(f"settings.roles: gk {gk[0]} + mov {mov[0]} exceed size {size[1]}; the session is unusable")
+    if gk[1] + mov[1] < size[0]:
+        raise SessionError(f"settings.roles: gk {gk[1]} + mov {mov[1]} cannot fill size {size[0]}; the session is unusable")
+    classic = {key: _pair(roles, key) for key in CLASSIC_BUCKETS if roles.get(key) is not None}
+    return SessionSettings(int(budget), gk, mov, size, game, int(team_count), "session", dict(settings), classic_buckets=classic)
 
 
 def session_from_league(*, budget: int, team_count: int, roster_min: int, roster_max: int,

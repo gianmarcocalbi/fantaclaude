@@ -29,25 +29,38 @@ def _record(db, mcp_fixture_json, *, rosters=None, profile=None) -> int:
 def test_the_captured_settings_read_as_exact_counts(fixture_file):
     node = read_snapshots(fixture_file("asta_session_sample.jsonl"))[0]
     s = session_from_feed(node.settings, team_count=len(node.teams))
-    assert s == SessionSettings(500, (3, 3), (22, 22), (25, 25), GAME_MANTRA, 3, "session", node.settings)
+    assert s == SessionSettings(500, (3, 3), (22, 22), (25, 25), GAME_MANTRA, 3, "session", node.settings,
+                                classic_buckets={"def": (8, 8), "mid": (8, 8), "atk": (6, 6)})
     assert s.is_mantra and s.to_dict() == {"budget": 500, "goalkeepers": [3, 3], "outfield": [22, 22], "size": [25, 25],
-                                            "game": 2, "team_count": 3, "source": "session"}
+                                            "game": 2, "team_count": 3, "source": "session",
+                                            "classic_buckets": {"def": [8, 8], "mid": [8, 8], "atk": [6, 6]}}
 
 
-def test_the_pair_is_read_by_the_game_in_play():
-    """The observed pairs are all equal, so the reading ([classic, mantra])
-    cannot be wrong yet; a session that sets them apart is read by its game."""
-    roles = {"gk": [3, 2], "mov": [22, 21], "size": [25, 23]}
-    mantra = session_from_feed({"budget": 500, "game": 2, "roles": roles}, team_count=8)
-    assert (mantra.goalkeepers, mantra.outfield, mantra.size) == ((2, 2), (21, 21), (23, 23))
-    classic = session_from_feed({"budget": 500, "game": 1, "roles": roles}, team_count=8)
-    assert (classic.goalkeepers, classic.outfield, classic.size) == ((3, 3), (22, 22), (25, 25)) and not classic.is_mantra
+def test_a_pair_is_a_range_and_the_night_of_2026_09_03_reads_as_one():
+    """FA-rb8-460 shipped gk [2, 4], mov [23, 28], size [25, 30], and three
+    teams ended the night with four keepers on rosters of 27 to 30 players:
+    the pair is (min, max), not [classic, mantra]. def/mid/atk are the
+    classic-role buckets the room calls its blocks in; Mantra enforces only
+    gk and mov, so they are carried beside the bounds, never as bounds."""
+    roles = {"gk": [2, 4], "def": [8, 8], "mid": [8, 8], "atk": [6, 6], "mov": [23, 28], "size": [25, 30]}
+    s = session_from_feed({"budget": 500, "game": 2, "roles": roles}, team_count=10)
+    assert (s.goalkeepers, s.outfield, s.size) == ((2, 4), (23, 28), (25, 30)) and s.is_mantra
+    assert s.classic_buckets == {"def": (8, 8), "mid": (8, 8), "atk": (6, 6)}
+    assert s.to_dict()["classic_buckets"] == {"def": [8, 8], "mid": [8, 8], "atk": [6, 6]}
+    assert compare(session_from_feed(s.raw, team_count=8), LEAGUE) == []       # 2-4, 23-28 and 25-30 are inside the league's
     bare = session_from_feed({"budget": 500, "game": 2, "roles": {"gk": 2, "mov": 21, "size": 23}}, team_count=8)
-    assert bare.goalkeepers == (2, 2) and bare.size == (23, 23)
-    for bad, text in (({"budget": 500, "game": 2, "roles": {"gk": [3, 3], "mov": [22, 22], "size": [24, 24]}}, "size 24"),
-                      ({"budget": 500, "game": 2, "roles": {"gk": [3, 3], "size": [25, 25]}}, "roles.mov"),
-                      ({"budget": 500, "game": 2, "roles": {"gk": [3, True], "mov": [22, 22], "size": [25, 25]}}, "roles.gk"),
-                      ({"game": 2, "roles": roles}, "budget"), ({"budget": 500, "game": 3, "roles": roles}, "game"),
+    assert bare.goalkeepers == (2, 2) and bare.size == (23, 23) and bare.classic_buckets == {}
+    classic = session_from_feed({"budget": 500, "game": 1, "roles": roles}, team_count=8)
+    assert (classic.goalkeepers, classic.size) == ((2, 4), (25, 30)) and not classic.is_mantra
+    for bad, text in (({**roles, "gk": [4, 2]}, "roles.gk"),                                   # a range runs low to high
+                      ({"gk": [3, 3], "mov": [22, 22], "size": [24, 24]}, "size"),           # 25 needed, 24 allowed
+                      ({"gk": [3, 3], "mov": [22, 22], "size": [26, 26]}, "size"),           # 26 needed, 25 possible
+                      ({"gk": [3, 3], "size": [25, 25]}, "roles.mov"),
+                      ({"gk": [3, True], "mov": [22, 22], "size": [25, 25]}, "roles.gk"),
+                      ({**roles, "def": [9, 8]}, "roles.def")):
+        with pytest.raises(SessionError, match=text):
+            session_from_feed({"budget": 500, "game": 2, "roles": bad}, team_count=8)
+    for bad, text in (({"game": 2, "roles": roles}, "budget"), ({"budget": 500, "game": 3, "roles": roles}, "game"),
                       ({"budget": 500, "game": 2}, "roles"), ({"budget": -5, "game": 2, "roles": roles}, "budget")):
         with pytest.raises(SessionError, match=text):
             session_from_feed(bad, team_count=8)
