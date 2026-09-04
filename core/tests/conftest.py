@@ -153,3 +153,20 @@ def seed_probabili(con, season_id: int, giornata: int, rows) -> int:
         con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, false, NULL, '{}')",
                     [file_id, season_id, giornata, player_id, name, club, p_start])
     return file_id
+
+
+def seed_fixtures(con, season_id: int, rounds) -> int:
+    """One Serie A calendar snapshot. `rounds` maps giornata -> list of kickoffs (aware UTC)."""
+    from uuid import uuid4
+
+    from fantaclaude.timeutil import to_db
+    n = sum(len(k) for k in rounds.values())
+    snapshot_id = con.execute(
+        "INSERT INTO fixture_snapshots (competition, season_id, fetched_at, source, raw_paths, sha256, row_count) "
+        "VALUES ('SA', ?, now(), 'seed', [], ?, ?) RETURNING snapshot_id",
+        [season_id, f"seed-fix-{uuid4().hex[:8]}", n]).fetchone()[0]
+    for giornata, kickoffs in rounds.items():
+        for i, kickoff in enumerate(kickoffs):
+            con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, 'Home', 'Away', NULL, NULL, '{}')",
+                        [snapshot_id, season_id, f"seed-{giornata}-{i}", str(giornata), giornata, to_db(kickoff)])
+    return snapshot_id
