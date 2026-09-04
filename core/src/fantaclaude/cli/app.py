@@ -907,11 +907,25 @@ def rank_cmd(
 
 
 def _render_lineup(payload: dict) -> str:
+    # Rendering only -- the JSON shape (payload) is unchanged, a machine
+    # contract other things may read. A skim top-to-bottom answering "is
+    # this forecast sane?" must see the compilation state and any
+    # page/predictions shortfall right after the header, the way LATE
+    # already does, rather than only as the last line after two absolute
+    # parquet paths, or as an un-denominated count that reads the same at
+    # 2-of-2 and 2-of-10 (review finding 5, 2026-09-04).
     r, page = payload["round"], payload["page"]
+    total_matches = page["matches"] + page["uncompiled"]
     lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
-              f"({page['players']} players, {page['matches']} compiled)")]
+              f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
     if payload["late"]:
         lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
+    uncompiled_warning = next((w for w in payload["warnings"] if "not yet compiled on the page fetched" in w), None)
+    if uncompiled_warning is not None:
+        lines.append(f"UNCOMPILED: {uncompiled_warning}")
+    shortfall = page["players"] - payload["predictions"]
+    lines.append(f"predictions: {payload['predictions']}/{page['players']} page player(s) priced by the run"
+                + (f" ({shortfall} not priced)" if shortfall else ""))
     for role, rows in payload["top"].items():
         lines.append(f"  {role}: " + " · ".join(
             f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}={x['expected_points']:.2f}" for x in rows))
@@ -926,7 +940,7 @@ def _render_lineup(payload: dict) -> str:
         lines.append(f"  other modules: {others}")
     lines.append(f"written: lineup_run {payload['lineup_run_id']}, {payload['predictions']} predictions"
                  + (" · " + ", ".join(payload["records"]) if payload["records"] else " · records already exist"))
-    lines += [f"warning: {w}" for w in payload["warnings"]]
+    lines += [f"warning: {w}" for w in payload["warnings"] if w != uncompiled_warning]
     return "\n".join(lines)
 
 

@@ -784,7 +784,15 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
     # side so a mixed pair -- one pinned by flag, the other defaulted --
     # never gets misreported as either "all pinned" or "all defaulted".
     source = run_source if run_source == scenario_source else f"{run_source}/{scenario_source}"
-    first = con.execute("SELECT min(snapshot_id) FROM v_rosters_first").fetchone()[0]
+    # Scoped to the run's own season (as v_market_prices already joins), not
+    # `v_rosters_first` bare -- that view groups by (league_id, season_id), so
+    # an unscoped min() picks the first snapshot of ANY season once a second
+    # one exists (review finding 1, 2026-09-04). `first` is the snapshot this
+    # report is about; `unpriced` below is pinned to that same snapshot_id so
+    # the reported id and the numbers provably describe one snapshot.
+    first = con.execute(
+        "SELECT min(f.snapshot_id) FROM v_rosters_first f JOIN valuation_runs vr ON vr.season_id = f.season_id "
+        "WHERE vr.run_id = ?", [run_id]).fetchone()[0]
     if first is None:
         raise NotReady("no roster snapshot with players -- run `fantaclaude ingest rosters` once the admin has transferred the auction")
     rows = con.execute(
@@ -797,7 +805,7 @@ def market_prices(con: duckdb.DuckDBPyConnection, *, paths: AstaPaths, run_id: s
     overall = {"players": n, "paid": paid, "expected": exp, "paid_over_expected": _ratio(paid, exp),
                "quotazione": quot, "paid_over_quotazione": _ratio(paid, quot)}
     unpriced = con.execute(
-        "SELECT count(*), coalesce(sum(cost), 0) FROM v_rosters_first f WHERE f.player_id NOT IN "
-        "(SELECT player_id FROM valuation_prices WHERE run_id = ? AND scenario = ?)", [run_id, scenario]).fetchone()
+        "SELECT count(*), coalesce(sum(cost), 0) FROM v_rosters_first f WHERE f.snapshot_id = ? AND f.player_id NOT IN "
+        "(SELECT player_id FROM valuation_prices WHERE run_id = ? AND scenario = ?)", [first, run_id, scenario]).fetchone()
     return MarketReport(run_id, scenario, source, int(first), classes, overall,
                         {"players": int(unpriced[0]), "paid": int(unpriced[1])})

@@ -10,6 +10,7 @@ from fantaclaude.analysis.weekly import (
     RosterPlayer,
     Round,
     choose_xi,
+    compilation_staleness,
     export_lineup_records,
     forecast,
     matchday_cross_check,
@@ -123,9 +124,32 @@ def test_records_are_exported_once_by_giornata_and_write_time(db, tmp_path):
                                      probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     written = export_lineup_records(db, lineup_run_id, tmp_path / "records")
     assert [p.relative_to(tmp_path / "records").as_posix() for p in written] == \
-        ["lineup_runs/21-03-20260904T120000Z.parquet", "predictions/21-03-20260904T120000Z.parquet"]
+        [f"lineup_runs/21-03-20260904T120000Z-{lineup_run_id}.parquet",
+         f"predictions/21-03-20260904T120000Z-{lineup_run_id}.parquet"]
     assert export_lineup_records(db, lineup_run_id, tmp_path / "records") == []          # never rewritten
     assert db.execute("SELECT count(*) FROM read_parquet(?)", [str(written[1])]).fetchone()[0] == 1
+
+
+def test_two_runs_in_the_same_second_each_get_their_own_permanent_record(db, tmp_path):
+    """`written_at` is second-precision in the stem; two `lineup` invocations
+    in the same second are two immutable `lineup_runs` rows and must be two
+    parquet pairs, not one silently skipped as `write_parquet` reads as
+    "records already exist" (review finding 3, 2026-09-04)."""
+    seed_fixtures(db, 21, {3: G3})
+    run_id = _run(db)
+    file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    round_ = target_round(db, NOW, season_id=21)
+    a = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    b = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
+    assert a != b
+    assert db.execute("SELECT written_at FROM lineup_runs WHERE lineup_run_id IN (?, ?)", [a, b]).fetchall() == \
+        [(datetime(2026, 9, 4, 12, 0),), (datetime(2026, 9, 4, 12, 0),)]  # noqa: DTZ001 -- naive UTC, as stored -- same second
+    written_a = export_lineup_records(db, a, tmp_path / "records")
+    written_b = export_lineup_records(db, b, tmp_path / "records")
+    assert written_a and written_b                       # neither is skipped as "already exists"
+    assert {p.name for p in written_a}.isdisjoint(p.name for p in written_b)
+    assert db.execute("SELECT count(*) FROM read_parquet(?)", [str(written_b[1])]).fetchone()[0] == 1
 
 
 def _row(pid, role, p, fv):
@@ -189,3 +213,97 @@ def test_the_platforms_matchday_is_a_cross_check_on_the_calendar(db):
     assert matchday_cross_check(db, r) is None                                   # agrees
     seed_rosters(db, 1, 21, {10: ("Mine", {})}, matchday=4)
     assert "matchday 4" in matchday_cross_check(db, r)                           # the platform moved on
+
+
+def _seed_fixtures_with_shorts(con, season_id, giornata, matches):
+    """`matches`: (home_short, away_short, kickoff aware UTC). Unlike
+    `seed_fixtures`, this fills `home_short`/`away_short` -- the listone
+    short code `compilation_staleness` joins probabili's `team_short` on."""
+    from uuid import uuid4
+
+    from fantaclaude.timeutil import to_db
+    snapshot_id = con.execute(
+        "INSERT INTO fixture_snapshots (competition, season_id, fetched_at, source, raw_paths, sha256, row_count) "
+        "VALUES ('SA', ?, now(), 'seed', [], ?, ?) RETURNING snapshot_id",
+        [season_id, f"seed-fix-shorts-{uuid4().hex[:8]}", len(matches)]).fetchone()[0]
+    for i, (home_short, away_short, kickoff) in enumerate(matches):
+        con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, '{}')",
+                    [snapshot_id, season_id, f"seed-shorts-{giornata}-{i}", str(giornata), giornata,
+                     to_db(kickoff), home_short, away_short, home_short, away_short])
+    return snapshot_id
+
+
+def _seed_probabili_with_team(con, season_id, giornata, rows):
+    """`rows`: (player_id, team_short or None, updated_at aware UTC or None).
+    Unlike `seed_probabili`, this fills `team_short` and `updated_at` directly
+    -- `compilation_staleness` reads both."""
+    from uuid import uuid4
+
+    from fantaclaude.timeutil import to_db
+    file_id = con.execute(
+        "INSERT INTO probabili_files (season_id, giornata, fetched_at, source, raw_path, sha256, row_count, matches, uncompiled) "
+        "VALUES (?, ?, now(), 'seed', ?, ?, ?, 1, 0) RETURNING file_id",
+        [season_id, giornata, f"seed/prob-team-{season_id}-{giornata}",
+         f"seed-prob-team-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    for player_id, team_short, updated_at in rows:
+        con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, 'slug', ?, NULL, 90, false, ?, '{}')",
+                    [file_id, season_id, giornata, player_id, f"p{player_id}", team_short,
+                     to_db(updated_at) if updated_at else None])
+    return file_id
+
+
+def test_compilation_staleness_warns_per_match_against_its_own_kickoff(db):
+    """The join is on `team_short` -- the listone short code `ingest
+    probabili` already resolves per player from `player_id` (the reliable
+    join the page gives for free), and the same listone fills
+    `fixtures.home_short`/`away_short` at calendar ingest -- so the two
+    columns already speak one vocabulary. `club_slug`, the fantacalcio.it
+    URL slug, has no such mapping anywhere in this codebase and is not one
+    to invent here (review finding 2, 2026-09-04)."""
+    _seed_fixtures_with_shorts(db, 21, 3, [
+        ("INT", "ROM", datetime(2026, 9, 6, 18, 0, tzinfo=UTC)),      # compiled 4+ days before its own kickoff: stale
+        ("JUV", "MIL", datetime(2026, 9, 7, 20, 45, tzinfo=UTC)),     # compiled hours before its own kickoff: not stale
+    ])
+    file_id = _seed_probabili_with_team(db, 21, 3, [
+        (1, "INT", datetime(2026, 9, 2, 10, 0, tzinfo=UTC)),
+        (2, "ROM", datetime(2026, 9, 2, 10, 0, tzinfo=UTC)),
+        (3, "JUV", datetime(2026, 9, 7, 10, 0, tzinfo=UTC)),
+        (4, "MIL", datetime(2026, 9, 7, 10, 0, tzinfo=UTC)),
+        (5, None, datetime(2026, 9, 1, 0, 0, tzinfo=UTC)),            # no listone club: not checked, not a crash
+    ])
+    warnings = compilation_staleness(db, 21, 3, file_id)
+    assert len(warnings) == 1
+    assert "INT-ROM" in warnings[0] and "4 day" in warnings[0] and "stale" in warnings[0]
+    assert "JUV" not in warnings[0] and "MIL" not in warnings[0]
+
+
+def test_compilation_staleness_is_silent_with_nothing_to_join_or_nothing_stale(db):
+    # no fixtures at all for this giornata: the join finds nothing, no crash
+    file_id = _seed_probabili_with_team(db, 21, 4, [(1, "INT", datetime(2026, 9, 2, 10, 0, tzinfo=UTC))])
+    assert compilation_staleness(db, 21, 4, file_id) == []
+    # a fixture exists but compiled well within a day of its own kickoff: not stale
+    _seed_fixtures_with_shorts(db, 21, 5, [("INT", "ROM", datetime(2026, 9, 13, 15, 0, tzinfo=UTC))])
+    fresh = _seed_probabili_with_team(db, 21, 5, [(1, "INT", datetime(2026, 9, 13, 9, 0, tzinfo=UTC))])
+    assert compilation_staleness(db, 21, 5, fresh) == []
+
+
+def test_lineup_surfaces_the_staleness_warning(db, tmp_path):
+    """End-to-end: `lineup` wires `compilation_staleness` into its own
+    warnings, the way `matchday_cross_check` and the uncompiled-match count
+    already are."""
+    from fantaclaude.analysis.weekly import lineup
+    run_id = _run(db)                                       # prices 2764 (INT), among others
+    _seed_fixtures_with_shorts(db, 21, 3, [
+        ("INT", "ROM", NOW + timedelta(days=2)),
+        ("JUV", "MIL", NOW + timedelta(days=3)),
+    ])
+    _seed_probabili_with_team(db, 21, 3, [
+        (2764, "INT", NOW - timedelta(days=6)),                          # stale: priced AND on the page
+        (999901, "ROM", NOW - timedelta(days=6)),
+        (999902, "JUV", NOW + timedelta(days=3) - timedelta(hours=2)),   # not stale: hours before ITS OWN kickoff
+        (999903, "MIL", NOW + timedelta(days=3) - timedelta(hours=2)),
+    ])
+    report = lineup(db, now=NOW, season_id=21, giornata=None, run_id=run_id, late=False, my_team=None,
+                    records_dir=tmp_path / "records")
+    assert any("INT-ROM" in w and "stale" in w for w in report.warnings)
+    assert not any("JUV" in w or "MIL" in w for w in report.warnings)

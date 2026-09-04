@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -153,10 +153,15 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
 
 
 def export_lineup_records(con: duckdb.DuckDBPyConnection, lineup_run_id: int, records_dir: Path) -> list[Path]:
-    """records/lineup_runs/<season>-<giornata>-<written_at>.parquet and the same under predictions/, once."""
+    """records/lineup_runs/<season>-<giornata>-<written_at>-<lineup_run_id>.parquet and the same under
+    predictions/, once. The id suffix is load-bearing: `written_at` is a
+    TIMESTAMP column but the stamp here is second-precision, so two `lineup`
+    invocations inside the same second are two immutable rows sharing one
+    stem without it -- `write_parquet` would then silently skip the second
+    file rather than record it (review finding 3, 2026-09-04)."""
     season, giornata, written = con.execute(
         "SELECT season_id, giornata, written_at FROM lineup_runs WHERE lineup_run_id = ?", [lineup_run_id]).fetchone()
-    stem = f"{season}-{giornata:02d}-{written:%Y%m%dT%H%M%SZ}"
+    stem = f"{season}-{giornata:02d}-{written:%Y%m%dT%H%M%SZ}-{lineup_run_id}"
     targets = [(records_dir / "lineup_runs" / f"{stem}.parquet",
                 f"SELECT * FROM lineup_runs WHERE lineup_run_id = {int(lineup_run_id)}"),
                (records_dir / "predictions" / f"{stem}.parquet",
@@ -219,7 +224,9 @@ class XiChoice:
 def choose_xi(roster: list[RosterPlayer], forecast_by_id: dict[int, ForecastRow], modules: dict[str, Module],
               allowed: Sequence[str]) -> XiChoice:
     """One exact solve per permitted module; the best total wins. A roster
-    player the page does not list is worth zero this week and is named."""
+    player not in `forecast_by_id` -- the page does not list him, or the run
+    never priced him -- is worth zero this week and is named (the caller
+    tells the two reasons apart; `forecast_by_id` alone cannot)."""
     natural: list[float] = []
     adapted: list[float] = []
     for p in roster:
@@ -263,6 +270,45 @@ def matchday_cross_check(con: duckdb.DuckDBPyConnection, round_: Round) -> str |
     return (f"the league API's status read on {fetched_at:%Y-%m-%d %H:%M} UTC said matchday {matchday} starting "
             f"{start}; the calendar says giornata {round_.giornata} at {round_.first_kickoff} -- if the platform is "
             f"fresher, pass --giornata")
+
+
+STALE_COMPILATION = timedelta(days=1)
+
+
+def compilation_staleness(con: duckdb.DuckDBPyConnection, season_id: int, giornata: int,
+                          probabili_file_id: int) -> list[str]:
+    """Warnings, one per match, when that match's OWN probabili compilation
+    stamp predates that match's OWN kickoff by more than a day (spec: "the
+    lineup command warns when a match's compilation predates its own
+    kickoff by more than a day, instead of treating Tuesday's guess as
+    Saturday's team news").
+
+    The join to `fixtures` is on `team_short`, not `club_slug`: the
+    fantacalcio.it URL slug `club_slug` carries (e.g. "inter") has no
+    established mapping anywhere in this codebase to the listone short code
+    `fixtures.home_short`/`away_short` use, and inventing one here would be
+    exactly the kind of club fact CLAUDE.md says must never come from
+    memory. `team_short` needs no such mapping: `ingest probabili` already
+    resolves it per row from the listone by `player_id` (the reliable join
+    the page gives for free), the same listone `resolve_team` fills
+    `fixtures.home_short`/`away_short` from at calendar ingest -- so the two
+    columns already speak the same short code. A match with no listone-known
+    player on the page (an unmapped `player_id`, `team_short IS NULL` for
+    both its clubs) is not checked; that is the honest limit of this join,
+    not a fallback to the round's first kickoff."""
+    rows = con.execute(
+        "SELECT f.home_short, f.away_short, f.kickoff, min(p.updated_at) FROM probabili p "
+        "JOIN v_fixtures_current f ON f.competition = 'SA' AND f.season_id = p.season_id AND f.giornata = p.giornata "
+        "AND (f.home_short = p.team_short OR f.away_short = p.team_short) "
+        "WHERE p.file_id = ? AND p.updated_at IS NOT NULL AND f.kickoff IS NOT NULL "
+        "GROUP BY f.home_short, f.away_short, f.kickoff", [probabili_file_id]).fetchall()
+    warnings = []
+    for home, away, kickoff, updated_at in rows:
+        age = kickoff - updated_at
+        if age > STALE_COMPILATION:
+            warnings.append(f"{home}-{away} (giornata {giornata}): probabili compiled {updated_at:%Y-%m-%d %H:%M} UTC, "
+                            f"{age.days} day(s) before its own kickoff {kickoff:%Y-%m-%d %H:%M} UTC -- treat its p_start as stale")
+    return sorted(warnings)
 
 
 TOP_PER_ROLE = 8
@@ -321,6 +367,7 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     if uncompiled:
         warnings.append(f"{uncompiled} match(es) of giornata {round_.giornata} not yet compiled on the page fetched "
                         f"{fetched_at:%Y-%m-%d %H:%M} UTC")
+    warnings += compilation_staleness(con, season_id, round_.giornata, file_id)
     xi, no_xi_reason, module, xi_rows, scores = None, None, None, None, None
     if my_team is None:
         no_xi_reason = "league.yml has no my_team leaf (asta verify-transfer prints it)"
@@ -334,8 +381,24 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
             xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
             xi_rows = [s.to_dict() for s in choice.slots]
             if choice.unlisted:
-                warnings.append(f"{len(choice.unlisted)} roster player(s) not on the page, counted as 0: "
-                                + ", ".join(next(p.name for p in roster if p.player_id == pid) for pid in choice.unlisted))
+                # `choice.unlisted` conflates two different causes (the page
+                # never listed the player, or the run never priced him -- the
+                # live case is id 795, on a lega roster and in no listone);
+                # the zero is right either way, but the sentence must send a
+                # reader to the right file, so the two are told apart here,
+                # where the page's own membership is still queryable (review
+                # finding 4, 2026-09-04).
+                names = {p.player_id: p.name for p in roster}
+                on_page = {pid for (pid,) in con.execute(
+                    "SELECT player_id FROM probabili WHERE file_id = ?", [file_id]).fetchall()}
+                not_on_page = [pid for pid in choice.unlisted if pid not in on_page]
+                unpriced = [pid for pid in choice.unlisted if pid in on_page]
+                if not_on_page:
+                    warnings.append(f"{len(not_on_page)} roster player(s) not on the page, counted as 0: "
+                                    + ", ".join(names[pid] for pid in not_on_page))
+                if unpriced:
+                    warnings.append(f"{len(unpriced)} roster player(s) on the page but not priced by run {run_id}, "
+                                    "counted as 0: " + ", ".join(names[pid] for pid in unpriced))
         except ForecastError as exc:
             no_xi_reason = str(exc)
     lineup_run_id = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),

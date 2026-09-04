@@ -805,3 +805,34 @@ def test_market_prices_needs_an_auction_in_the_rosters(monkeypatch, tmp_path, fi
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     result = runner.invoke(app, ["asta", "market-prices"])
     assert result.exit_code == ExitCode.NOT_READY and "ingest rosters" in result.stderr
+
+
+def test_market_prices_unpriced_and_snapshot_id_are_scoped_to_the_runs_own_season(
+        monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`v_rosters_first` groups by (league_id, season_id), so an unscoped
+    read of it picks up the first snapshot of EVERY season once a second one
+    exists -- `classes`/`overall` are already season-scoped through
+    `v_market_prices`'s join, but `unpriced` and the reported `snapshot_id`
+    were not (review finding 1, 2026-09-04). A next season's roster snapshot
+    must move neither: `unpriced` must count only the run's own season's
+    first snapshot, and `snapshot_id` must name that same snapshot."""
+    run_id = _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    prices = {pid: cls for pid, cls in con.execute(
+        "SELECT player_id, role_class FROM valuation_prices WHERE run_id = ? AND scenario = 'balanced'", [run_id]).fetchall()}
+    pid = min(prices)
+    # season 21 (the run's own season, matching the fixture): one priced
+    # player, one unpriced -- ground truth is 1 unpriced player, 20 credits.
+    this_season = seed_rosters(con, 2578630, 21, {1: ("A", {pid: 10, 424242: 20}), 2: ("B", {})})
+    # a later season's first snapshot: two more players, unpriced under any
+    # run (there is no valuation for either) -- must not be counted, and its
+    # snapshot must not be the one reported.
+    other_season = seed_rosters(con, 2578630, 22, {1: ("A", {900001: 15, 900002: 95}), 2: ("B", {})})
+    con.close()
+
+    result = runner.invoke(app, ["asta", "market-prices", "--run", run_id, "--scenario", "balanced", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["snapshot_id"] == this_season
+    assert payload["snapshot_id"] != other_season
+    assert payload["unpriced"] == {"players": 1, "paid": 20}
