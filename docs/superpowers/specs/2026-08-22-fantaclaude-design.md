@@ -1362,6 +1362,20 @@ follows the calendar's precedent: the page is saved to `captured/` and
 some are not — because "skip a match that is not yet compiled" cannot be tested
 against a page that has none.
 
+**One fetch a week is not enough, and 3a's own run proved it.** Writing giornata
+3's forecast on 2026-09-04 took a single `ingest probabili` at 13:46 UTC, and it
+covered all ten matches — but that giornata's kickoffs ran from Thursday 18:45 to
+Sunday 18:45 UTC. The staleness check above fires on nine of the ten, and it is
+right to: for the weekend fixtures a Thursday compilation really is standing in
+for Sunday's team news, which is the failure the check was written for. The page
+recompiles per card — that capture carried nine distinct stamps across ten
+matches — so the remedy is cadence, not parsing. 3b's loop re-fetches through the
+week, and nothing in the schema resists it: each fetch is a new `probabili_files`
+row, `v_probabili_current` already resolves to the newest, and the dedupe is on
+bytes, so a re-fetch that changed nothing costs one request and writes no rows.
+What re-fetching does *not* settle is which forecast the calibration should then
+read — see open question 18.
+
 #### Blending, and the rotation term that must not double-count
 
 `p_start` is a blend: the published number is the base, the KB note's `depth`
@@ -2172,6 +2186,42 @@ often than to bad models.
     `me` has reconciled with exactly one lega roster; `lineup` and, in 3b, the
     lineup read-back use that id and nothing else. It is not in
     `league_yml.COMPARABLE`, because the API has no value to compare it to.
+
+18. **One forecast per giornata, or one per kickoff? Found 2026-09-04, open.**
+    The write is refused after the giornata's *first* kickoff. That is right for
+    the immutability contract and wrong for the days that follow it: giornata 3
+    ran Thursday to Sunday, so the row written at 13:46 on the Thursday priced
+    Sunday's matches off Thursday's probabili. Re-fetching through the week
+    (above) gets fresher pages, but a second `lineup` run after that first
+    kickoff is `--late` and calibration drops it — so as it stands the only
+    forecast 3c will read is the earliest and least informed one of the round.
+    Three shapes are available. Keep one row per giornata and accept the
+    staleness, which is honest but wastes the better information. Make the
+    deadline per *match* rather than per round, so a player's row is refused
+    once his own fixture starts — closest to what `p_start` actually means, and
+    the most work. Or keep writing per giornata and let a later row supersede
+    for the matches not yet kicked off, which preserves the append-only table
+    and moves the complexity into a view. Nothing is decided. The choice exists
+    to serve 3c's calibration, so it should be made with 3b's loop and not
+    before it.
+
+19. **Does a premium account publish a better `p_start`? Raised 2026-09-05,
+    unanswered.** `ingest probabili` fetches anonymously — `build_http()` sends
+    a User-Agent and no cookie — and the published percentages fall in coarse
+    buckets (seventeen distinct values across giornata 3's 479 rows, with 90 and
+    60 alone accounting for two fifths). The maintainer holds a Fantagazzetta
+    Leghe premium subscription, and whether it reaches this page is genuinely
+    unknown: the host read here is `fantacalcio.it`, `FANTACALCIO_WEB_COOKIE`
+    today gates only `stats_web`'s XLSX export, and the account in `.env` is not
+    the maintainer's own (open question 17). What to establish first is whether
+    the logged-in page is the same page — a finer number, extra fields, or
+    nothing at all. Two cautions if it is not. The parser is pinned to the
+    anonymous layout, so a session-bearing fetch needs a fresh capture and a
+    regenerated fixture before it is trusted; it would fail loud rather than
+    silently, but it would fail. And `p_start` multiplies straight into
+    `expected_points`, so a change of source is a change of model input: it
+    belongs beside the `source` column the row already carries, and beside a
+    `MODEL_VERSION` bump, not quietly in place of the published number.
 
 ## Non-goals
 
