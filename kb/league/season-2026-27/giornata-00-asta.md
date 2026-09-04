@@ -199,14 +199,25 @@ Two things the check turned up that are worth keeping:
 - `verify-transfer` as a command: the comparison above was done by hand and
   belongs in the CLI, now that the API is known to carry the costs. The two
   files under `records/asta/` stay until it exists.
-- **Profiles to refresh.** Como is done (above) because 152 credits of my own
-  roster hung on it. Still open: Atalanta (Rowe), Fiorentina (Njie and the
-  striker line), Roma (De Roon), Monza (Mota, Tourè I.), Sassuolo (Esposito
-  Se.), Inter (Provedel), Juventus (Woltemade). Fiorentina was attempted on
-  2026-09-04 and abandoned: the sources still disagree about whether Kean
-  ever left and who leads that line, and a confident guess there would be
-  worse than the gap. The note-writing pass listed every unmentioned listone
-  player of note per club.
+- **Profiles to refresh.** Como and Fiorentina are done. Still open: Atalanta
+  (Rowe), Fiorentina's Njie, Roma (De Roon), Monza (Mota, Tourè I.), Sassuolo
+  (Esposito Se.), Inter (Provedel), Juventus (Woltemade). The note-writing
+  pass listed every unmentioned listone player of note per club.
+
+  Fiorentina was attempted from the web on 2026-09-04 and abandoned — the
+  sources could not agree whether Kean had left — and then settled in one
+  sentence by the account holder, who bought him. Its profile had recorded
+  the transfer in one section while two others still had him leading the
+  line; both are corrected. The shirt now falls to Beto or Pellegrino M.,
+  identically priced by the listone and separated by no source, so both are
+  `contested`. That moved Beto from 63 to 151, because his old rate averaged
+  a season he spent barely playing at another club.
+
+  The two clubs together are the same lesson twice: **four centre-forwards,
+  two shirts, and the model had been reading three of the four off histories
+  that described a different situation.** After
+  `20260904T091947Z-7694bd6a` they price within two points of each other,
+  which is what "nobody knows yet" should look like.
 - **The goalkeeper at Como.** The probable-formation guide calls it an open
   contest with a keeper the profile never named (`Sanchez Ro.` in the
   listone); Butez started the opening day. One query in a fortnight settles
