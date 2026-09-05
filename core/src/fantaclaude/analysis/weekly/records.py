@@ -56,10 +56,11 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
              None if close_calls is None else json.dumps(close_calls, ensure_ascii=False)]).fetchone()[0]
         con.executemany(
             "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
-            "fv_if_plays, fv_sd, expected_points, source, kickoff, late, trace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
+            "fv_if_plays, fv_sd, expected_points, source, kickoff, late, matchup, trace) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[lineup_run_id, round_.season_id, round_.giornata, r.player_id, r.p_start_published, r.p_start,
               r.fv_if_plays, r.fv_sd, r.expected_points, r.source, r.kickoff,
-              written_at >= (r.kickoff or round_.first_kickoff), json.dumps(r.trace, ensure_ascii=False)] for r in rows])
+              written_at >= (r.kickoff or round_.first_kickoff), r.matchup, json.dumps(r.trace, ensure_ascii=False)] for r in rows])
     except Exception:
         con.rollback()
         raise

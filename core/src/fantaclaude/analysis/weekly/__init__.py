@@ -28,8 +28,11 @@ from fantaclaude.analysis.weekly.errors import ForecastError, LateForecast
 from fantaclaude.analysis.weekly.forecast import (
     Forecast,
     ForecastRow,
+    Terms,
     forecast,
+    load_terms,
     newest_probabili_file,
+    scoring_in_force,
 )
 from fantaclaude.analysis.weekly.notes import (
     EMPTY_NOTES,
@@ -111,6 +114,7 @@ __all__ = [
     "ResolvedNote",
     "RosterPlayer",
     "Round",
+    "Terms",
     "WeeklyConfig",
     "XiChoice",
     "XiSlot",
@@ -125,6 +129,7 @@ __all__ = [
     "lineup",
     "load_layer",
     "load_lineup_notes",
+    "load_terms",
     "matchday_cross_check",
     "my_roster",
     "newest_probabili_file",
@@ -134,6 +139,7 @@ __all__ = [
     "player_fixtures",
     "render_note",
     "resolve_notes",
+    "scoring_in_force",
     "target_round",
     "uncompiled_match_warning",
     "weekly_hash",

@@ -1026,7 +1026,8 @@ def _render_lineup(payload: dict) -> str:
                 + (f" ({shortfall} not priced)" if shortfall else ""))
     for role, rows in payload["top"].items():
         lines.append(f"  {role}: " + " · ".join(
-            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}={x['expected_points']:.2f}" for x in rows))
+            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}"
+            + (f"({x['matchup']:+.2f})" if x.get("matchup") else "") + f"={x['expected_points']:.2f}" for x in rows))
     xi = payload.get("xi")
     if xi is None:
         lines.append(f"XI: none -- {payload['no_xi_reason']}")

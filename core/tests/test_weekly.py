@@ -320,11 +320,16 @@ def test_compilation_staleness_is_silent_with_nothing_to_join_or_nothing_stale(d
     assert compilation_staleness(db, 5, fresh) == []
 
 
-def test_lineup_surfaces_the_staleness_warning(db, tmp_path):
+def test_lineup_surfaces_the_staleness_warning(db, tmp_path, mcp_fixture_json):
     """End-to-end: `lineup` wires `compilation_staleness` into its own
     warnings, the way `matchday_cross_check` and the uncompiled-match count
     already are."""
     from fantaclaude.analysis.weekly import lineup
+    from fantaclaude.league.settings import record_snapshot, snapshot_from_payloads
+    record_snapshot(db, snapshot_from_payloads(
+        profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
+        rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
+        calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
     run_id = _run(db)                                       # prices 2764 (INT), among others
     _seed_fixtures_with_shorts(db, 21, 3, [
         ("INT", "ROM", NOW + timedelta(days=2)),

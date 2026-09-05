@@ -17,6 +17,7 @@ from fantaclaude.analysis.weekly.errors import ForecastError
 from fantaclaude.analysis.weekly.forecast import (
     ForecastRow,
     forecast,
+    load_terms,
     newest_probabili_file,
 )
 from fantaclaude.analysis.weekly.records import export_lineup_records, write_lineup_run
@@ -101,7 +102,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     layer, layer_warnings = load_layer(con, season_id=season_id, giornata=round_.giornata, run_id=run_id,
                                        notes_path=notes_path, kb_dir=kb_dir, cfg=cfg)
     fixtures = player_fixtures(con, file_id)
-    forecasted = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures, layer=layer, cfg=cfg)
+    terms = load_terms(con, season_id=season_id, cfg=cfg)
+    forecasted = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures, layer=layer, cfg=cfg, terms=terms)
     rows = forecasted.rows
     warnings: list[str] = [*layer_warnings, *forecasted.warnings]
     if (mismatch := matchday_cross_check(con, round_)):

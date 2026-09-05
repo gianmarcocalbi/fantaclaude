@@ -236,7 +236,7 @@ class CloseCall:
 def _call_side(row: ForecastRow | None, player: RosterPlayer, net: float) -> dict[str, Any]:
     return {"player_id": player.player_id, "name": player.name, "expected_points": net,
             "fv_sd": row.fv_sd if row else None, "source": row.source if row else None,
-            "matchup": getattr(row, "matchup", None) if row else None}
+            "matchup": row.matchup if row else None}
 
 
 def close_calls(roster: list[RosterPlayer], xi: XiChoice, forecast_by_id: dict[int, ForecastRow], module: Module, *,
