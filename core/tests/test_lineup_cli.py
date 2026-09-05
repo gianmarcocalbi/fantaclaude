@@ -232,3 +232,29 @@ def test_lineup_with_my_team_but_no_roster_still_writes_the_forecast(monkeypatch
     assert result.exit_code == ExitCode.OK, result.output
     payload = json.loads(result.stdout)
     assert payload["xi"] is None and "ingest rosters" in payload["no_xi_reason"] and payload["predictions"] == 6
+
+
+INJURIES = (FIXTURE_DIR / "news_infortunati_sample.html").read_text(encoding="utf-8")
+SUSPENSIONS = (FIXTURE_DIR / "news_squalificati_sample.html").read_text(encoding="utf-8")
+
+
+@respx.mock
+def test_ingest_news_fetches_each_page_once_and_records_under_the_calendars_giornata(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    suspensions = respx.get("https://www.fantacalcio.it/squalificati-e-diffidati-campionato-serie-a").mock(
+        return_value=httpx.Response(200, text=SUSPENSIONS))
+    injuries = respx.get("https://www.fantacalcio.it/infortunati-serie-a").mock(return_value=httpx.Response(200, text=INJURIES))
+    result = runner.invoke(app, ["ingest", "news", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)["news"]
+    assert [p["page"] for p in payload] == ["squalificati", "infortunati"]
+    assert suspensions.call_count == 1 and injuries.call_count == 1
+    # the seeded listone has Atalanta (Kolasinac, Rossi F. *) but none of the four injured names, and no Bologna
+    assert payload[1]["giornata"] == 3 and payload[1]["inserted"] == 4
+    assert payload[1]["unmatched"] == 4 and payload[1]["unknown_teams"] == 1
+    assert list((tmp_path / "data" / "raw" / "news").glob("*-news-infortunati-21-03.html"))
+    plain = runner.invoke(app, ["ingest", "news", "--page", "infortunati"])
+    assert plain.exit_code == ExitCode.OK and "duplicate" in plain.stdout and injuries.call_count == 2 and suspensions.call_count == 1
+    bad = runner.invoke(app, ["ingest", "news", "--page", "rumours"])
+    assert bad.exit_code == ExitCode.USAGE and "squalificati" in bad.stderr

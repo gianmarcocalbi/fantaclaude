@@ -155,6 +155,22 @@ def seed_probabili(con, season_id: int, giornata: int, rows) -> int:
     return file_id
 
 
+def seed_news(con, season_id: int, giornata: int, page: str, rows) -> int:
+    """One synthetic news file. `rows` are (kind, team_name, team_short, name, player_id, detail);
+    a row with player_id None is written as unmatched."""
+    from uuid import uuid4
+    file_id = con.execute(
+        "INSERT INTO news_files (kind, season_id, giornata, fetched_at, source, raw_path, sha256, row_count, teams, unmatched) "
+        "VALUES (?, ?, ?, now(), 'seed', ?, ?, ?, 20, ?) RETURNING file_id",
+        [page, season_id, giornata, f"seed/news-{page}-{season_id}-{giornata}", f"seed-news-{uuid4().hex[:8]}", len(rows),
+         sum(1 for r in rows if r[4] is None)]).fetchone()[0]
+    for position, (kind, team_name, team_short, name, player_id, detail) in enumerate(rows):
+        con.execute("INSERT INTO unavailable VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')",
+                    [file_id, season_id, giornata, kind, team_name, team_short, name, player_id,
+                     "matched" if player_id is not None else "unmatched", detail, position])
+    return file_id
+
+
 def seed_rosters(con, league_id: int, season_id: int, teams, *, matchday=None) -> int:
     """One roster snapshot. `teams` maps team_id -> (name, {player_id: cost})."""
     from uuid import uuid4

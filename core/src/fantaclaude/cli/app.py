@@ -516,6 +516,83 @@ def ingest_probabili_cmd(
     emit(result.to_dict(), json_=json_, render=_render_probabili)
 
 
+def _render_news(payload: dict) -> str:
+    lines = []
+    for r in payload["news"]:
+        head = f"news {r['page']} {r['season_id']} giornata {r['giornata']}"
+        if r["skipped_duplicate"]:
+            lines.append(f"{head}: duplicate of file {r['file_id']} -- nothing new ({r['raw_path']})")
+            continue
+        line = f"{head}: file {r['file_id']}, {r['inserted']} entries over {r['teams']} clubs"
+        if r["empty_lists"]:
+            line += f" ({r['empty_lists']} empty list(s))"
+        if r["unmatched"]:
+            line += f"; {r['unmatched']} name(s) unmatched -- `fantaclaude query --sql \"SELECT * FROM v_unavailable_current WHERE player_id IS NULL\"`"
+        if r["unknown_teams"]:
+            line += f"; {r['unknown_teams']} club(s) not in the listone (kb/rules/aliases.yml, fantacalcio_teams)"
+        lines.append(f"{line} ({r['raw_path']})")
+    return "\n".join(lines)
+
+
+NEWS_PAGE_OPTION = typer.Option(None, "--page", help="squalificati or infortunati; repeatable (default: both, one request each).")
+
+
+@ingest_app.command("news")
+def ingest_news_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    page: list[str] | None = NEWS_PAGE_OPTION,
+) -> None:
+    """The squalificati/diffidati and infortunati lists (fantacalcio.it, public), matched by name within each club. One request per page."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.commands.ingest import ensure_schema
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import polite_pause, run_web
+    from fantaclaude.ingest.news import PAGES, fetch_news, parse_news_page, record_news
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+    from fantaclaude.timeutil import utc_now
+
+    pages = list(dict.fromkeys(page)) if page else list(PAGES)
+    bad = [p for p in pages if p not in PAGES]
+    if bad:
+        typer.echo(f"--page must be one of {', '.join(PAGES)}, got {bad}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    ensure_schema()
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)
+    try:
+        round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+    except ForecastError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    store = RawStore(raw_dir())
+    label = f"{season_id}-{round_.giornata:02d}"
+
+    async def go(http):
+        raws = {}
+        for i, p in enumerate(pages):
+            if i:
+                await polite_pause()
+            raws[p] = await fetch_news(http, store, page=p, label=label)
+        return raws
+
+    with _source_errors():
+        raws = run_web(go)
+        parsed = {p: parse_news_page(raws[p].path.read_text(encoding="utf-8"), page=p) for p in pages}
+        con = connect()
+        try:
+            apply_schema(con)
+            results = [record_news(con, season_id, round_.giornata, parsed[p], raws[p], aliases_path=aliases_path())
+                       for p in pages]
+        finally:
+            con.close()
+    emit({"news": [r.to_dict() for r in results]}, json_=json_, render=_render_news)
+
+
 def _render_rosters(payload: dict) -> str:
     head = f"rosters league {payload['league_id']}"
     if payload["skipped_duplicate"]:
