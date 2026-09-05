@@ -17,9 +17,11 @@ from fantaclaude.analysis.weekly.report import TOP_PER_ROLE, LineupReport, lineu
 from fantaclaude.analysis.weekly.rounds import (
     MATCHDAY_READ_WINDOW,
     STALE_COMPILATION,
+    PlayerFixture,
     Round,
     compilation_staleness,
     matchday_cross_check,
+    player_fixtures,
     target_round,
     uncompiled_match_warning,
 )
@@ -34,7 +36,9 @@ from fantaclaude.analysis.weekly.xi import (
 
 __all__ = [
     "ADAPTED_MALUS", "MATCHDAY_READ_WINDOW", "STALE_COMPILATION", "TOP_PER_ROLE",
-    "ForecastError", "ForecastRow", "LateForecast", "LineupReport", "RosterPlayer", "Round", "XiChoice", "XiSlot",
+    "ForecastError", "ForecastRow", "LateForecast", "LineupReport", "PlayerFixture", "RosterPlayer", "Round",
+    "XiChoice", "XiSlot",
     "choose_xi", "compilation_staleness", "export_lineup_records", "forecast", "lineup", "matchday_cross_check",
-    "my_roster", "newest_probabili_file", "target_round", "uncompiled_match_warning", "write_lineup_run",
+    "my_roster", "newest_probabili_file", "player_fixtures", "target_round", "uncompiled_match_warning",
+    "write_lineup_run",
 ]

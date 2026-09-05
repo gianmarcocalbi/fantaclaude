@@ -3,7 +3,13 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import respx
-from conftest import FIXTURE_DIR, seed_fixtures, seed_probabili, seed_rosters
+from conftest import (
+    FIXTURE_DIR,
+    seed_fixtures,
+    seed_matches,
+    seed_probabili,
+    seed_rosters,
+)
 from fantaclaude.cli.app import ExitCode, _render_lineup, app
 from fantaclaude.db.connection import connect
 from test_rank_cli import _workspace
@@ -50,15 +56,34 @@ def test_lineup_writes_the_forecast_for_every_listed_priced_player(monkeypatch, 
     assert plain.exit_code == ExitCode.OK and "XI: none" in plain.stdout and "6 predictions" in plain.stdout
 
 
-def test_lineup_is_refused_after_kickoff_and_marked_with_late(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+def test_lineup_between_kickoffs_writes_and_marks_per_player_and_after_all_of_them_needs_late(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
-    _calendar(tmp_path, first=datetime.now(UTC) - timedelta(hours=1))
-    _page(tmp_path)
-    refused = runner.invoke(app, ["lineup"])
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    now = datetime.now(UTC)
+    seed_matches(con, 21, [(3, now - timedelta(hours=1), "INT", "ROM"), (3, now + timedelta(days=2), "ATA", "GEN"),
+                           (4, now + timedelta(days=7), "MIL", "NAP")])
+    seed_probabili(con, 21, 3, [(2764, "Martinez L.", "inter", 90, "INT"), (5841, "Svilar", "roma", 100, "ROM"),
+                                (2640, "Kolasinac", "atalanta", 55, "ATA")])
+    con.close()
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["late"] is True and payload["predictions"] == 3 and payload["late_predictions"] == 2
+    plain = runner.invoke(app, ["lineup"])
+    assert "LATE XI" in plain.stdout and "1 on time, 2 late" in plain.stdout
+    # once every match of the round has started, the write needs --late; the
+    # default target has by then rolled on to giornata 4 (target_round picks
+    # the first giornata whose last kickoff is still ahead -- unchanged, spec
+    # "the round and the deadline are read off the calendar"), so naming
+    # giornata 3 explicitly is what a late write for it now takes.
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_matches(con, 21, [(3, now - timedelta(days=3), "INT", "ROM"), (3, now - timedelta(hours=1), "ATA", "GEN"),
+                           (4, now + timedelta(days=7), "MIL", "NAP")])
+    con.close()
+    refused = runner.invoke(app, ["lineup", "--giornata", "3"])
     assert refused.exit_code == ExitCode.CONFLICT and "--late" in refused.stderr
-    late = runner.invoke(app, ["lineup", "--late", "--json"])
-    assert late.exit_code == ExitCode.OK, late.output
-    assert json.loads(late.stdout)["late"] is True
+    late = runner.invoke(app, ["lineup", "--giornata", "3", "--late", "--json"])
+    assert late.exit_code == ExitCode.OK and json.loads(late.stdout)["late_predictions"] == 3
 
 
 def test_lineup_says_what_is_missing(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):

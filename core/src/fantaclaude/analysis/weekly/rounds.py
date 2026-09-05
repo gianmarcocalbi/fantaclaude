@@ -28,6 +28,27 @@ class Round:
                 "last_kickoff": self.last_kickoff.isoformat(sep=" ", timespec="minutes"), "matches": self.matches}
 
 
+@dataclass(frozen=True)
+class PlayerFixture:
+    kickoff: datetime                # naive UTC, as fixtures stores it
+    home: bool
+    opponent_short: str | None
+
+
+def player_fixtures(con: duckdb.DuckDBPyConnection, probabili_file_id: int) -> dict[int, PlayerFixture]:
+    """Each listed player's own match, joined by `team_short` the way the
+    staleness check already joins; a player whose club the page did not
+    resolve, or whose match has no kickoff, is absent -- the caller falls
+    back to the round's first kickoff and says so (open question 18)."""
+    rows = con.execute(
+        "SELECT p.player_id, f.kickoff, f.home_short = p.team_short, "
+        "CASE WHEN f.home_short = p.team_short THEN f.away_short ELSE f.home_short END "
+        "FROM probabili p JOIN v_fixtures_current f ON f.competition = 'SA' AND f.season_id = p.season_id "
+        "AND f.giornata = p.giornata AND (f.home_short = p.team_short OR f.away_short = p.team_short) "
+        "WHERE p.file_id = ? AND p.team_short IS NOT NULL AND f.kickoff IS NOT NULL", [probabili_file_id]).fetchall()
+    return {int(pid): PlayerFixture(kickoff, bool(home), opponent) for pid, kickoff, home, opponent in rows}
+
+
 def target_round(con: duckdb.DuckDBPyConnection, now: datetime, *, season_id: int,
                  giornata: int | None = None) -> Round:
     """The giornata to forecast: the first whose last kickoff is still ahead

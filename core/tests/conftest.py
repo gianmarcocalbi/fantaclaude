@@ -143,16 +143,34 @@ def seed_advanced(con, season_id: int, rows) -> int:
 
 
 def seed_probabili(con, season_id: int, giornata: int, rows) -> int:
-    """One synthetic probabili file. `rows` are (player_id, name, club_slug, p_start)."""
+    """One synthetic probabili file. `rows` are (player_id, name, club_slug, p_start)
+    or (player_id, name, club_slug, p_start, team_short)."""
     from uuid import uuid4
     file_id = con.execute(
         "INSERT INTO probabili_files (season_id, giornata, fetched_at, source, raw_path, sha256, row_count, matches, uncompiled) "
         "VALUES (?, ?, now(), 'seed', ?, ?, ?, 1, 0) RETURNING file_id",
         [season_id, giornata, f"seed/prob-{season_id}-{giornata}", f"seed-prob-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
-    for player_id, name, club, p_start in rows:
-        con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, false, NULL, '{}')",
-                    [file_id, season_id, giornata, player_id, name, club, p_start])
+    for row in rows:
+        player_id, name, club, p_start = row[:4]
+        short = row[4] if len(row) > 4 else None
+        con.execute("INSERT INTO probabili VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, false, NULL, '{}')",
+                    [file_id, season_id, giornata, player_id, name, club, short, p_start])
     return file_id
+
+
+def seed_matches(con, season_id: int, rows) -> int:
+    """One Serie A calendar snapshot with clubs. `rows` are (giornata, kickoff aware UTC, home_short, away_short)."""
+    from uuid import uuid4
+
+    from fantaclaude.timeutil import to_db
+    snapshot_id = con.execute(
+        "INSERT INTO fixture_snapshots (competition, season_id, fetched_at, source, raw_paths, sha256, row_count) "
+        "VALUES ('SA', ?, now(), 'seed', [], ?, ?) RETURNING snapshot_id",
+        [season_id, f"seed-fix-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    for i, (giornata, kickoff, home, away) in enumerate(rows):
+        con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, '{}')",
+                    [snapshot_id, season_id, f"seed-{giornata}-{i}", str(giornata), giornata, to_db(kickoff), home, away, home, away])
+    return snapshot_id
 
 
 def seed_news(con, season_id: int, giornata: int, page: str, rows) -> int:

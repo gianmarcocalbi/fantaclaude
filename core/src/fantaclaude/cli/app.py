@@ -998,7 +998,9 @@ def _render_lineup(payload: dict) -> str:
     lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
               f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
     if payload["late"]:
-        lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
+        on_time = payload["predictions"] - payload["late_predictions"]
+        lines.append(f"LATE XI: the round's first kickoff has passed -- the XI cannot be fielded; "
+                     f"predictions {on_time} on time, {payload['late_predictions']} late (their matches have started)")
     # Built from page['uncompiled']/page['fetched_at'] -- the same data
     # `lineup()` built its own copy of this sentence from -- rather than
     # located in `warnings` by substring-matching a fragment of that
@@ -1041,7 +1043,7 @@ def lineup_cmd(
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     giornata: int | None = GIORNATA_ONE_OPTION,
     run: str | None = LINEUP_RUN_OPTION,
-    late: bool = typer.Option(False, "--late", help="Write even though the giornata has kicked off; the row is marked and calibration excludes it."),
+    late: bool = typer.Option(False, "--late", help="Write even though every match of the giornata has kicked off; every row is marked and calibration excludes them."),
 ) -> None:
     """Write the giornata's forecast -- p_start x expected fantavoto for every player the probabili page lists -- and, when league.yml names my team, the XI and module that maximise expected points. Local, no network."""
     from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup

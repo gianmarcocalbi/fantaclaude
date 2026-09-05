@@ -21,12 +21,14 @@ from fantaclaude.analysis.weekly.rounds import (
     Round,
     compilation_staleness,
     matchday_cross_check,
+    player_fixtures,
     target_round,
     uncompiled_match_warning,
 )
 from fantaclaude.analysis.weekly.xi import choose_xi, my_roster
 from fantaclaude.asta.pinned import newest_run_id
 from fantaclaude.model.modules import load_modules
+from fantaclaude.timeutil import to_db
 
 TOP_PER_ROLE = 8
 
@@ -38,6 +40,7 @@ class LineupReport:
     model_hash: str
     page: dict[str, Any]
     late: bool
+    late_predictions: int
     rows: list[ForecastRow]
     xi: dict[str, Any] | None
     no_xi_reason: str | None
@@ -56,7 +59,7 @@ class LineupReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {"round": self.round_.to_dict(), "run_id": self.run_id, "model_hash": self.model_hash,
-                "page": self.page, "late": self.late,
+                "page": self.page, "late": self.late, "late_predictions": self.late_predictions,
                 "top": {role: [r.to_dict() for r in rows] for role, rows in self.top().items()},
                 "xi": self.xi, "no_xi_reason": self.no_xi_reason, "my_team": self.my_team,
                 "lineup_run_id": self.lineup_run_id, "predictions": len(self.rows),
@@ -77,7 +80,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
         raise ForecastError(f"no probabili page for giornata {round_.giornata} -- run `fantaclaude ingest probabili`")
     file_id, fetched_at, players, matches, uncompiled = page
     fetched_at_str = fetched_at.isoformat(sep=" ", timespec="minutes")
-    rows = forecast(con, run_id=run_id, probabili_file_id=file_id)
+    fixtures = player_fixtures(con, file_id)
+    rows = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures)
     warnings: list[str] = []
     if (mismatch := matchday_cross_check(con, round_)):
         warnings.append(mismatch)
@@ -121,7 +125,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
                                               probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
                                               module=module, xi=xi_rows, module_scores=scores)
     records = export_lineup_records(con, lineup_run_id, records_dir)
+    late_predictions = sum(1 for r in rows if to_db(now) >= (r.kickoff or round_.first_kickoff))
     return LineupReport(round_, run_id, str(hashed[0]),
                         {"file_id": file_id, "fetched_at": fetched_at_str,
                          "players": players, "matches": matches, "uncompiled": int(uncompiled)},
-                        is_late, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings)
+                        is_late, late_predictions, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings)

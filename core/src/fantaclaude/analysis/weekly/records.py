@@ -1,6 +1,6 @@
 """The immutable write: one lineup_runs row and its predictions, appended,
-refused after the deadline unless late, and the parquet copies under
-records/ (spec, "Forecasts are immutable")."""
+refused only once every match of the round has kicked off unless late, and
+the parquet copies under records/ (spec, "Forecasts are immutable")."""
 
 from __future__ import annotations
 
@@ -23,17 +23,18 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
                      my_team: int | None = None, module: str | None = None,
                      xi: list[dict[str, Any]] | None = None,
                      module_scores: dict[str, float | None] | None = None) -> tuple[int, bool]:
-    """One lineup_runs row and its predictions, appended; refused after the
-    first kickoff unless `late`, and then marked as such by the clock, not
-    the flag. Returns (lineup_run_id, is_late) -- the caller already needs
-    `is_late` for the report and would otherwise SELECT the very row this
-    just wrote to get it back (review finding 14, 2026-09-04)."""
+    """One lineup_runs row and its predictions, appended. The run is late
+    once the round's first kickoff has passed (the lega's lock on the XI);
+    each prediction is late once ITS player's kickoff has passed -- the
+    round's first when no fixture matched him. The write is refused only
+    once every match of the round has started, unless `late`; between the
+    first kickoff and the last it writes and marks (open question 18)."""
     written_at = to_db(now)
     is_late = written_at >= round_.first_kickoff
-    if is_late and not late:
+    if written_at >= round_.last_kickoff and not late:
         raise LateForecast(
-            f"giornata {round_.giornata} kicked off at {round_.first_kickoff:%Y-%m-%d %H:%M} UTC; a forecast written "
-            f"now is not a forecast -- pass --late to write it marked, and calibration will exclude it")
+            f"giornata {round_.giornata}: every match has kicked off (the last at {round_.last_kickoff:%Y-%m-%d %H:%M} UTC); "
+            f"a forecast written now is not a forecast -- pass --late to write it marked, and calibration will exclude it")
     if not rows:
         raise ForecastError(f"nothing to forecast: no player on probabili file {probabili_file_id} is priced by run {run_id}")
     con.begin()
@@ -47,9 +48,10 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
              None if module_scores is None else json.dumps(module_scores), len(rows)]).fetchone()[0]
         con.executemany(
             "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
-            "fv_if_plays, fv_sd, expected_points, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "fv_if_plays, fv_sd, expected_points, source, kickoff, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [[lineup_run_id, round_.season_id, round_.giornata, r.player_id, r.p_start_published, r.p_start,
-              r.fv_if_plays, r.fv_sd, r.expected_points, r.source] for r in rows])
+              r.fv_if_plays, r.fv_sd, r.expected_points, r.source, r.kickoff,
+              written_at >= (r.kickoff or round_.first_kickoff)] for r in rows])
     except Exception:
         con.rollback()
         raise

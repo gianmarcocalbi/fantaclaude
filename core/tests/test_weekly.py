@@ -70,7 +70,11 @@ def test_forecast_joins_the_page_to_the_run_for_every_listed_priced_player(db):
     assert newest_probabili_file(db, 21, 3)[0] == file_id and newest_probabili_file(db, 21, 4) is None
 
 
-def test_write_refuses_after_the_first_kickoff_unless_late_and_marks_the_row(db, tmp_path):
+def test_write_refuses_only_after_the_last_kickoff_unless_late_and_marks_the_row(db, tmp_path):
+    """3b: the XI is late once the round's first kickoff has passed, but the
+    write itself is refused only once EVERY match of the round has kicked
+    off (open question 18) -- unlike 3a, a write between the first and the
+    last kickoff succeeds and is simply marked late."""
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
@@ -78,21 +82,24 @@ def test_write_refuses_after_the_first_kickoff_unless_late_and_marks_the_row(db,
     r = target_round(db, NOW, season_id=21)
     first, first_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     assert first_late is False
-    after = datetime(2026, 9, 4, 19, 0, tzinfo=UTC)
-    with pytest.raises(LateForecast, match="--late"):
-        write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=False)
-    second, second_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=True)
+    between = datetime(2026, 9, 4, 19, 0, tzinfo=UTC)                        # past the first kickoff, well before the last (7 Sept)
+    second, second_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=between, late=False)
     assert second != first and second_late is True
     assert db.execute("SELECT late, deadline FROM lineup_runs ORDER BY lineup_run_id").fetchall() == \
         [(False, datetime(2026, 9, 4, 18, 45)), (True, datetime(2026, 9, 4, 18, 45))]  # noqa: DTZ001 -- naive UTC, as stored
     assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(first,)]
     assert db.execute("SELECT p_start_published, p_start, expected_points, source FROM predictions WHERE lineup_run_id = ?",
                       [first]).fetchone() == (90, pytest.approx(0.9), pytest.approx(0.9 * 8.1), "published")
+    after_last = datetime(2026, 9, 7, 19, 0, tzinfo=UTC)                     # past every kickoff of the round
+    with pytest.raises(LateForecast, match="--late"):
+        write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after_last, late=False)
+    third, third_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after_last, late=True)
+    assert third != second and third_late is True
     # --late before the deadline is not late: the flag permits, the clock decides
-    third, third_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
-    assert third_late is False
-    assert db.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [third]).fetchone() == (False,)
-    assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(third,)]
+    fourth, fourth_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
+    assert fourth_late is False
+    assert db.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [fourth]).fetchone() == (False,)
+    assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(fourth,)]
 
 
 def test_a_second_run_before_the_deadline_is_a_second_row_and_nothing_is_touched(db):
