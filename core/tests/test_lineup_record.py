@@ -106,6 +106,24 @@ def test_every_illegal_submission_is_refused_by_name():
         build_submission(roster=ROSTER, run=None, modules=MODULES, allowed=["t"])
 
 
+def test_a_roster_player_the_run_still_names_but_who_has_since_left_is_refused_by_name():
+    """`by_id` comes from the current roster snapshot; `xi_ids`/`bench_ids`
+    come from `run.xi`/`run.bench`, written earlier. If `ingest rosters` ran
+    in between and a player left -- the one reason it runs at all -- every
+    `by_id[...]` lookup used to be unguarded and raised a bare `KeyError`
+    instead of a `SubmissionError` the CLI can map to an exit code (review
+    finding, Important 2). Martinez L. (7) sits in RUN's XI; drop him from
+    the roster and rebuild with zero swaps -- the run's own XI is still
+    legal, so nothing but the missing id itself should stop this."""
+    roster_without_7 = [p for p in ROSTER if p.player_id != 7]
+    with pytest.raises(SubmissionError, match=r"run 7.*\b7\b.*no longer on my roster"):
+        build_submission(roster=roster_without_7, run=RUN, modules=MODULES, allowed=["t"])
+    # the same guard must cover a departed bench name, not only an XI one
+    roster_without_bench_player = [p for p in ROSTER if p.player_id != 9]     # Kean: RUN's bench, not its XI
+    with pytest.raises(SubmissionError, match=r"\b9\b.*no longer on my roster"):
+        build_submission(roster=roster_without_bench_player, run=RUN, modules=MODULES, allowed=["t"])
+
+
 def test_a_full_xi_needs_no_run_and_takes_its_slots_from_the_module():
     s = build_submission(roster=ROSTER, run=None, modules=MODULES, allowed=["t"], module="t",
                          xi_names=["Kean", "Svilar", "Kolasinac", "Zielinski"], bench_names=["Radunovic"])

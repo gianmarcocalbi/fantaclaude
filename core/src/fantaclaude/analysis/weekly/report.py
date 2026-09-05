@@ -12,7 +12,7 @@ from typing import Any
 import duckdb
 
 from fantaclaude.analysis.weekly.blend import load_layer
-from fantaclaude.analysis.weekly.config import WeeklyConfig, weekly_hash
+from fantaclaude.analysis.weekly.config import DEFAULT_CONFIG, WeeklyConfig, weekly_hash
 from fantaclaude.analysis.weekly.errors import ForecastError
 from fantaclaude.analysis.weekly.forecast import (
     ForecastRow,
@@ -98,7 +98,7 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
         raise ForecastError(f"no probabili page for giornata {round_.giornata} -- run `fantaclaude ingest probabili`")
     file_id, fetched_at, players, matches, uncompiled = page
     fetched_at_str = fetched_at.isoformat(sep=" ", timespec="minutes")
-    cfg = cfg or WeeklyConfig()
+    cfg = cfg or DEFAULT_CONFIG
     layer, layer_warnings = load_layer(con, season_id=season_id, giornata=round_.giornata, run_id=run_id,
                                        notes_path=notes_path, kb_dir=kb_dir, cfg=cfg)
     fixtures = player_fixtures(con, file_id)
@@ -126,7 +126,14 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
             modules = load_modules()
             allowed = list(settings[0])
             forecast_by_id = {r.player_id: r for r in rows}
-            excluded = frozenset(r.player_id for r in rows if r.excluded)
+            # `rows` is the probabili page (times the run's priced set); a
+            # roster player the page dropped, or the run never priced, has no
+            # row there at all, so his own exclude note would never reach
+            # this set from `rows` alone -- `layer.notes.excluded` (keyed by
+            # player_id, resolved against the listone, not the page) is
+            # unioned in so the note still keeps him off the XI and the
+            # bench (review finding, Important 1).
+            excluded = frozenset(layer.notes.excluded) | frozenset(r.player_id for r in rows if r.excluded)
             choice = choose_xi(roster, forecast_by_id, modules, allowed, excluded=excluded)
             xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
             xi_rows = [s.to_dict() for s in choice.slots]

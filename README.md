@@ -9,7 +9,7 @@ season that follows it.
 
 ## Capabilities
 
-- **Ingestion** — listone, Understat history, Serie A/UEFA calendar, per-giornata votes, the probabili formazioni page (public), the lega's rosters and purchase prices — all deduped and re-runnable
+- **Ingestion** — listone, Understat history, Serie A/UEFA calendar, per-giornata votes, the probabili formazioni page (public), the squalificati/diffidati and infortunati pages (public), the lega's rosters and purchase prices — all deduped and re-runnable
 - **Valuation** — projections and auction-ready pricing over the ingested history
 - **Knowledge base (kb)** — team profiles, opponent dossiers, house rules, and a season journal, with front-matter TTLs and an audit for what's gone stale
 - **Auction (asta)** — `fantaclaude asta board|explain|replay|adjust|close|verify-transfer|market-prices`: the pinned valuation run priced against the auction as last mirrored — the session's bounds read as ranges, every multi-role player re-pinned to the class my roster still has ranks open for, the room per class, the block the room is calling — one player's trace, a rehearsal over a captured session, an adjustment with its reason, and the closing copy into `records/`, the lega checked against the room by roster overlap, and what the room paid over what the run expected, per class. All local — the database read-only, no network
@@ -19,7 +19,7 @@ season that follows it.
   the board re-prices on every sale, adjustments land from the dashboard,
   the CLI or Claude through one path, and `--replay` rehearses the whole
   night from a captured session.
-- **Weekly (lineup)** — `fantaclaude lineup`: the giornata's forecast for every player the probabili page lists (p_start by precedence, a `lineup note`, else a squalifica from the news pages, else the published number; the KB, the infortunati list and a European week only ever disagree out loud), a small matchup term and a spread, each prediction honest against its player's own kickoff and never revised — and, once `league.yml` names `my_team`, the XI and module that maximise expected points (an exact solve per permitted module), the bench in the platform's order with what it cannot cover, a re-solve for every doubtful starter and the close calls. `lineup note` writes a fact with its reason; `lineup record` writes the XI actually fielded; `ingest news` reads the two public lists, matched by name within the club
+- **Weekly (lineup)** — `fantaclaude lineup`: the giornata's forecast for every player the probabili page lists (p_start by precedence, a `lineup note`, else a squalifica from the news pages, else the published number; the KB, the infortunati list and a European week only ever disagree out loud), a small matchup term and a spread, each prediction honest against its player's own kickoff and never revised — and, once `league.yml` names `my_team`, the XI and module that maximise expected points (an exact solve per permitted module), the bench in the platform's order with what it cannot cover, a re-solve for every doubtful starter and the close calls. `lineup note` writes a fact with its reason; `lineup record` writes the XI actually fielded
 - **MCP server** — read-only league API tools (account, league settings, my team, standings, competitions, server time) exposed directly to Claude Code
 - **Doctor** — one command to check credentials, snapshots, and knowledge-base health
 

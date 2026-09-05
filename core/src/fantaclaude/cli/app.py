@@ -1251,10 +1251,12 @@ def lineup_record_cmd(
             raise typer.Exit(code=ExitCode.USAGE if giornata is not None else ExitCode.NOT_READY) from None
         allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
         try:
+            if allowed_row is None or not allowed_row[0]:
+                raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
             roster = my_roster(con, my_team)
             run = None if xi is not None and lineup_run is None else load_run_xi(
                 con, season_id=season_id, giornata=round_.giornata, lineup_run_id=lineup_run)
-            submission = build_submission(roster=roster, run=run, modules=load_modules(), allowed=list((allowed_row or [[]])[0] or []),
+            submission = build_submission(roster=roster, run=run, modules=load_modules(), allowed=list(allowed_row[0]),
                                           module=module, swaps=swaps,
                                           xi_names=None if xi is None else [n.strip() for n in xi.split(",") if n.strip()],
                                           bench_names=None if bench is None else [n.strip() for n in bench.split(",") if n.strip()])

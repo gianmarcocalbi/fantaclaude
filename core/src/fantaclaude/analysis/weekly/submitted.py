@@ -139,6 +139,16 @@ def build_submission(*, roster: list[RosterPlayer], run: RunXi | None, modules: 
         bench_ids = [int(b["player_id"]) for b in run.bench]
         run_id = run.lineup_run_id
         preserve_slots = module == run.module     # unchanged module: the run's own placement still holds
+        # The roster snapshot may have moved under this stored run (`ingest
+        # rosters` is the one reason it runs at all): a player run.xi/run.bench
+        # still names may no longer be in `by_id`. Caught here, before the
+        # slot loop below ever indexes by_id with a stale id -- otherwise
+        # this is an unguarded KeyError, not a SubmissionError the CLI maps
+        # to an exit code (review finding, Important 2).
+        missing = sorted((set(xi_ids) | set(bench_ids)) - set(by_id))
+        if missing:
+            raise SubmissionError(f"run {run.lineup_run_id}'s XI/bench names player_id(s) {missing} no longer on my "
+                                  f"roster -- the roster moved since the run; pass --xi and --bench in full")
     if module not in allowed or module not in modules:
         raise SubmissionError(f"module {module!r} is not permitted (league_settings.modules: {list(allowed)})")
     chosen = modules[str(module)]

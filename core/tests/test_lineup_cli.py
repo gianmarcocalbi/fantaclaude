@@ -178,6 +178,36 @@ def test_lineup_tells_apart_not_on_the_page_from_not_priced_by_the_run(monkeypat
     assert "#888888" not in unpriced and "#999999" not in not_on_page
 
 
+def test_an_exclude_note_keeps_a_page_absent_roster_player_off_both_lists(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`rows` is the probabili page times the run's priced set, so a roster
+    player the page doesn't list never gets a `ForecastRow`, and his own
+    `excluded` flag on it never exists to read. A `lineup note --type
+    exclude` for exactly that player still resolves cleanly against the
+    listone (`NotesLayer.excluded`, independent of `rows`) and must still
+    keep him off both the XI and the bench -- not merely appear, inert, in
+    `blend.notes.excluded` while the solve fields him anyway (review
+    finding, Important 1)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]     # the 17 can field 3-4-3
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone if pid != 2097])     # Kean: the page drops him
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    note = runner.invoke(app, ["lineup", "note", "--type", "exclude", "--player-id", "2097", "--reason", "not this week"])
+    assert note.exit_code == ExitCode.OK, note.output
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["blend"]["notes"]["excluded"] == [2097]
+    fielded = {s["player_id"] for s in payload["xi"]["slots"]}
+    benched = {e["player_id"] for e in payload["bench"]["order"]}
+    assert 2097 not in fielded and 2097 not in benched
+    assert not any("Kean" in w for w in payload["warnings"])                  # not merely "not on the page": excluded outright
+
+
 def test_render_lineup_surfaces_compilation_state_and_shortfall_near_the_header():
     """The plain-text render must let a skim top-to-bottom answer "is this
     forecast sane?" without subtracting two numbers from opposite ends of
@@ -345,6 +375,34 @@ def test_lineup_blends_by_precedence_and_writes_the_trace(monkeypatch, tmp_path,
     con.close()
     plain = runner.invoke(app, ["lineup"])
     assert "blend: " in plain.stdout and "warning: disagreement: Dimarco" in plain.stdout
+
+
+def test_lineup_record_needs_league_settings_and_exits_not_ready(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """A missing league_settings snapshot is missing input, not a usage
+    error: `allowed=[]` used to fall through into `build_submission`'s
+    'module ... not permitted' SubmissionError, mapped to exit 2, while
+    `fantaclaude lineup` itself already treats the same gap as exit 3 with
+    a `sync-league` pointer -- the two paths must agree (review finding,
+    Minor 8)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    # the row itself (season_id, league_id) must stay -- `_seasons_or_exit`
+    # needs it to resolve the season before `lineup_record_cmd` ever gets to
+    # its own read; only `modules`, what the finding is about, goes missing.
+    con.execute("UPDATE league_settings SET modules = NULL")
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    # --xi/--module in full: my_roster and load_run_xi are both bypassed or
+    # trivially satisfied, so the missing `modules` is the only thing left
+    # to answer for -- exactly the case the finding names.
+    result = runner.invoke(app, ["lineup", "record", "--module", "343", "--xi", "Kean"])
+    assert result.exit_code == ExitCode.NOT_READY, result.output
+    assert "no league_settings snapshot names the permitted modules" in result.stderr and "sync-league" in result.stderr
 
 
 def test_lineup_record_writes_the_fielded_xi_by_hand(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
