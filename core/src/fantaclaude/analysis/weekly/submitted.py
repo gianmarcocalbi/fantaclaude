@@ -102,6 +102,27 @@ def _resolve(name: str, roster: list[RosterPlayer]) -> RosterPlayer:
 def build_submission(*, roster: list[RosterPlayer], run: RunXi | None, modules: dict[str, Module], allowed: Sequence[str],
                      module: str | None = None, swaps: Sequence[tuple[str, str]] = (),
                      xi_names: Sequence[str] | None = None, bench_names: Sequence[str] | None = None) -> Submission:
+    """The submission the operator named, checked as the platform would.
+
+    A `--swap` against the run's own, unchanged module replaces the outgoing
+    player in his own exact slot and nowhere else -- re-solving the whole
+    eleven from scratch would let a symmetry between two identically-labelled
+    slots (two "Dc" slots, say) silently swap two players nobody touched: a
+    legal XI, but not the one that stood. That narrowing is sound because
+    `Slot.fit` is a pure per-slot predicate (no slot's fit depends on who is
+    fielded in any other slot), so whole-XI legality decomposes exactly into
+    "does every slot's occupant still fit it" plus "are the eleven distinct
+    and disjoint from the bench" -- both checked below, the former freshly
+    against whatever `modules` is loaded now rather than trusted from when
+    `choose_xi`/`assign_weighted` originally validated the run's `xi`, in
+    case modules.yml changed underneath a run written earlier. An explicit
+    `--module` that differs from the run's own gives up that shortcut and
+    re-solves fresh under it, since the run's per-slot layout means nothing
+    under a different module. An outgoing player always lands on the
+    recorded bench -- appended when he was not among the run's own
+    (size-truncated) bench candidates -- so a swap never makes him vanish
+    from the record.
+    """
     by_id = {p.player_id: p for p in roster}
     if xi_names is not None:
         if module is None:
@@ -122,22 +143,27 @@ def build_submission(*, roster: list[RosterPlayer], run: RunXi | None, modules: 
         raise SubmissionError(f"module {module!r} is not permitted (league_settings.modules: {list(allowed)})")
     chosen = modules[str(module)]
     if xi_names is None:
-        # A swap only touches the one slot it names. Re-solving the whole
-        # XI from scratch here would let an unrelated symmetry between two
-        # identically-labelled slots (two "Dc" slots, say) silently swap two
-        # untouched players -- a legal XI, but not the one that stood.
         for out_name, in_name in swaps:
             out_p, in_p = _resolve(out_name, roster), _resolve(in_name, roster)
             if out_p.player_id not in xi_ids:
                 raise SubmissionError(f"{out_p.name} is not in run {run.lineup_run_id}'s XI")
             if in_p.player_id in xi_ids:
                 raise SubmissionError(f"{in_p.name} is already in the XI")
-            slot_index = xi_ids.index(out_p.player_id)
-            if preserve_slots and chosen.slots[slot_index].fit(in_p.roles) not in (Fit.NATURAL, Fit.ADAPTED):
-                raise SubmissionError(f"{in_p.name} cannot field {chosen.slots[slot_index].label} legally (natural or "
-                                      f"adapted fits only) -- the platform would refuse it too")
-            xi_ids[slot_index] = in_p.player_id
-            bench_ids = [out_p.player_id if b == in_p.player_id else b for b in bench_ids]
+            xi_ids[xi_ids.index(out_p.player_id)] = in_p.player_id
+            if in_p.player_id in bench_ids:
+                bench_ids = [out_p.player_id if b == in_p.player_id else b for b in bench_ids]
+            else:
+                bench_ids = [*bench_ids, out_p.player_id]         # not among the recommended bench: append, never drop him
+        if preserve_slots:
+            # Every slot, touched by a swap or not: `RunXi.xi` was legal when
+            # written, but only this fresh check -- not that history -- is
+            # what stands between an operator and a slot modules.yml no
+            # longer allows.
+            for slot_index, slot in enumerate(chosen.slots):
+                occupant = by_id[xi_ids[slot_index]]
+                if slot.fit(occupant.roles) not in (Fit.NATURAL, Fit.ADAPTED):
+                    raise SubmissionError(f"{occupant.name} cannot field {slot.label} legally (natural or adapted fits "
+                                          f"only) -- the platform would refuse it too")
     if len(xi_ids) != len(chosen.slots) or len(set(xi_ids)) != len(chosen.slots):
         raise SubmissionError(f"an XI is {len(chosen.slots)} distinct players, got {len(xi_ids)}")
     both = sorted(set(xi_ids) & set(bench_ids))

@@ -27,6 +27,20 @@ ROSTER = [RosterPlayer(1, "Svilar", R({Role.Por}), 1, True), RosterPlayer(2, "Ra
 RUN = RunXi(7, "t", [{"slot": "Por", "player_id": 1, "name": "Svilar"}, {"slot": "Dc", "player_id": 3, "name": "Bastoni"},
                      {"slot": "M/C", "player_id": 6, "name": "Calhanoglu"}, {"slot": "A/Pc", "player_id": 7, "name": "Martinez L."}],
             [{"player_id": 2, "name": "Radunovic"}, {"player_id": 9, "name": "Kean"}, {"player_id": 4, "name": "Kolasinac"}], 4242, False)
+# A second, permitted module whose slots are ordered differently from SMALL's
+# (M/C and Ds swap places) -- used to prove an explicit --module different
+# from the run's own is re-solved fresh under it, not just carried over.
+OTHER = Module(code="u", label="test2", slots=(
+    Slot("Por", R({Role.Por}), R(), R()),
+    Slot("M/C", R({Role.M, Role.C}), R({Role.T}), R()),
+    Slot("Ds", R({Role.Ds}), R({Role.B}), R()),
+    Slot("A/Pc", R({Role.A, Role.Pc}), R({Role.W}), R({Role.T}))))
+MODULES_WITH_OTHER = {"t": SMALL, "u": OTHER}
+# A run whose stored XI is already illegal under MODULES -- modules.yml
+# changed underneath it, say -- for the "stored XI no longer fits" case.
+STALE_RUN = RunXi(8, "t", [{"slot": "Por", "player_id": 1, "name": "Svilar"}, {"slot": "Dc", "player_id": 10, "name": "Sabelli"},
+                          {"slot": "M/C", "player_id": 6, "name": "Calhanoglu"}, {"slot": "A/Pc", "player_id": 7, "name": "Martinez L."}],
+                  [], 4242, False)
 
 
 def test_the_runs_xi_is_recorded_as_it_stood():
@@ -44,6 +58,36 @@ def test_a_swap_replaces_the_starter_and_sends_him_to_the_bench_place_of_the_man
     adapted = build_submission(roster=ROSTER, run=RUN, modules=MODULES, allowed=["t"], swaps=[("Bastoni", "Kolasinac")])
     assert [x["player_id"] for x in adapted.xi] == [1, 4, 6, 7]                     # B at Dc is an adapted, legal fit
     assert [b["player_id"] for b in adapted.bench] == [2, 9, 3]
+
+
+def test_a_swap_from_off_the_recommended_bench_still_benches_the_man_who_left():
+    s = build_submission(roster=ROSTER, run=RUN, modules=MODULES, allowed=["t"], swaps=[("Calhanoglu", "Zielinski")])
+    assert [x["player_id"] for x in s.xi] == [1, 3, 5, 7]
+    # Zielinski (5) was on the roster but in neither RUN.xi nor RUN.bench --
+    # Calhanoglu must still show up benched, not vanish from the record.
+    assert [b["player_id"] for b in s.bench] == [2, 9, 4, 6]
+
+
+def test_an_explicit_module_different_from_the_runs_own_is_solved_fresh_under_it():
+    s = build_submission(roster=ROSTER, run=RUN, modules=MODULES_WITH_OTHER, allowed=["t", "u"], module="u",
+                         swaps=[("Bastoni", "Kolasinac")])
+    assert s.module == "u"
+    # OTHER's slot order (Por, M/C, Ds, A/Pc) differs from SMALL's (Por, Dc,
+    # M/C, A/Pc): a naive slot-index carry-over from the run's own module
+    # would misplace this XI. Kolasinac (B, adapted at Ds) can only be
+    # legally placed at Ds; Calhanoglu only fits M/C -- so a genuine re-solve
+    # under the new module produces the reordering asserted below.
+    assert [x["slot"] for x in s.xi] == ["Por", "M/C", "Ds", "A/Pc"]
+    assert [x["player_id"] for x in s.xi] == [1, 6, 4, 7]
+    assert [b["player_id"] for b in s.bench] == [2, 9, 3]
+
+
+def test_a_stored_xi_that_no_longer_fits_its_module_is_refused():
+    # Sabelli (Ds) sits in STALE_RUN's Dc slot, forced-only there -- illegal
+    # even with zero swaps. The check must run on every slot, not just one a
+    # --swap touched, catching a run whose XI predates a modules.yml change.
+    with pytest.raises(SubmissionError, match="cannot field"):
+        build_submission(roster=ROSTER, run=STALE_RUN, modules=MODULES, allowed=["t"])
 
 
 def test_every_illegal_submission_is_refused_by_name():
