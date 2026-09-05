@@ -22,9 +22,17 @@ empty -- giornata 3 in progress, no Giudice Sportivo ruling yet, nobody on
 four yellows after two rounds -- so the shape of a suspension entry is
 INFERRED to be the injuries page's, not observed; Task 12's Tuesday capture
 confirms or corrects it. The injuries page has one unlabelled list per club,
-whose kind is the page's. The team menu above the cards and the matchweek
-widget elsewhere repeat every club as `team-name team-link` anchors: neither
-is a card, and a club name is read only inside a card.
+whose kind is the page's. The team menu above the cards repeats every club
+again, but as `li.team-item` anchors (`data-team="atalanta"`, no
+`span.team-name`) -- on this capture it happens not to collide with a
+card's own markup. Nothing about this page's *actual* widgets can be
+trusted to stay that way, so the parser does not rely on it: a club name,
+an entry, or a list-column label is captured only while a `div.team-card`
+is currently open (`is_card or self._in_card` in `_Parser._open`), which
+`test_the_match_widget_outside_the_cards_is_not_a_club` checks directly
+against a sample built to place a `team-name` span and an `item-name` entry
+outside any card -- whatever a real widget elsewhere on the live page
+reuses, it is refused unless it sits inside a card.
 
 The constants below pin what the captures showed; a page that no longer
 matches fails loud (`NewsShapeError`), never silently.

@@ -69,13 +69,32 @@ def test_an_entry_under_no_label_on_the_suspensions_page_is_refused():
         parse_news_page(text, page="squalificati")
 
 
+OUTSIDE_CARD = """
+<div id="match-widget"><span class="team-name">Widget FC</span></div>
+<ul class="unstyled"><li><strong class="item-name">Not A Player</strong>
+    <div class="item-description"><p>outside any card</p></div></li></ul>
+<div id="team-1" class="card team-card">
+    <header class="team-info"><span class="team-name">Atalanta</span></header>
+    <div class="row row-responsive"><div class="col"><ul class="unstyled">
+        <li><strong class="item-name">Hien</strong>
+            <div class="item-description"><p>ginocchio</p></div></li>
+    </ul></div></div>
+</div>
+<div id="next-match-widget"><span class="team-name">Another Widget FC</span></div>
+"""
+
+
 def test_the_match_widget_outside_the_cards_is_not_a_club():
-    # the `#team-menu` jump-list above the cards repeats every club as `li.team-item`
-    # anchors (`data-team="atalanta"`, no `team-name` span) -- on the real capture this
-    # is the widget the brief's docstring describes, not a `team-name team-link` anchor;
-    # either way it must not become a twenty-first club
-    page = parse_news_page(INJURIES, page="infortunati")
-    assert page.teams == 2 and INJURIES.count('class="team-item"') > 0
+    # a sample synthesised here, not the fixture, since nothing outside a card in
+    # either committed fixture emits a capture-eligible event at all (the real
+    # #team-menu widget uses li.team-item anchors with no team-name span or
+    # item-name entry) -- this places a team-name span AND an item-name entry
+    # both before and after the one real card, so the assertion is falsifiable:
+    # removing the is_card/_in_card gate in _Parser._open would read three
+    # teams and two rows instead of the card's own one of each
+    page = parse_news_page(OUTSIDE_CARD, page="infortunati")
+    assert page.teams == 1
+    assert [(r.team_name, r.name) for r in page.rows] == [("Atalanta", "Hien")]
 
 
 def _raw(tmp_path, text: str, page: str, stamp: str = "1") -> RawFile:
