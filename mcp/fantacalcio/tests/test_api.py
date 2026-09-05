@@ -565,3 +565,32 @@ async def test_players_hits_the_listone_endpoint_with_league_token(api, fixture_
     assert route.called
     assert route.calls[0].request.headers["Authorization"] == f"Bearer {valid_token}"
     assert [p["id"] for p in payload["players"]] == [3, 254, 5877]
+
+
+async def test_competition_calendar_hits_the_idcomp_path_segment(api, valid_token):
+    """Phase 3b, Task 13: captured 2026-09-05 from the lega's formazioni
+    page, GET /onboarding/v1/league/competition/calendar/{idcomp} -- idcomp
+    is a path segment, not a query parameter."""
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.get("/onboarding/v1/league/competition/calendar/539860").mock(
+            return_value=httpx.Response(200, json=[{"matchDay": 1, "championshipMatchDay": 3,
+                                                     "calculated": False, "matches": []}]))
+        payload = await api.competition_calendar(539860)
+    assert route.called
+    assert route.calls[0].request.headers["Authorization"] == f"Bearer {valid_token}"
+    assert payload[0]["championshipMatchDay"] == 3
+
+
+async def test_lineup_hits_the_match_endpoint_with_five_path_segments_and_no_query_params(api, valid_token):
+    """Phase 3b, Task 13: captured 2026-09-05,
+    GET /gaming/v1/teamLineup/{idcomp}/{mday}/{cmday}/{home_tid}/{away_tid}
+    -- every value is a path segment, per the capture; a query-parameter
+    implementation would leave this route unmatched."""
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.get("/gaming/v1/teamLineup/539860/1/3/11560187/19717181").mock(
+            return_value=httpx.Response(200, json={"idcomp": 539860, "mday": 1, "cmday": 3}))
+        payload = await api.lineup(539860, 1, 3, 11560187, 19717181)
+    assert route.called
+    assert not route.calls[0].request.url.params, "the captured request carries no query parameters"
+    assert route.calls[0].request.headers["Authorization"] == f"Bearer {valid_token}"
+    assert payload == {"idcomp": 539860, "mday": 1, "cmday": 3}
