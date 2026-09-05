@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from conftest import seed_fixtures, seed_probabili, seed_rosters
+from conftest import seed_fixtures, seed_probabili, seed_rosters, seed_voti
 from fantaclaude.analysis.weekly import (
     ADAPTED_MALUS,
     ForecastError,
@@ -345,3 +345,32 @@ def test_lineup_surfaces_the_staleness_warning(db, tmp_path, mcp_fixture_json):
                     records_dir=tmp_path / "records")
     assert any("INT-ROM" in w and "stale" in w for w in report.warnings)
     assert not any("JUV" in w or "MIL" in w for w in report.warnings)
+
+
+def test_lineup_warns_when_the_matchup_table_has_no_rows_but_not_once_it_does(db, tmp_path, mcp_fixture_json):
+    """`MatchupTable.rows` is computed but was never surfaced: an entirely
+    empty table (a renamed club, a season with no fixtures ingested) read
+    the same in the report as the matchup term being genuinely near zero
+    (review finding, forecast.py:93)."""
+    from fantaclaude.analysis.weekly import lineup
+    from fantaclaude.league.settings import record_snapshot, snapshot_from_payloads
+    record_snapshot(db, snapshot_from_payloads(
+        profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
+        rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
+        calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
+    db.execute("INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) "
+              "VALUES (now(), 'seed', 'x', 'seed-terms-teams', 0)")
+    sid = db.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0]
+    for tid, name, short in ((1, "Inter", "INT"), (2, "Roma", "ROM")):
+        db.execute("INSERT INTO teams VALUES (?, ?, ?, ?)", [sid, tid, name, short])
+    run_id = _run(db)                                       # prices 2764 (INT), 5841 (ROM), among others
+    _seed_fixtures_with_shorts(db, 21, 3, [("INT", "ROM", NOW + timedelta(days=2))])
+    seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90), (5841, "Svilar", "roma", 100)])
+    empty = lineup(db, now=NOW, season_id=21, giornata=None, run_id=run_id, late=False, my_team=None,
+                   records_dir=tmp_path / "records" / "empty")
+    assert any("matchup table has no rows" in w for w in empty.warnings)
+    # the current season's own voti, joined to the fixture just seeded: the table is no longer empty
+    seed_voti(db, 21, 3, [(2764, "Martinez L.", "Inter", "A", 7.0, {}), (5841, "Svilar", "Roma", "P", 6.0, {})])
+    filled = lineup(db, now=NOW, season_id=21, giornata=None, run_id=run_id, late=False, my_team=None,
+                    records_dir=tmp_path / "records" / "filled")
+    assert not any("matchup table has no rows" in w for w in filled.warnings)

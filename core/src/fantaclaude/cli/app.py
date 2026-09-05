@@ -549,7 +549,13 @@ def ingest_news_cmd(
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
     from fantaclaude.ingest.http import polite_pause, run_web
-    from fantaclaude.ingest.news import PAGES, fetch_news, parse_news_page, record_news
+    from fantaclaude.ingest.news import (
+        PAGES,
+        NewsShapeError,
+        fetch_news,
+        parse_news_page,
+        record_news,
+    )
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.paths import aliases_path, raw_dir
     from fantaclaude.timeutil import utc_now
@@ -582,14 +588,34 @@ def ingest_news_cmd(
 
     with _source_errors():
         raws = run_web(go)
-        parsed = {p: parse_news_page(raws[p].path.read_text(encoding="utf-8"), page=p) for p in pages}
+        # Each page is parsed and recorded on its own -- a `NewsShapeError` on
+        # one page (the site reworked that layout) must not cost the other:
+        # both requests are already spent, and a page that parsed cleanly has
+        # entries (squalifiche, most of all) that force a p_start to zero and
+        # must not be thrown away because its sibling page broke (review
+        # finding, cli/app.py:585).
         con = connect()
         try:
             apply_schema(con)
-            results = [record_news(con, season_id, round_.giornata, parsed[p], raws[p], aliases_path=aliases_path())
-                       for p in pages]
+            results = []
+            failed: list[tuple[str, NewsShapeError]] = []
+            for p in pages:
+                try:
+                    parsed = parse_news_page(raws[p].path.read_text(encoding="utf-8"), page=p)
+                    results.append(record_news(con, season_id, round_.giornata, parsed, raws[p], aliases_path=aliases_path()))
+                except NewsShapeError as exc:
+                    failed.append((p, exc))
         finally:
             con.close()
+    if failed:
+        for p, exc in failed:
+            typer.echo(f"{p}: source shape unexpected: {exc}", err=True)
+        landed = ", ".join(r.page for r in results) if results else "none"
+        typer.echo(f"recorded: {landed}", err=True)
+        # ERROR (1), the same code a single-page failure already gets under
+        # `_source_errors()`: a source changed shape, a genuine fault the
+        # operator must act on, whether or not the other page still landed.
+        raise typer.Exit(code=ExitCode.ERROR)
     emit({"news": [r.to_dict() for r in results]}, json_=json_, render=_render_news)
 
 
@@ -1082,7 +1108,7 @@ def lineup_cmd(
     from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
-    from fantaclaude.paths import kb_dir, lineup_notes_path, records_dir
+    from fantaclaude.paths import aliases_path, kb_dir, lineup_notes_path, records_dir
     from fantaclaude.timeutil import utc_now
 
     entries = _league_yml_or_exit()
@@ -1099,7 +1125,8 @@ def lineup_cmd(
         apply_schema(con)
         try:
             report = lineup(con, now=utc_now(), season_id=season_id, giornata=giornata, run_id=run, late=late,
-                            my_team=my_team, records_dir=records_dir(), notes_path=lineup_notes_path(), kb_dir=kb_dir())
+                            my_team=my_team, records_dir=records_dir(), notes_path=lineup_notes_path(), kb_dir=kb_dir(),
+                            aliases_path=aliases_path())
         except LateForecast as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.CONFLICT) from None

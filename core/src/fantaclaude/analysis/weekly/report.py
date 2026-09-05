@@ -37,6 +37,7 @@ from fantaclaude.analysis.weekly.xi import (
     order_bench,
 )
 from fantaclaude.asta.pinned import newest_run_id
+from fantaclaude.ingest.names import AliasError, load_aliases
 from fantaclaude.model.modules import load_modules
 from fantaclaude.timeutil import to_db
 
@@ -85,7 +86,7 @@ class LineupReport:
 
 def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, giornata: int | None, run_id: str | None,
            late: bool, my_team: int | None, records_dir: Path, notes_path: Path | None = None,
-           kb_dir: Path | None = None, cfg: WeeklyConfig | None = None) -> LineupReport:
+           kb_dir: Path | None = None, aliases_path: Path | None = None, cfg: WeeklyConfig | None = None) -> LineupReport:
     round_ = target_round(con, now, season_id=season_id, giornata=giornata)
     run_id = run_id or newest_run_id(con)
     if run_id is None:
@@ -102,10 +103,20 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     layer, layer_warnings = load_layer(con, season_id=season_id, giornata=round_.giornata, run_id=run_id,
                                        notes_path=notes_path, kb_dir=kb_dir, cfg=cfg)
     fixtures = player_fixtures(con, file_id)
-    terms = load_terms(con, season_id=season_id, cfg=cfg)
+    team_aliases: dict[str, str] = {}
+    alias_warnings: list[str] = []
+    if aliases_path is not None:
+        try:
+            team_aliases = load_aliases(aliases_path).teams_for("fantacalcio")
+        except AliasError as exc:
+            alias_warnings.append(f"aliases not read, the matchup term's club names matched by case only: {exc}")
+    terms = load_terms(con, season_id=season_id, cfg=cfg, team_aliases=team_aliases)
     forecasted = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures, layer=layer, cfg=cfg, terms=terms)
     rows = forecasted.rows
-    warnings: list[str] = [*layer_warnings, *forecasted.warnings]
+    warnings: list[str] = [*layer_warnings, *alias_warnings, *forecasted.warnings]
+    if terms.matchups.rows == 0:
+        warnings.append(f"the matchup table has no rows for season {season_id} -- a renamed club or a season with no "
+                        f"fixtures ingested would look the same as the term being genuinely near zero")
     if (mismatch := matchday_cross_check(con, round_)):
         warnings.append(mismatch)
     if uncompiled:
@@ -137,18 +148,20 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
             choice = choose_xi(roster, forecast_by_id, modules, allowed, excluded=excluded)
             xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
             xi_rows = [s.to_dict() for s in choice.slots]
+            bench = None
             if settings[1] is None:
                 warnings.append("league_settings carries no bench size -- run fantaclaude sync-league; no bench ordered")
-            bench = order_bench(roster, choice, forecast_by_id, modules[choice.module],
-                                bench_size=int(settings[1] or 0), excluded=excluded)
+            else:
+                bench = order_bench(roster, choice, forecast_by_id, modules[choice.module],
+                                    bench_size=int(settings[1]), excluded=excluded)
             plans = contingencies(roster, forecast_by_id, modules, allowed, choice, threshold=cfg.contingency_threshold,
                                   excluded=excluded)
             calls = close_calls(roster, choice, forecast_by_id, modules[choice.module], margin=cfg.close_call_margin,
                                 limit=cfg.close_calls_max, excluded=excluded)
-            bench_dict = bench.to_dict()
+            bench_dict = bench.to_dict() if bench is not None else None
             contingency_dicts = [c.to_dict() for c in plans]
             close_call_dicts = [c.to_dict() for c in calls]
-            if bench.uncovered:
+            if bench is not None and bench.uncovered:
                 warnings.append(f"bench covers no {', '.join(bench.uncovered)} slot: a starter there who misses is replaced by the "
                                 f"platform's own algorithm, changing the module or adapting someone unasked")
             if choice.unlisted:

@@ -90,8 +90,12 @@ def load_layer(con: duckdb.DuckDBPyConnection, *, season_id: int, giornata: int,
     unmatched = sum(1 for _, pid, _ in listed if pid is None)
     fetched = {str(kind): stamp.isoformat(sep=" ", timespec="minutes") for kind, stamp in con.execute(
         "SELECT kind, fetched_at FROM v_news_files_current WHERE season_id = ? AND giornata = ?", [season_id, giornata]).fetchall()}
-    if not fetched:
-        warnings.append(f"no news pages for giornata {giornata} -- run `fantaclaude ingest news`; no squalifica can force a zero")
+    if "squalificati" not in fetched:
+        warnings.append(f"no squalificati page for giornata {giornata} -- run `fantaclaude ingest news --page squalificati`; "
+                        f"no squalifica can force a zero")
+    if "infortunati" not in fetched:
+        warnings.append(f"no infortunati page for giornata {giornata} -- run `fantaclaude ingest news --page infortunati`; "
+                        f"infortunati checks are skipped")
     if unmatched:
         warnings.append(f"{unmatched} news entr{'y' if unmatched == 1 else 'ies'} for giornata {giornata} matched nobody in the "
                         f"listone -- `fantaclaude query --sql \"SELECT * FROM v_unavailable_current WHERE player_id IS NULL\"`")

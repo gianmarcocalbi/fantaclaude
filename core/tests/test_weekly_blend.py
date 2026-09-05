@@ -124,3 +124,20 @@ def test_load_layer_reads_the_news_the_notes_and_the_kb(db, tmp_path, fixture_js
     assert any("Nobody" in w for w in warnings) and any("matched nobody" in w for w in warnings)
     empty, warned = load_layer(db, season_id=21, giornata=5, run_id="r", notes_path=None, kb_dir=None, cfg=CFG)
     assert empty.squalificati == {} and any("ingest news" in w for w in warned)
+
+
+def test_a_missing_squalificati_page_warns_even_when_infortunati_was_ingested(db, tmp_path, fixture_json):
+    import json
+    from datetime import UTC
+
+    from fantaclaude.ingest.listone_api import load_listone, record_listone
+    from fantaclaude.ingest.raw import RawFile
+    path = tmp_path / "listone.json"
+    path.write_text(json.dumps(fixture_json("listone_sample")), encoding="utf-8")
+    record_listone(db, load_listone(path), RawFile(path, "sha-l", datetime(2026, 9, 4, tzinfo=UTC), "listone"))
+    # Only `infortunati` was ingested for this giornata -- `fetched` is truthy, but no squalifica can force a zero.
+    seed_news(db, 21, 4, "infortunati", [("infortunato", "Roma", "ROM", "Dybala", 309, "affaticamento")])
+    layer, warnings = load_layer(db, season_id=21, giornata=4, run_id="r", notes_path=None, kb_dir=None, cfg=CFG)
+    assert layer.squalificati == {} and set(layer.news_fetched) == {"infortunati"}
+    assert any("squalificati" in w and "giornata 4" in w for w in warnings)
+    assert not any("infortunati page" in w for w in warnings)                # infortunati *was* fetched -- no warning about it

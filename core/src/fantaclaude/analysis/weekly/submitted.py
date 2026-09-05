@@ -55,8 +55,10 @@ def load_run_xi(con: duckdb.DuckDBPyConnection, *, season_id: int, giornata: int
     """The run whose XI was fielded: the one asked for, else the newest
     non-late run of the giornata that named one."""
     if lineup_run_id is None:
-        row = con.execute("SELECT lineup_run_id, module, xi, bench, my_team, late FROM v_lineup_runs_current "
-                          "WHERE season_id = ? AND giornata = ? AND xi IS NOT NULL", [season_id, giornata]).fetchone()
+        row = con.execute(
+            "SELECT lineup_run_id, module, xi, bench, my_team, late FROM lineup_runs "
+            "WHERE season_id = ? AND giornata = ? AND NOT late AND xi IS NOT NULL "
+            "ORDER BY lineup_run_id DESC LIMIT 1", [season_id, giornata]).fetchone()
         if row is None:
             raise ForecastError(f"no lineup run with an XI for giornata {giornata} before the lock -- pass --lineup-run <id>, "
                                 f"or --xi and --bench in full")
@@ -125,6 +127,9 @@ def build_submission(*, roster: list[RosterPlayer], run: RunXi | None, modules: 
     """
     by_id = {p.player_id: p for p in roster}
     if xi_names is not None:
+        if swaps:
+            raise SubmissionError("--swap is ignored with --xi: --xi already states the full eleven, so a --swap beside "
+                                  "it can only be a mistake -- fold the change into --xi directly")
         if module is None:
             raise SubmissionError("--xi needs --module: the module fielded is part of the record")
         xi_ids = [_resolve(n, roster).player_id for n in xi_names]

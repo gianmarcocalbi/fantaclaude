@@ -18,6 +18,7 @@ from fantaclaude.analysis.weekly.blend import EMPTY_BLEND, BlendLayer, blend
 from fantaclaude.analysis.weekly.config import DEFAULT_CONFIG, WeeklyConfig
 from fantaclaude.analysis.weekly.errors import ForecastError
 from fantaclaude.analysis.weekly.rounds import PlayerFixture
+from fantaclaude.ingest.names import load_teams, resolve_team
 from fantaclaude.model.scoring import BonusMalus, Events, fantavoto, voto_sheet
 from fantaclaude.model.seasons import back_seasons
 
@@ -82,23 +83,46 @@ class MatchupTable:
 
 
 def load_matchups(con: duckdb.DuckDBPyConnection, *, season_id: int, sheet: str, bm: BonusMalus,
-                  cfg: WeeklyConfig) -> MatchupTable:
+                  cfg: WeeklyConfig, team_aliases: dict[str, str] | None = None) -> MatchupTable:
     """This season's rated rows joined to this season's fixtures -- the only
     season with fixtures, since the voti workbooks carry no opponent and no
     venue (spec, "The matchup term"). Two deltas per role against the
-    role's season mean, each shrunk toward zero by n / (n + k)."""
+    role's season mean, each shrunk toward zero by n / (n + k).
+
+    The voti workbook's own club spelling (`m.team`) is resolved through
+    `resolve_team`, exactly like every other cross-source join in the repo
+    (`ingest/news.py`, the calendar, the advanced stats) -- a bare
+    case-insensitive match against the listone would silently drop any club
+    whose workbook spelling differs by more than case (review finding,
+    forecast.py:93). `team_aliases` is the `fantacalcio` bucket of
+    kb/rules/aliases.yml -- the same host, the same spellings the calendar
+    already resolves against -- loaded by the caller, never read from disk
+    here."""
+    team_aliases = team_aliases or {}
+    teams = load_teams(con)
     rows = con.execute(
-        "SELECT m.classic_role, m.voto, " + ", ".join(f"m.{c}" for c in EVENT_COLUMNS) + ", t.short, f.home_short, f.away_short "
-        "FROM v_player_match_current m "
-        "JOIN v_teams_current t ON lower(t.name) = lower(m.team) "
-        "JOIN v_fixtures_current f ON f.competition = 'SA' AND f.season_id = m.season_id AND f.giornata = m.giornata "
-        "AND (f.home_short = t.short OR f.away_short = t.short) "
+        "SELECT m.giornata, m.team, m.classic_role, m.voto, " + ", ".join(f"m.{c}" for c in EVENT_COLUMNS) +
+        " FROM v_player_match_current m "
         "WHERE m.sheet = ? AND m.season_id = ? AND NOT m.senza_voto AND m.voto IS NOT NULL AND m.classic_role <> ?",
         [sheet, season_id, COACH_ROLE]).fetchall()
+    fixtures_by_giornata: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    for giornata, home_short, away_short in con.execute(
+            "SELECT giornata, home_short, away_short FROM v_fixtures_current WHERE competition = 'SA' AND season_id = ?",
+            [season_id]).fetchall():
+        fixtures_by_giornata[int(giornata)].append((str(home_short), str(away_short)))
     by_role: dict[str, list[float]] = defaultdict(list)
     by_venue: dict[tuple[str, bool], list[float]] = defaultdict(list)
     by_opponent: dict[tuple[str, str], list[float]] = defaultdict(list)
-    for role, voto, *counts, short, home_short, away_short in rows:
+    matched = 0
+    for giornata, team_name, role, voto, *counts in rows:
+        short = resolve_team(str(team_name), teams, team_aliases)
+        if short is None:
+            continue
+        fixture = next((pair for pair in fixtures_by_giornata.get(int(giornata), ()) if short in pair), None)
+        if fixture is None:
+            continue
+        home_short, away_short = fixture
+        matched += 1
         fv = fantavoto(float(voto), Events(**{name: float(v) for name, v in zip(EVENT_COLUMNS, counts)}), bm)
         home = short == home_short
         by_role[str(role)].append(fv)
@@ -107,7 +131,7 @@ def load_matchups(con: duckdb.DuckDBPyConnection, *, season_id: int, sheet: str,
     means = {role: fmean(v) for role, v in by_role.items()}
     venue = {key: _shrunk(v, means[key[0]], cfg.matchup_shrink_k) for key, v in by_venue.items()}
     conceded = {key: _shrunk(v, means[key[1]], cfg.matchup_shrink_k) for key, v in by_opponent.items()}
-    return MatchupTable(venue, conceded, len(rows), season_id)
+    return MatchupTable(venue, conceded, matched, season_id)
 
 
 def matchup_term(table: MatchupTable, *, classic_role: str, fixture: PlayerFixture | None,
@@ -145,7 +169,13 @@ def load_spreads(con: duckdb.DuckDBPyConnection, *, current_season: int, sheet: 
         own[int(player_id)].append(fv)
         if int(season_id) != current_season:
             prior_rows[str(role)].append(fv)
-    player = {pid: (pstdev(v) if len(v) > 1 else 0.0, len(v)) for pid, v in own.items()}
+    # A single rated match carries no dispersion information at all -- pooling
+    # it as n=1 would pull the spread *below* the prior a debutant with zero
+    # matches gets, reporting him as more predictable on the strength of one
+    # data point. Stored as n=0 instead, so the pooling in `spread_for` is
+    # monotone in evidence: one match is no better than none (review finding,
+    # forecast.py:148).
+    player = {pid: (pstdev(v), len(v)) if len(v) > 1 else (0.0, 0) for pid, v in own.items()}
     prior = {role: pstdev(v) if len(v) > 1 else 0.0 for role, v in prior_rows.items()}
     return SpreadTable(player, prior)
 
@@ -166,9 +196,10 @@ class Terms:
     spreads: SpreadTable
 
 
-def load_terms(con: duckdb.DuckDBPyConnection, *, season_id: int, cfg: WeeklyConfig) -> Terms:
+def load_terms(con: duckdb.DuckDBPyConnection, *, season_id: int, cfg: WeeklyConfig,
+               team_aliases: dict[str, str] | None = None) -> Terms:
     sheet, bm = scoring_in_force(con)
-    return Terms(load_matchups(con, season_id=season_id, sheet=sheet, bm=bm, cfg=cfg),
+    return Terms(load_matchups(con, season_id=season_id, sheet=sheet, bm=bm, cfg=cfg, team_aliases=team_aliases),
                  load_spreads(con, current_season=season_id, sheet=sheet, bm=bm, cfg=cfg))
 
 

@@ -49,6 +49,29 @@ def test_matchups_read_this_seasons_rows_and_shrink_toward_zero(db):
     assert table.conceded[("GEN", "A")] == (pytest.approx(0.0), 1)                        # Inter's a, g2, 6.0: at the mean
 
 
+def test_matchups_resolve_the_voti_workbooks_club_spelling_through_aliases(db):
+    """The voti workbook's own club spelling reaches the listone through
+    `resolve_team`, exactly like every other cross-source join (review
+    finding, forecast.py:93) -- a bare case-insensitive match drops a club
+    whose spelling differs by more than case, silently, with the row simply
+    missing from `table.rows`."""
+    db.execute("INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) "
+              "VALUES (now(), 'seed', 'x', 'seed-teams-alias', 0)")
+    sid = db.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0]
+    for tid, name, short in ((1, "Inter", "INT"), (2, "Hellas Verona", "VER")):
+        db.execute("INSERT INTO teams VALUES (?, ?, ?, ?)", [sid, tid, name, short])
+    seed_matches(db, 21, [(1, KO, "INT", "VER")])
+    # the workbook spells Verona's club without "Hellas" -- more than a case difference
+    seed_voti(db, 21, 1, [(1, "a", "Inter", "A", 7.0, {}), (2, "b", "Verona", "D", 6.0, {})])
+    without_alias = load_matchups(db, season_id=21, sheet="Fantacalcio", bm=BM, cfg=CFG)
+    assert without_alias.rows == 1                                    # Verona's row silently drops out
+    with_alias = load_matchups(db, season_id=21, sheet="Fantacalcio", bm=BM, cfg=CFG,
+                               team_aliases={"Verona": "Hellas Verona"})
+    assert with_alias.rows == 2
+    _delta, n = with_alias.venue[("D", False)]
+    assert n == 1                                                     # Verona's own row now counted, away
+
+
 def test_the_term_is_the_two_shrunk_deltas_capped_and_traced(db):
     _season(db)
     table = load_matchups(db, season_id=21, sheet="Fantacalcio", bm=BM, cfg=CFG)
@@ -76,8 +99,10 @@ def test_spreads_pool_the_players_own_dispersion_with_the_role_prior(db):
     assert n == 4
     sd, trace = spread_for(table, player_id=1, classic_role="A", cfg=CFG)
     assert sd == pytest.approx(((n * own ** 2 + 2.0 * prior ** 2) / (n + 2.0)) ** 0.5) and trace["n"] == 4
-    thin, trace = spread_for(table, player_id=3, classic_role="A", cfg=CFG)                        # one rating: the prior nearly alone
-    assert trace["n"] == 1 and thin == pytest.approx(((1 * 0.0 + 2.0 * prior ** 2) / 3.0) ** 0.5)
+    # One rated match carries no dispersion evidence at all -- pooled the same as zero (n=0), never as n=1
+    # (which would read player 3 as *more* predictable than a debutant on the strength of one data point).
+    thin, trace = spread_for(table, player_id=3, classic_role="A", cfg=CFG)
+    assert trace["n"] == 0 and thin == pytest.approx(prior)
     none, trace = spread_for(table, player_id=99, classic_role="A", cfg=CFG)
     assert none == pytest.approx(prior) and trace["n"] == 0
     missing, trace = spread_for(table, player_id=1, classic_role="X", cfg=CFG)

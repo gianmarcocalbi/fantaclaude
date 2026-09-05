@@ -151,6 +151,39 @@ def test_lineup_names_the_xi_when_league_yml_names_my_team(monkeypatch, tmp_path
     assert "bench: " in plain.stdout
 
 
+def test_lineup_with_no_bench_size_skips_ordering_without_a_false_uncovered_warning(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """When the league_settings snapshot carries no bench size, `order_bench`
+    must not run at all -- calling it with `bench_size=0` empties the bench
+    and then trips the `bench.uncovered` check for every slot in the module,
+    a false "no coverage" warning that is really just a missing settings
+    field (review finding, report.py:140)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]     # the 17 can field 3-4-3
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    # a settings snapshot with no bench size -- e.g. the platform's own payload never named one.
+    # `rules_hash` stays exactly the run's own: changing it would mark the run already pinned by
+    # `_ranked` as superseded (v_valuation_runs), and `lineup` would find no run to read at all.
+    con.execute("INSERT INTO league_settings (fetched_at, league_id, season_id, matchday, rules_hash, team_count, budget, "
+                "roster_min, roster_max, modules, bench_size, substitutions, payload) "
+                "SELECT now(), league_id, season_id, matchday, rules_hash, team_count, budget, roster_min, "
+                "roster_max, modules, NULL, substitutions, payload FROM v_league_settings_current")
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["xi"] is not None and len(payload["xi"]["slots"]) == 11    # the XI itself still comes through
+    assert payload["bench"] is None
+    assert any("no bench ordered" in w for w in payload["warnings"])
+    assert not any("bench covers no" in w for w in payload["warnings"])
+    plain = runner.invoke(app, ["lineup"])
+    assert plain.exit_code == ExitCode.OK and "bench: " not in plain.stdout
+
+
 def test_lineup_tells_apart_not_on_the_page_from_not_priced_by_the_run(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     """Two roster players are missing from the XI's forecast for two
     different reasons -- one the page never listed, one the page lists but
@@ -321,6 +354,28 @@ def test_ingest_news_fetches_each_page_once_and_records_under_the_calendars_gior
     assert bad.exit_code == ExitCode.USAGE and "squalificati" in bad.stderr
 
 
+@respx.mock
+def test_ingest_news_records_the_page_that_parsed_even_when_its_sibling_breaks(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """A shape change on one page (the site reworked its layout) must not
+    cost the other: both requests are already spent by the time either page
+    is parsed, and the squalificati page in particular carries entries that
+    force a p_start to zero -- losing it because `infortunati` broke would
+    silently field a suspended player at full price (review finding,
+    cli/app.py:585)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    respx.get("https://www.fantacalcio.it/squalificati-e-diffidati-campionato-serie-a").mock(
+        return_value=httpx.Response(200, text=SUSPENSIONS))
+    respx.get("https://www.fantacalcio.it/infortunati-serie-a").mock(return_value=httpx.Response(200, text="<html></html>"))
+    result = runner.invoke(app, ["ingest", "news"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "infortunati" in result.stderr and "recorded: squalificati" in result.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    kinds = {r[0] for r in con.execute("SELECT kind FROM news_files").fetchall()}
+    assert kinds == {"squalificati"}                                        # the good page still landed
+    con.close()
+
+
 def test_lineup_note_appends_a_resolved_entry_for_the_target_giornata_and_refuses_the_rest(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
     _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
     _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
@@ -441,3 +496,67 @@ def test_lineup_record_writes_the_fielded_xi_by_hand(monkeypatch, tmp_path, fixt
         assert bad.exit_code == code and needle in bad.stderr, (args, bad.output)
     plain = runner.invoke(app, ["lineup", "record"])
     assert plain.exit_code == ExitCode.OK and "recorded: giornata 3" in plain.stdout
+
+
+def test_lineup_record_refuses_swap_together_with_xi(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`--xi` already states the full eleven; a `--swap` beside it can only be
+    a mistake and must be refused rather than silently dropped (review
+    finding, submitted.py:155)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    forecast = json.loads(runner.invoke(app, ["lineup", "--json"]).stdout)
+    xi_names = [s["name"] for s in forecast["xi"]["slots"]]
+    bench_names = [e["name"] for e in forecast["bench"]["order"]]
+    result = runner.invoke(app, ["lineup", "record", "--module", forecast["xi"]["module"], "--xi", ",".join(xi_names),
+                                "--swap", f"{xi_names[0]}={bench_names[0]}"])
+    assert result.exit_code == ExitCode.USAGE, result.output
+    assert "--swap is ignored with --xi" in result.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 0     # nothing recorded on refusal
+    con.close()
+
+
+def test_lineup_record_finds_the_run_that_named_an_xi_even_when_a_later_run_has_none(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    """`load_run_xi`'s default branch must pick the newest non-late run of
+    the giornata that actually named an XI -- not merely the giornata's
+    "current" run under `v_lineup_runs_current`, which already reduces to
+    one row per giornata *before* `xi IS NOT NULL` is applied. A run written
+    while `league_settings.modules` was momentarily empty (any ForecastError
+    inside the XI-building block, not only a missing roster) leaves `xi`
+    NULL on that row forever; a later, fixed run of the same giornata must
+    still be found by the default selection (review finding, submitted.py:57)."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    modules = con.execute("SELECT modules FROM v_league_settings_current").fetchone()[0]
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    wednesday = json.loads(runner.invoke(app, ["lineup", "--json"]).stdout)
+    assert wednesday["xi"] is not None
+    # Thursday: the settings snapshot momentarily carries no permitted modules -- the XI block
+    # raises ForecastError, and the run is written anyway, with xi = NULL (never late: same round).
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    con.execute("UPDATE league_settings SET modules = NULL")
+    con.close()
+    thursday = json.loads(runner.invoke(app, ["lineup", "--run", wednesday["run_id"], "--json"]).stdout)
+    assert thursday["xi"] is None and "league_settings" in thursday["no_xi_reason"]
+    assert thursday["lineup_run_id"] != wednesday["lineup_run_id"]
+    # Fixed before the operator gets to `lineup record` -- but Thursday's already-written row keeps xi = NULL.
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    con.execute("UPDATE league_settings SET modules = ?", [modules])
+    con.close()
+    result = runner.invoke(app, ["lineup", "record", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["lineup_run_id"] == wednesday["lineup_run_id"]
