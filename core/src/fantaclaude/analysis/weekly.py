@@ -149,7 +149,8 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
              is_late, my_team, module, None if xi is None else json.dumps(xi, ensure_ascii=False),
              None if module_scores is None else json.dumps(module_scores), len(rows)]).fetchone()[0]
         con.executemany(
-            "INSERT INTO predictions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
+            "fv_if_plays, fv_sd, expected_points, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [[lineup_run_id, round_.season_id, round_.giornata, r.player_id, r.p_start_published, r.p_start,
               r.fv_if_plays, r.fv_sd, r.expected_points, r.source] for r in rows])
     except Exception:
