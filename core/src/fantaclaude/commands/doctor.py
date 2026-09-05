@@ -24,6 +24,8 @@ from fantacalcio_mcp.auth import AuthError, is_expired
 from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
 from fantaclaude.analysis.valuation import PreferencesError, load_preferences
+from fantaclaude.analysis.weekly.notes import LineupNotesError, load_lineup_notes
+from fantaclaude.analysis.weekly.notes import resolve_notes as resolve_lineup_notes
 from fantaclaude.asta.adjustments import AdjustmentsError, load_adjustments, resolve
 from fantaclaude.asta.pinned import PinnedRun, PinnedRunError, load_pinned_run
 from fantaclaude.asta.pricing_config import PricingConfigError, load_pricing_config
@@ -82,6 +84,7 @@ class DoctorPaths:
     kb: Path
     pricing: Path
     adjustments: Path
+    lineup_notes: Path
     asta_state: Path
     web_dist: Path
 
@@ -543,6 +546,28 @@ def _adjustments_check(path: Path, con: duckdb.DuckDBPyConnection | None, run: P
                                       + ", ".join(f"{n} {kind}" for kind, n in kinds.items() if n))
 
 
+def _lineup_notes_check(path: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+    """Does data/lineup-notes.yml parse, and does every entry resolve against the listone -- every giornata's, since the doctor is not a forecast."""
+    if not path.is_file():
+        return Check("lineup_notes", True, f"none yet ({path} does not exist)")
+    try:
+        notes = load_lineup_notes(path)
+    except LineupNotesError as exc:
+        return Check("lineup_notes", False, str(exc))
+    head = f"{len(notes)} note(s)"
+    if con is None:
+        return Check("lineup_notes", True, f"{head}, parse; {skip} -- not resolved against the listone")
+    try:
+        candidates = load_candidates(con)
+    except duckdb.Error as exc:
+        return Check("lineup_notes", True, f"{head}, parse; skipped: {exc}")
+    layer = resolve_lineup_notes(notes, candidates, giornata=None)
+    if layer.problems:
+        return Check("lineup_notes", False, f"{head}, {len(layer.problems)} inert: " + "; ".join(layer.problems))
+    kinds = {kind: sum(1 for e in layer.entries if e.note.kind == kind) for kind in ("p_start", "value", "exclude")}
+    return Check("lineup_notes", True, f"{head} resolved against the listone: " + ", ".join(f"{n} {kind}" for kind, n in kinds.items() if n))
+
+
 def _asta_state_check(path: Path, now: datetime) -> Check:
     if not path.is_file():
         return Check("asta_state", True, "no state file (no auction mirrored yet)")
@@ -632,6 +657,7 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         pinned_run, run = _pinned_run_check(con, skip)
         checks.append(pinned_run)
         checks.append(_adjustments_check(paths.adjustments, con, run, skip))
+        checks.append(_lineup_notes_check(paths.lineup_notes, con, skip))
         checks.append(_asta_state_check(paths.asta_state, now))
         checks.append(_dashboard_check(paths.web_dist))
     finally:

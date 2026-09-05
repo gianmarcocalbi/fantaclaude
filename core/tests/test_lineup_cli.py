@@ -283,3 +283,30 @@ def test_ingest_news_fetches_each_page_once_and_records_under_the_calendars_gior
     assert plain.exit_code == ExitCode.OK and "duplicate" in plain.stdout and injuries.call_count == 2 and suspensions.call_count == 1
     bad = runner.invoke(app, ["ingest", "news", "--page", "rumours"])
     assert bad.exit_code == ExitCode.USAGE and "squalificati" in bad.stderr
+
+
+def test_lineup_note_appends_a_resolved_entry_for_the_target_giornata_and_refuses_the_rest(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    result = runner.invoke(app, ["lineup", "note", "--type", "p_start", "--player", "Kean", "--p-start", "0", "--reason",
+                                 "out, club statement", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["player_id"] == 2097 and payload["giornata"] == 3 and payload["count"] == 1 and payload["active"] == 1
+    path = tmp_path / "data" / "lineup-notes.yml"
+    assert "- player: Kean\n  giornata: 3\n  type: p_start\n  p_start: 0.0\n  reason: out, club statement\n" in path.read_text(encoding="utf-8")
+    plain = runner.invoke(app, ["lineup", "note", "--type", "value", "--player-id", "2120", "--factor", "0.85", "--reason", "knock",
+                                "--giornata", "4"])
+    assert plain.exit_code == ExitCode.OK and "appended to" in plain.stdout and "giornata 4" in plain.stdout
+    for args, needle in ((["--type", "exclude", "--player", "Nobody", "--reason", "r"], "not in the listone"),
+                         (["--type", "nope", "--player", "Kean", "--reason", "r"], "type must be one of"),
+                         (["--type", "p_start", "--player", "Kean", "--reason", "r"], "p_start must be"),
+                         (["--type", "exclude", "--player", "Kean", "--reason", "r", "--giornata", "99"], "not in the season"),
+                         (["--type", "exclude", "--player", "Kean"], "Missing option '--reason'")):
+        bad = runner.invoke(app, ["lineup", "note", *args])
+        assert bad.exit_code == ExitCode.USAGE and needle in bad.stderr, (args, bad.output)
+    assert path.read_text(encoding="utf-8").count("type:") == 2
+    # the group's bare call is still the forecast
+    _page(tmp_path)
+    forecast = runner.invoke(app, ["lineup", "--json"])
+    assert forecast.exit_code == ExitCode.OK and json.loads(forecast.stdout)["predictions"] == 6

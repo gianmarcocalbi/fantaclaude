@@ -870,7 +870,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, the auction state file, the dashboard bundle."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the auction state file, the dashboard bundle."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
@@ -880,6 +880,7 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
         db_path,
         kb_dir,
         league_yml_path,
+        lineup_notes_path,
         preferences_yml_path,
         pricing_yml_path,
         web_dist_dir,
@@ -888,8 +889,8 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
 
     paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
                         league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir(),
-                        pricing=pricing_yml_path(), adjustments=adjustments_path(), asta_state=asta_state_path(),
-                        web_dist=web_dist_dir())
+                        pricing=pricing_yml_path(), adjustments=adjustments_path(), lineup_notes=lineup_notes_path(),
+                        asta_state=asta_state_path(), web_dist=web_dist_dir())
     checks = run_doctor(paths, now=utc_now())
     payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
     emit(payload, json_=json_, render=_render_doctor)
@@ -1037,15 +1038,22 @@ def _render_lineup(payload: dict) -> str:
 
 LINEUP_RUN_OPTION = typer.Option(None, "--run", help="Read projections from this valuation run (default: the newest not superseded).")
 
+lineup_app = typer.Typer(name="lineup", invoke_without_command=True,
+                         help="The giornata's forecast and the XI (bare call); `note` beside it. Local, no network.")
+app.add_typer(lineup_app)
 
-@app.command("lineup")
+
+@lineup_app.callback()
 def lineup_cmd(
+    ctx: typer.Context,
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     giornata: int | None = GIORNATA_ONE_OPTION,
     run: str | None = LINEUP_RUN_OPTION,
     late: bool = typer.Option(False, "--late", help="Write even though every match of the giornata has kicked off; every row is marked and calibration excludes them."),
 ) -> None:
     """Write the giornata's forecast -- p_start x expected fantavoto for every player the probabili page lists -- and, when league.yml names my team, the XI and module that maximise expected points. Local, no network."""
+    if ctx.invoked_subcommand is not None:
+        return
     from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
@@ -1076,6 +1084,80 @@ def lineup_cmd(
     finally:
         con.close()
     emit(report.to_dict(), json_=json_, render=_render_lineup)
+
+
+NOTE_TYPE_OPTION = typer.Option(..., "--type", help="p_start | value | exclude.")
+NOTE_PLAYER_OPTION = typer.Option(None, "--player", help="The listone's spelling (\"Martinez L.\").")
+NOTE_PLAYER_ID_OPTION = typer.Option(None, "--player-id", help="The listone id, instead of --player.")
+NOTE_P_START_OPTION = typer.Option(None, "--p-start", help="For p_start: the probability of a voto, 0..1, set outright.")
+NOTE_FACTOR_OPTION = typer.Option(None, "--factor", help="For value: a factor on the expected fantavoto if he plays, (0, 2].")
+NOTE_REASON_OPTION = typer.Option(..., "--reason", help="Why -- the week's record explains itself afterwards.")
+
+
+def _render_note(payload: dict) -> str:
+    lines = [(f"appended to {payload['path']}: {payload['described']} · {payload['count']} note(s), {payload['active']} for "
+              f"giornata {payload['giornata']} -- re-run `fantaclaude lineup`")]
+    lines += [f"problem: {p}" for p in payload["problems"]]
+    return "\n".join(lines)
+
+
+@lineup_app.command("note")
+def lineup_note_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    type_: str = NOTE_TYPE_OPTION,
+    player: str | None = NOTE_PLAYER_OPTION,
+    player_id: int | None = NOTE_PLAYER_ID_OPTION,
+    p_start: float | None = NOTE_P_START_OPTION,
+    factor: float | None = NOTE_FACTOR_OPTION,
+    reason: str = NOTE_REASON_OPTION,
+    giornata: int | None = GIORNATA_ONE_OPTION,
+) -> None:
+    """Append a fact about this giornata to data/lineup-notes.yml -- a p_start, a value factor or an exclusion, with its reason. Resolved against the listone; refused when nobody matches. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.analysis.weekly.notes import (
+        LineupNotesError,
+        append_lineup_note,
+        note_from_entry,
+        resolve_notes,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.ingest.names import load_candidates
+    from fantaclaude.paths import lineup_notes_path
+    from fantaclaude.timeutil import utc_now
+
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)
+    try:
+        try:
+            round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE if giornata is not None else ExitCode.NOT_READY) from None
+        candidates = load_candidates(con)
+    finally:
+        con.close()
+    raw = {k: v for k, v in (("player", player), ("player_id", player_id), ("giornata", round_.giornata), ("type", type_),
+                             ("p_start", p_start), ("factor", factor), ("reason", reason)) if v is not None}
+    try:
+        note = note_from_entry(raw, "lineup note")
+    except LineupNotesError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.USAGE) from None
+    probe = resolve_notes([note], candidates, giornata=round_.giornata)
+    if probe.problems:
+        typer.echo(probe.problems[0], err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    path = lineup_notes_path()
+    try:
+        notes = append_lineup_note(path, note)
+    except LineupNotesError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    layer = resolve_notes(notes, candidates, giornata=round_.giornata)
+    payload = {"note": note.to_entry(), "described": note.describe(), "player_id": probe.entries[0].player_id,
+               "giornata": round_.giornata, "path": str(path), "count": len(notes),
+               "active": len(layer.entries) - layer.inert - len(layer.problems), "problems": list(layer.problems)}
+    emit(payload, json_=json_, render=_render_note)
 
 
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "
