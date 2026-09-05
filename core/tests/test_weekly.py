@@ -61,7 +61,7 @@ def test_target_round_needs_a_calendar(db):
 def test_forecast_joins_the_page_to_the_run_for_every_listed_priced_player(db):
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90), (5841, "Svilar", "roma", 55), (777777, "Nobody", "roma", 5)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     assert [r.player_id for r in rows] == [2764, 5841]                # the unpriced id is not a row; Kolasinac unlisted is not a row
     lautaro = rows[0]
     assert lautaro.p_start_published == 90 and lautaro.p_start == pytest.approx(0.9)
@@ -78,7 +78,7 @@ def test_write_refuses_only_after_the_last_kickoff_unless_late_and_marks_the_row
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     r = target_round(db, NOW, season_id=21)
     first, first_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     assert first_late is False
@@ -106,7 +106,7 @@ def test_a_second_run_before_the_deadline_is_a_second_row_and_nothing_is_touched
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     r = target_round(db, NOW, season_id=21)
     a, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     b, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW + timedelta(hours=1), late=False)
@@ -128,7 +128,7 @@ def test_records_are_exported_once_by_giornata_and_write_time(db, tmp_path):
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     lineup_run_id, _ = write_lineup_run(db, round_=target_round(db, NOW, season_id=21), run_id=run_id, model_hash="m3",
                                         probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     written = export_lineup_records(db, lineup_run_id, tmp_path / "records")
@@ -147,7 +147,7 @@ def test_two_runs_in_the_same_second_each_get_their_own_permanent_record(db, tmp
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     round_ = target_round(db, NOW, season_id=21)
     a, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     b, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)

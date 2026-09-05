@@ -2,12 +2,31 @@
 
 3a's `analysis/weekly.py`, split by concern in 3b: `rounds` (the round and
 its deadlines), `forecast` (the rows), `xi` (the solve), `records` (the
-immutable write), `report` (the facade), `notes` (the override file). Every
-public name is re-exported here so callers keep their import path.
+immutable write), `report` (the facade), `notes` (the override file), `blend`
+(p_start by precedence, and the checks), `config` (the weekly layer's own
+constants and hash). Every public name is re-exported here so callers keep
+their import path.
 """
 
+from fantaclaude.analysis.weekly.blend import (
+    EMPTY_BLEND,
+    SOURCE_NOTE,
+    SOURCE_PUBLISHED,
+    SOURCE_SQUALIFICATO,
+    Blended,
+    BlendLayer,
+    blend,
+    load_layer,
+)
+from fantaclaude.analysis.weekly.config import (
+    DEFAULT_CONFIG,
+    WEEKLY_VERSION,
+    WeeklyConfig,
+    weekly_hash,
+)
 from fantaclaude.analysis.weekly.errors import ForecastError, LateForecast
 from fantaclaude.analysis.weekly.forecast import (
+    Forecast,
     ForecastRow,
     forecast,
     newest_probabili_file,
@@ -52,12 +71,57 @@ from fantaclaude.analysis.weekly.xi import (
 )
 
 __all__ = [
-    "ADAPTED_MALUS", "EMPTY_NOTES", "FACTOR_RANGE", "HEADER", "KEYS", "KINDS", "MATCHDAY_READ_WINDOW",
-    "STALE_COMPILATION", "TOP_PER_ROLE",
-    "ForecastError", "ForecastRow", "LateForecast", "LineupNote", "LineupNotesError", "LineupReport", "NotesLayer",
-    "PlayerFixture", "ResolvedNote", "RosterPlayer", "Round", "XiChoice", "XiSlot",
-    "append_lineup_note", "choose_xi", "compilation_staleness", "export_lineup_records", "forecast", "lineup",
-    "load_lineup_notes", "matchday_cross_check", "my_roster", "newest_probabili_file", "note_from_entry",
-    "parse_lineup_notes", "player_fixtures", "render_note", "resolve_notes", "target_round",
-    "uncompiled_match_warning", "write_lineup_run",
+    "ADAPTED_MALUS",
+    "DEFAULT_CONFIG",
+    "EMPTY_BLEND",
+    "EMPTY_NOTES",
+    "FACTOR_RANGE",
+    "HEADER",
+    "KEYS",
+    "KINDS",
+    "MATCHDAY_READ_WINDOW",
+    "SOURCE_NOTE",
+    "SOURCE_PUBLISHED",
+    "SOURCE_SQUALIFICATO",
+    "STALE_COMPILATION",
+    "TOP_PER_ROLE",
+    "WEEKLY_VERSION",
+    "BlendLayer",
+    "Blended",
+    "Forecast",
+    "ForecastError",
+    "ForecastRow",
+    "LateForecast",
+    "LineupNote",
+    "LineupNotesError",
+    "LineupReport",
+    "NotesLayer",
+    "PlayerFixture",
+    "ResolvedNote",
+    "RosterPlayer",
+    "Round",
+    "WeeklyConfig",
+    "XiChoice",
+    "XiSlot",
+    "append_lineup_note",
+    "blend",
+    "choose_xi",
+    "compilation_staleness",
+    "export_lineup_records",
+    "forecast",
+    "lineup",
+    "load_layer",
+    "load_lineup_notes",
+    "matchday_cross_check",
+    "my_roster",
+    "newest_probabili_file",
+    "note_from_entry",
+    "parse_lineup_notes",
+    "player_fixtures",
+    "render_note",
+    "resolve_notes",
+    "target_round",
+    "uncompiled_match_warning",
+    "weekly_hash",
+    "write_lineup_run",
 ]

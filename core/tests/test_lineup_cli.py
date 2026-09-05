@@ -7,6 +7,7 @@ from conftest import (
     FIXTURE_DIR,
     seed_fixtures,
     seed_matches,
+    seed_news,
     seed_probabili,
     seed_rosters,
 )
@@ -310,3 +311,32 @@ def test_lineup_note_appends_a_resolved_entry_for_the_target_giornata_and_refuse
     _page(tmp_path)
     forecast = runner.invoke(app, ["lineup", "--json"])
     assert forecast.exit_code == ExitCode.OK and json.loads(forecast.stdout)["predictions"] == 6
+
+
+def test_lineup_blends_by_precedence_and_writes_the_trace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    _page(tmp_path)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_news(con, 21, 3, "squalificati", [("squalificato", "Inter", "INT", "Martinez L.", 2764, "una giornata"),
+                                          ("squalificato", "Inter", "INT", "Bastoni", 2120, "una giornata")])
+    seed_news(con, 21, 3, "infortunati", [("infortunato", "Inter", "INT", "Dimarco", 254, "affaticamento")])
+    con.close()
+    (tmp_path / "data" / "lineup-notes.yml").write_text("- {player: Bastoni, giornata: 3, type: p_start, p_start: 0.5, reason: appeal}\n"
+                                                        "- {player: Svilar, giornata: 3, type: value, factor: 0.5, reason: knock}\n", encoding="utf-8")
+    result = runner.invoke(app, ["lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["blend"]["sources"] == {"published": 4, "note": 1, "squalificato": 1}
+    assert len(payload["weekly_hash"]) == 16 and payload["blend"]["disagreements"] == 1
+    assert any("Dimarco" in w and "disagreement" in w for w in payload["warnings"])
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    rows = {pid: (p, src, json.loads(trace)) for pid, p, src, trace in con.execute(
+        "SELECT player_id, p_start, source, trace FROM predictions").fetchall()}
+    assert rows[2764][:2] == (0.0, "squalificato") and rows[2120][:2] == (0.5, "note")
+    assert rows[254][1] == "published" and rows[254][2]["checks"] == ["infortunato"]
+    assert rows[5841][2]["value_factor"] == 0.5
+    assert con.execute("SELECT weekly_hash FROM lineup_runs").fetchone()[0] == payload["weekly_hash"]
+    con.close()
+    plain = runner.invoke(app, ["lineup"])
+    assert "blend: " in plain.stdout and "warning: disagreement: Dimarco" in plain.stdout

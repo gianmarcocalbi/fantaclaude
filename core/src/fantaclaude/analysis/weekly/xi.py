@@ -67,11 +67,14 @@ class XiChoice:
 
 
 def choose_xi(roster: list[RosterPlayer], forecast_by_id: dict[int, ForecastRow], modules: dict[str, Module],
-              allowed: Sequence[str]) -> XiChoice:
+              allowed: Sequence[str], excluded: frozenset[int] = frozenset()) -> XiChoice:
     """One exact solve per permitted module; the best total wins. A roster
     player not in `forecast_by_id` -- the page does not list him, or the run
     never priced him -- is worth zero this week and is named (the caller
-    tells the two reasons apart; `forecast_by_id` alone cannot)."""
+    tells the two reasons apart; `forecast_by_id` alone cannot). A player in
+    `excluded` (a lineup-notes.yml exclude note) is dropped from the roster
+    before the solve: he cannot be fielded this week."""
+    roster = [p for p in roster if p.player_id not in excluded]
     natural: list[float] = []
     adapted: list[float] = []
     for p in roster:

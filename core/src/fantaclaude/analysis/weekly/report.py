@@ -3,6 +3,7 @@ league.yml names my team, the write, the records, the warnings."""
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 
 import duckdb
 
+from fantaclaude.analysis.weekly.blend import load_layer
+from fantaclaude.analysis.weekly.config import WeeklyConfig, weekly_hash
 from fantaclaude.analysis.weekly.errors import ForecastError
 from fantaclaude.analysis.weekly.forecast import (
     ForecastRow,
@@ -48,6 +51,8 @@ class LineupReport:
     lineup_run_id: int
     records: list[Path]
     warnings: list[str]
+    weekly_hash: str
+    blend: dict[str, Any]
 
     def top(self) -> dict[str, list[ForecastRow]]:
         by_role: dict[str, list[ForecastRow]] = {}
@@ -63,11 +68,13 @@ class LineupReport:
                 "top": {role: [r.to_dict() for r in rows] for role, rows in self.top().items()},
                 "xi": self.xi, "no_xi_reason": self.no_xi_reason, "my_team": self.my_team,
                 "lineup_run_id": self.lineup_run_id, "predictions": len(self.rows),
-                "records": [str(p) for p in self.records], "warnings": list(self.warnings)}
+                "records": [str(p) for p in self.records], "warnings": list(self.warnings),
+                "weekly_hash": self.weekly_hash, "blend": self.blend}
 
 
 def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, giornata: int | None, run_id: str | None,
-           late: bool, my_team: int | None, records_dir: Path) -> LineupReport:
+           late: bool, my_team: int | None, records_dir: Path, notes_path: Path | None = None,
+           kb_dir: Path | None = None, cfg: WeeklyConfig | None = None) -> LineupReport:
     round_ = target_round(con, now, season_id=season_id, giornata=giornata)
     run_id = run_id or newest_run_id(con)
     if run_id is None:
@@ -80,9 +87,13 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
         raise ForecastError(f"no probabili page for giornata {round_.giornata} -- run `fantaclaude ingest probabili`")
     file_id, fetched_at, players, matches, uncompiled = page
     fetched_at_str = fetched_at.isoformat(sep=" ", timespec="minutes")
+    cfg = cfg or WeeklyConfig()
+    layer, layer_warnings = load_layer(con, season_id=season_id, giornata=round_.giornata, run_id=run_id,
+                                       notes_path=notes_path, kb_dir=kb_dir, cfg=cfg)
     fixtures = player_fixtures(con, file_id)
-    rows = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures)
-    warnings: list[str] = []
+    forecasted = forecast(con, run_id=run_id, probabili_file_id=file_id, fixtures=fixtures, layer=layer, cfg=cfg)
+    rows = forecasted.rows
+    warnings: list[str] = [*layer_warnings, *forecasted.warnings]
     if (mismatch := matchday_cross_check(con, round_)):
         warnings.append(mismatch)
     if uncompiled:
@@ -97,7 +108,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
             allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
             if allowed_row is None or not allowed_row[0]:
                 raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
-            choice = choose_xi(roster, {r.player_id: r for r in rows}, load_modules(), list(allowed_row[0]))
+            choice = choose_xi(roster, {r.player_id: r for r in rows}, load_modules(), list(allowed_row[0]),
+                              excluded=frozenset(r.player_id for r in rows if r.excluded))
             xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
             xi_rows = [s.to_dict() for s in choice.slots]
             if choice.unlisted:
@@ -121,12 +133,16 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
                                     "counted as 0: " + ", ".join(names[pid] for pid in unpriced))
         except ForecastError as exc:
             no_xi_reason = str(exc)
+    whash = weekly_hash(cfg)
     lineup_run_id, is_late = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
                                               probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
-                                              module=module, xi=xi_rows, module_scores=scores)
+                                              module=module, xi=xi_rows, module_scores=scores, weekly_hash=whash)
     records = export_lineup_records(con, lineup_run_id, records_dir)
     late_predictions = sum(1 for r in rows if to_db(now) >= (r.kickoff or round_.first_kickoff))
+    blend_summary = {**layer.to_dict(), "sources": dict(Counter(r.source for r in rows)),
+                     "disagreements": sum(1 for w in warnings if w.startswith("disagreement:"))}
     return LineupReport(round_, run_id, str(hashed[0]),
                         {"file_id": file_id, "fetched_at": fetched_at_str,
                          "players": players, "matches": matches, "uncompiled": int(uncompiled)},
-                        is_late, late_predictions, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings)
+                        is_late, late_predictions, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings,
+                        whash, blend_summary)

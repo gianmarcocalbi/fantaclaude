@@ -22,7 +22,8 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
                      probabili_file_id: int, rows: list[ForecastRow], now: datetime, late: bool,
                      my_team: int | None = None, module: str | None = None,
                      xi: list[dict[str, Any]] | None = None,
-                     module_scores: dict[str, float | None] | None = None) -> tuple[int, bool]:
+                     module_scores: dict[str, float | None] | None = None,
+                     weekly_hash: str | None = None) -> tuple[int, bool]:
     """One lineup_runs row and its predictions, appended. The run is late
     once the round's first kickoff has passed (the lega's lock on the XI);
     each prediction is late once ITS player's kickoff has passed -- the
@@ -41,17 +42,18 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
     try:
         lineup_run_id = con.execute(
             "INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
-            "late, my_team, module, xi, module_scores, predictions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON, ?) "
+            "late, my_team, module, xi, module_scores, predictions, weekly_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON, ?, ?) "
             "RETURNING lineup_run_id",
             [round_.season_id, round_.giornata, run_id, model_hash, probabili_file_id, round_.first_kickoff, written_at,
              is_late, my_team, module, None if xi is None else json.dumps(xi, ensure_ascii=False),
-             None if module_scores is None else json.dumps(module_scores), len(rows)]).fetchone()[0]
+             None if module_scores is None else json.dumps(module_scores), len(rows), weekly_hash]).fetchone()[0]
         con.executemany(
             "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
-            "fv_if_plays, fv_sd, expected_points, source, kickoff, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "fv_if_plays, fv_sd, expected_points, source, kickoff, late, trace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",
             [[lineup_run_id, round_.season_id, round_.giornata, r.player_id, r.p_start_published, r.p_start,
               r.fv_if_plays, r.fv_sd, r.expected_points, r.source, r.kickoff,
-              written_at >= (r.kickoff or round_.first_kickoff)] for r in rows])
+              written_at >= (r.kickoff or round_.first_kickoff), json.dumps(r.trace, ensure_ascii=False)] for r in rows])
     except Exception:
         con.rollback()
         raise

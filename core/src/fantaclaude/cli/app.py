@@ -998,6 +998,12 @@ def _render_lineup(payload: dict) -> str:
     total_matches = page["matches"] + page["uncompiled"]
     lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
               f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
+    b = payload.get("blend") or {}
+    if b:
+        sources = " · ".join(f"{k} {v}" for k, v in b.get("sources", {}).items())
+        fetched = ", ".join(f"{k} {v}" for k, v in b.get("news_fetched", {}).items()) or "none"
+        lines.append(f"blend: {sources} · notes {b['notes']['count'] - b['notes']['inert']} active · news {fetched} · "
+                     f"weekly {payload['weekly_hash']}")
     if payload["late"]:
         on_time = payload["predictions"] - payload["late_predictions"]
         lines.append(f"LATE XI: the round's first kickoff has passed -- the XI cannot be fielded; "
@@ -1057,7 +1063,7 @@ def lineup_cmd(
     from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
-    from fantaclaude.paths import records_dir
+    from fantaclaude.paths import kb_dir, lineup_notes_path, records_dir
     from fantaclaude.timeutil import utc_now
 
     entries = _league_yml_or_exit()
@@ -1074,7 +1080,7 @@ def lineup_cmd(
         apply_schema(con)
         try:
             report = lineup(con, now=utc_now(), season_id=season_id, giornata=giornata, run_id=run, late=late,
-                            my_team=my_team, records_dir=records_dir())
+                            my_team=my_team, records_dir=records_dir(), notes_path=lineup_notes_path(), kb_dir=kb_dir())
         except LateForecast as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.CONFLICT) from None

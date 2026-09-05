@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 import duckdb
 
+from fantaclaude.analysis.weekly.blend import EMPTY_BLEND, BlendLayer, blend
+from fantaclaude.analysis.weekly.config import DEFAULT_CONFIG, WeeklyConfig
 from fantaclaude.analysis.weekly.rounds import PlayerFixture
 
 
@@ -27,6 +29,8 @@ class ForecastRow:
     expected_points: float
     source: str
     kickoff: datetime | None = None
+    trace: dict[str, Any] = field(default_factory=dict)
+    excluded: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {"player_id": self.player_id, "name": self.name, "team_short": self.team_short,
@@ -34,7 +38,14 @@ class ForecastRow:
                 "p_start_published": self.p_start_published, "p_start": self.p_start,
                 "fv_if_plays": self.fv_if_plays, "fv_sd": self.fv_sd, "expected_points": self.expected_points,
                 "source": self.source,
-                "kickoff": None if self.kickoff is None else self.kickoff.isoformat(sep=" ", timespec="minutes")}
+                "kickoff": None if self.kickoff is None else self.kickoff.isoformat(sep=" ", timespec="minutes"),
+                "trace": dict(self.trace), "excluded": self.excluded}
+
+
+@dataclass(frozen=True)
+class Forecast:
+    rows: list[ForecastRow]
+    warnings: list[str]
 
 
 def newest_probabili_file(con: duckdb.DuckDBPyConnection, season_id: int,
@@ -49,19 +60,27 @@ def newest_probabili_file(con: duckdb.DuckDBPyConnection, season_id: int,
 
 
 def forecast(con: duckdb.DuckDBPyConnection, *, run_id: str, probabili_file_id: int,
-             fixtures: dict[int, PlayerFixture] | None = None) -> list[ForecastRow]:
-    """Every player the page lists and the run prices. p_start is the
-    published number alone until Task 7 (`source: published`), fv_sd is null."""
+             fixtures: dict[int, PlayerFixture] | None = None, layer: BlendLayer = EMPTY_BLEND,
+             cfg: WeeklyConfig = DEFAULT_CONFIG) -> Forecast:
+    """Every player the page lists and the run prices, blended by precedence
+    (blend.py); fv_sd is null until Task 9."""
     fixtures = fixtures or {}
     rows = con.execute(
-        "SELECT v.player_id, v.name, v.team_short, v.classic_role, v.roles, v.exp_fantamedia, p.p_start "
+        "SELECT v.player_id, v.name, v.team_short, v.classic_role, v.roles, v.exp_fantamedia, v.exp_presenze, p.p_start "
         "FROM valuations v JOIN probabili p ON p.player_id = v.player_id "
         "WHERE v.run_id = ? AND p.file_id = ? ORDER BY v.player_id", [run_id, probabili_file_id]).fetchall()
     out: list[ForecastRow] = []
-    for pid, name, short, role, roles, fm, published in rows:
-        p_start = int(published) / 100.0
+    warnings: list[str] = []
+    for pid, name, short, role, roles, fm, presenze, published in rows:
         fixture = fixtures.get(int(pid))
-        out.append(ForecastRow(int(pid), str(name), short, str(role), tuple(roles), int(published), p_start,
-                               float(fm), None, p_start * float(fm), "published",
-                               kickoff=None if fixture is None else fixture.kickoff))
-    return out
+        kickoff = None if fixture is None else fixture.kickoff
+        b = blend(player_id=int(pid), name=str(name), team_short=short, published=int(published),
+                  exp_presenze=float(presenze), kickoff=kickoff, layer=layer, cfg=cfg)
+        fv_if_plays = float(fm) * b.value_factor
+        b.trace["kickoff"] = None if kickoff is None else kickoff.isoformat(sep=" ", timespec="minutes")
+        b.trace["deadline"] = "player" if kickoff is not None else "round"
+        out.append(ForecastRow(int(pid), str(name), short, str(role), tuple(roles), int(published), b.p_start,
+                               fv_if_plays, None, b.p_start * fv_if_plays, b.source, kickoff=kickoff,
+                               trace=b.trace, excluded=b.excluded))
+        warnings += list(b.warnings)
+    return Forecast(out, warnings)
