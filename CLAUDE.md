@@ -99,6 +99,12 @@ and rebuildable from `data/raw/`.
 
 `data/adjustments.yml` is the auction's adjustment file — mine, hand-editable,
 appended by `fantaclaude asta adjust`; every entry needs a `reason`.
+`data/lineup-notes.yml` is the week's override file — mine, hand-editable,
+appended by `fantaclaude lineup note`; every entry carries a `giornata` and a
+`reason`, and an entry for another giornata is inert, never deleted.
+`fantaclaude lineup`, `lineup note` and `lineup record` are local. `fantaclaude
+ingest news` reads two public pages, one request each, under the same rules as
+`ingest probabili`: never "to check", never during a match.
 `data/asta-state.json` is the mirrored auction as last seen: written
 atomically by the tooling, never edited by hand, copied to `records/asta/` by
 `fantaclaude asta close`. That copy is permanent. The working file is removed

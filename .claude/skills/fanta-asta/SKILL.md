@@ -96,20 +96,21 @@ auction, `fantaclaude asta verify-transfer` checks the lega against it and
 
 ### `verify-transfer`
 
-`fantaclaude asta verify-transfer [--state records/asta/<file>.json] [--prune]`
-— once the admin has transferred the auction into the lega and
+`fantaclaude asta verify-transfer [--state records/asta/<file>.json]
+[--prune]` — once the admin has transferred the auction into the lega and
 `fantaclaude ingest rosters` has run once, the lega's rosters against the
-mirrored room. Teams are matched by roster overlap, never by name (four of
-ten labels lied on 2026-09-03). The report names what it tolerates — a lega
-team in no room roster ("not in the room", fine when empty), a player added
-after the close at the minimum bid ("added after the room") — and what fails
-it: a cost that differs, a room pick the lega lacks, a dear extra. When my
-room team's roster genuinely overlaps a lega roster, it names that lega team
-as the `my_team` leaf for `league.yml`, ready to paste in; when my room team
-bought nothing there is no overlap to match by, so it does not guess — it
-prints a hint that the id has to be pasted into `league.yml`'s `my_team` leaf
-by hand. `--prune` deletes `data/asta-state.json` on a clean diff and nothing
-else, never a `--state` file and never `records/`.
+mirrored room. Teams are matched by roster overlap, never by name (four of ten
+labels lied on 2026-09-03). The report names what it tolerates — a lega team
+in no room roster ("not in the room", fine when empty), a player added after
+the close at the minimum bid ("added after the room") — and what fails it: a
+cost that differs, a room pick the lega lacks, a dear extra. When my room
+team's roster genuinely overlaps a lega roster, it names that lega team as the
+`my_team` leaf for `league.yml`, ready to paste in (the weekly loop —
+`fanta-manager` — reads that leaf for the XI, the bench and the record); when
+my room team bought nothing there is no overlap to match by, so it does not
+guess — it prints a hint that the id has to be pasted into `league.yml`'s
+`my_team` leaf by hand. `--prune` deletes `data/asta-state.json` on a clean
+diff and nothing else, never a `--state` file and never `records/`.
 
 ### `market-prices`
 
