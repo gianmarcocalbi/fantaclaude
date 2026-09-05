@@ -23,7 +23,10 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
                      my_team: int | None = None, module: str | None = None,
                      xi: list[dict[str, Any]] | None = None,
                      module_scores: dict[str, float | None] | None = None,
-                     weekly_hash: str | None = None) -> tuple[int, bool]:
+                     weekly_hash: str | None = None,
+                     bench: dict[str, Any] | None = None,
+                     contingencies: list[dict[str, Any]] | None = None,
+                     close_calls: list[dict[str, Any]] | None = None) -> tuple[int, bool]:
     """One lineup_runs row and its predictions, appended. The run is late
     once the round's first kickoff has passed (the lega's lock on the XI);
     each prediction is late once ITS player's kickoff has passed -- the
@@ -42,12 +45,15 @@ def write_lineup_run(con: duckdb.DuckDBPyConnection, *, round_: Round, run_id: s
     try:
         lineup_run_id = con.execute(
             "INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
-            "late, my_team, module, xi, module_scores, predictions, weekly_hash) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON, ?, ?) "
+            "late, my_team, module, xi, module_scores, predictions, weekly_hash, bench, contingencies, close_calls) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON, ?, ?, ?::JSON, ?::JSON, ?::JSON) "
             "RETURNING lineup_run_id",
             [round_.season_id, round_.giornata, run_id, model_hash, probabili_file_id, round_.first_kickoff, written_at,
              is_late, my_team, module, None if xi is None else json.dumps(xi, ensure_ascii=False),
-             None if module_scores is None else json.dumps(module_scores), len(rows), weekly_hash]).fetchone()[0]
+             None if module_scores is None else json.dumps(module_scores), len(rows), weekly_hash,
+             None if bench is None else json.dumps(bench, ensure_ascii=False),
+             None if contingencies is None else json.dumps(contingencies, ensure_ascii=False),
+             None if close_calls is None else json.dumps(close_calls, ensure_ascii=False)]).fetchone()[0]
         con.executemany(
             "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
             "fv_if_plays, fv_sd, expected_points, source, kickoff, late, trace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::JSON)",

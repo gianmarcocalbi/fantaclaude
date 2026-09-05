@@ -1036,6 +1036,24 @@ def _render_lineup(payload: dict) -> str:
         others = " · ".join(f"{m} {v:.2f}" if v is not None else f"{m} -"
                             for m, v in xi["module_scores"].items() if m != xi["module"])
         lines.append(f"  other modules: {others}")
+        bench = payload.get("bench")
+        if bench and bench["order"]:
+            lines.append("bench: " + " · ".join(
+                f"{e['name']}{'!' if e['diffidato'] else ''} [{'/'.join(e['roles'])}] {e['coverage']:.2f}" for e in bench["order"]))
+            if bench["uncovered"]:
+                lines.append(f"  uncovered: {', '.join(bench['uncovered'])}")
+        for c in payload.get("contingencies") or []:
+            if c["note"]:
+                lines.append(f"if out: {c['name']} ({c['p_start']:.0%}) -- {c['note']}")
+                continue
+            enters = ", ".join(f"{s['name']} at {s['slot']}" for s in c["enters"]) or "nobody"
+            module = f", module {c['module']}" if c["module_changes"] else ""
+            lines.append(f"if out: {c['name']} ({c['p_start']:.0%}) -> {enters}{module}, -{c['points_lost']:.2f}")
+        for c in payload.get("close_calls") or []:
+            a, b = c["in"], c["out"]
+            sd = lambda x: f"±{x['fv_sd']:.1f}" if x.get("fv_sd") is not None else ""
+            lines.append(f"close: {c['slot']} {a['name']} {a['expected_points']:.2f}{sd(a)} over {b['name']} "
+                         f"{b['expected_points']:.2f}{sd(b)} (gap {c['gap']:.2f}; {a['source']} vs {b['source']})")
     lines.append(f"written: lineup_run {payload['lineup_run_id']}, {payload['predictions']} predictions"
                  + (" · " + ", ".join(payload["records"]) if payload["records"] else " · records already exist"))
     lines += [f"warning: {w}" for w in payload["warnings"] if w != uncompiled_warning]

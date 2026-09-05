@@ -28,7 +28,13 @@ from fantaclaude.analysis.weekly.rounds import (
     target_round,
     uncompiled_match_warning,
 )
-from fantaclaude.analysis.weekly.xi import choose_xi, my_roster
+from fantaclaude.analysis.weekly.xi import (
+    choose_xi,
+    close_calls,
+    contingencies,
+    my_roster,
+    order_bench,
+)
 from fantaclaude.asta.pinned import newest_run_id
 from fantaclaude.model.modules import load_modules
 from fantaclaude.timeutil import to_db
@@ -53,6 +59,9 @@ class LineupReport:
     warnings: list[str]
     weekly_hash: str
     blend: dict[str, Any]
+    bench: dict[str, Any] | None
+    contingencies: list[dict[str, Any]]
+    close_calls: list[dict[str, Any]]
 
     def top(self) -> dict[str, list[ForecastRow]]:
         by_role: dict[str, list[ForecastRow]] = {}
@@ -69,7 +78,8 @@ class LineupReport:
                 "xi": self.xi, "no_xi_reason": self.no_xi_reason, "my_team": self.my_team,
                 "lineup_run_id": self.lineup_run_id, "predictions": len(self.rows),
                 "records": [str(p) for p in self.records], "warnings": list(self.warnings),
-                "weekly_hash": self.weekly_hash, "blend": self.blend}
+                "weekly_hash": self.weekly_hash, "blend": self.blend,
+                "bench": self.bench, "contingencies": list(self.contingencies), "close_calls": list(self.close_calls)}
 
 
 def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, giornata: int | None, run_id: str | None,
@@ -100,18 +110,38 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
         warnings.append(uncompiled_match_warning(round_.giornata, uncompiled, fetched_at_str))
     warnings += compilation_staleness(con, round_.giornata, file_id)
     xi, no_xi_reason, module, xi_rows, scores = None, None, None, None, None
+    bench_dict: dict[str, Any] | None = None
+    contingency_dicts: list[dict[str, Any]] = []
+    close_call_dicts: list[dict[str, Any]] = []
     if my_team is None:
         no_xi_reason = "league.yml has no my_team leaf (asta verify-transfer prints it)"
     else:
         try:
             roster = my_roster(con, my_team)
-            allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
-            if allowed_row is None or not allowed_row[0]:
+            settings = con.execute("SELECT modules, bench_size FROM v_league_settings_current").fetchone()
+            if settings is None or not settings[0]:
                 raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
-            choice = choose_xi(roster, {r.player_id: r for r in rows}, load_modules(), list(allowed_row[0]),
-                              excluded=frozenset(r.player_id for r in rows if r.excluded))
+            modules = load_modules()
+            allowed = list(settings[0])
+            forecast_by_id = {r.player_id: r for r in rows}
+            excluded = frozenset(r.player_id for r in rows if r.excluded)
+            choice = choose_xi(roster, forecast_by_id, modules, allowed, excluded=excluded)
             xi, module, scores = choice.to_dict(), choice.module, choice.module_scores
             xi_rows = [s.to_dict() for s in choice.slots]
+            if settings[1] is None:
+                warnings.append("league_settings carries no bench size -- run fantaclaude sync-league; no bench ordered")
+            bench = order_bench(roster, choice, forecast_by_id, modules[choice.module],
+                                bench_size=int(settings[1] or 0), excluded=excluded)
+            plans = contingencies(roster, forecast_by_id, modules, allowed, choice, threshold=cfg.contingency_threshold,
+                                  excluded=excluded)
+            calls = close_calls(roster, choice, forecast_by_id, modules[choice.module], margin=cfg.close_call_margin,
+                                limit=cfg.close_calls_max, excluded=excluded)
+            bench_dict = bench.to_dict()
+            contingency_dicts = [c.to_dict() for c in plans]
+            close_call_dicts = [c.to_dict() for c in calls]
+            if bench.uncovered:
+                warnings.append(f"bench covers no {', '.join(bench.uncovered)} slot: a starter there who misses is replaced by the "
+                                f"platform's own algorithm, changing the module or adapting someone unasked")
             if choice.unlisted:
                 # `choice.unlisted` conflates two different causes (the page
                 # never listed the player, or the run never priced him -- the
@@ -136,7 +166,8 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
     whash = weekly_hash(cfg)
     lineup_run_id, is_late = write_lineup_run(con, round_=round_, run_id=run_id, model_hash=str(hashed[0]),
                                               probabili_file_id=file_id, rows=rows, now=now, late=late, my_team=my_team,
-                                              module=module, xi=xi_rows, module_scores=scores, weekly_hash=whash)
+                                              module=module, xi=xi_rows, module_scores=scores, weekly_hash=whash,
+                                              bench=bench_dict, contingencies=contingency_dicts, close_calls=close_call_dicts)
     records = export_lineup_records(con, lineup_run_id, records_dir)
     late_predictions = sum(1 for r in rows if to_db(now) >= (r.kickoff or round_.first_kickoff))
     blend_summary = {**layer.to_dict(), "sources": dict(Counter(r.source for r in rows)),
@@ -145,4 +176,4 @@ def lineup(con: duckdb.DuckDBPyConnection, *, now: datetime, season_id: int, gio
                         {"file_id": file_id, "fetched_at": fetched_at_str,
                          "players": players, "matches": matches, "uncompiled": int(uncompiled)},
                         is_late, late_predictions, rows, xi, no_xi_reason, my_team, lineup_run_id, records, warnings,
-                        whash, blend_summary)
+                        whash, blend_summary, bench_dict, contingency_dicts, close_call_dicts)

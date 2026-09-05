@@ -139,11 +139,16 @@ def test_lineup_names_the_xi_when_league_yml_names_my_team(monkeypatch, tmp_path
     xi = payload["xi"]
     assert payload["my_team"] == 4242 and xi["module"] in payload["xi"]["module_scores"] and len(xi["slots"]) == 11
     assert payload["predictions"] == 17
+    assert payload["bench"]["size"] == 12 and 1 <= len(payload["bench"]["order"]) <= 6      # 17 players, 11 fielded
+    assert all(e["player_id"] not in {s["player_id"] for s in xi["slots"]} for e in payload["bench"]["order"])
+    assert payload["contingencies"] == [] and isinstance(payload["close_calls"], list)      # everyone at 90%
     con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
     assert con.execute("SELECT my_team, module FROM lineup_runs").fetchone() == (4242, xi["module"])
+    assert con.execute("SELECT bench IS NOT NULL, contingencies IS NOT NULL FROM lineup_runs").fetchone() == (True, True)
     con.close()
     plain = runner.invoke(app, ["lineup"])
     assert plain.exit_code == ExitCode.OK and f"XI: {xi['module']}" in plain.stdout
+    assert "bench: " in plain.stdout
 
 
 def test_lineup_tells_apart_not_on_the_page_from_not_priced_by_the_run(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
