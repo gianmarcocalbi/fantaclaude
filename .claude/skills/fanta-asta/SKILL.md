@@ -1,6 +1,7 @@
 ---
 name: fanta-asta
 description: The auction copilot with fantaclaude — read the board the pinned run gives against the mirrored auction (`asta board`), explain one price (`asta explain`), turn a fact from the room into an adjustment (`asta adjust`), rehearse on a captured session (`asta replay`), close the auction (`asta close`). Use before and during the auction, and to rehearse. During the auction, `asta serve` mirrors the live session and serves the dashboard and the `fantaclaude-asta` MCP; `adjust` and `refresh` write through it.
+argument-hint: 'board | explain <player> | adjust <fact> | serve'
 ---
 
 # fanta-asta
@@ -34,6 +35,13 @@ Three rules, defended hard:
   maps to (`--map host=Marco`); a state file remembers them.
 
 ## Modes
+
+The argument names the mode; a bare player name means `explain`. With no
+argument, `board` — it is read-only and it is the question the night keeps
+asking. Never infer `adjust`, `close` or `verify-transfer --prune`: the
+first writes a belief that outlives the auction, and the others end or
+delete the night's record. `serve` is the one networked mode and the
+operator starts it — never to check.
 
 ### `board`
 

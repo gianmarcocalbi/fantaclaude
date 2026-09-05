@@ -1,6 +1,7 @@
 ---
 name: fanta-manager
 description: The weekly loop with fantaclaude — `refresh` early in the week (the finished giornata's voti, the probabili and news pages), `lineup` before the lock (`fantaclaude lineup`, read top to bottom, argue with a `lineup note`, re-run), `note` for a fact from the week, `record` for the XI actually fielded. Use every giornata, from the Tuesday refresh to the Friday XI; never to submit, never to fetch "to check".
+argument-hint: 'refresh | lineup | note <fact> | record'
 ---
 
 # fanta-manager
@@ -39,6 +40,12 @@ Four rules, defended hard:
   says the lega changed. Never during a match.
 
 ## Modes
+
+The argument names the mode. With none: `refresh` when the finished
+giornata's voti are not yet ingested (`fantaclaude doctor` says so),
+otherwise `lineup`. Never infer `note` or `record` — each writes a file
+from something only the operator knows: a note's reason, or the XI as it
+was actually fielded.
 
 ### `refresh` — early in the week (Tuesday)
 

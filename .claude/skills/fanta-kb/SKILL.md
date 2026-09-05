@@ -1,6 +1,7 @@
 ---
 name: fanta-kb
 description: Build and maintain the fantaclaude knowledge base under kb/ — `bootstrap` writes the rules documents and one profile per Serie A club, `refresh` renews what `fantaclaude kb audit` reports as expired, `interview` writes an opponent dossier. Use when the knowledge base is empty, stale, or a club changed coach, module or European status.
+argument-hint: 'bootstrap | refresh | interview <opponent>'
 ---
 
 # fanta-kb
@@ -24,6 +25,11 @@ Two rules, defended hard:
   expired or low-confidence profile, which is the behaviour we want.
 
 ## Modes
+
+The argument names the mode. With none, `refresh` — `fantaclaude kb audit`
+decides what is stale. `bootstrap` rewrites the tree and is for an empty
+one or a promoted club, so run it only when asked; `interview` is a
+conversation with the operator and cannot be inferred at all.
 
 ### `bootstrap`
 

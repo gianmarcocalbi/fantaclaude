@@ -1,6 +1,7 @@
 ---
 name: fanta-market
 description: Pre-auction analysis with fantaclaude — run `fantaclaude rank`, read the rankings and the asta plan, argue with the model on the user's behalf (a note, a taker, a rotation factor, a preference) and re-run under stated constraints. Use before the auction, whenever the listone, the rules or the knowledge base changed, and to draft the auction's journal entry.
+argument-hint: 'rank | plan'
 ---
 
 # fanta-market
@@ -37,6 +38,10 @@ C near parity, A/M/Por 0.75–0.8, Dc/E/W about 0.63). A per-class multiplier
 goes into `pricing.yml` by hand and is a new model.
 
 ## Modes
+
+The argument names the mode. With none, `rank`. `plan` is drafted only
+when asked, and only over a run that already exists — it restates no
+number, so there is nothing to draft before there is a run_id to link.
 
 ### `rank`
 
