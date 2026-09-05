@@ -20,6 +20,12 @@ be resolvable from here even if `data/` is lost:
   silently skipped as "already exists" (older committed files predate the
   suffix and are not renamed — the stem shape is not itself meaningful,
   only that it names one run without collision).
+- `lineup_submitted/<season>-<giornata>-<UTC stamp>-<submitted_id>.parquet` — the
+  XI actually fielded for that giornata, as `fantaclaude lineup record` wrote
+  it by hand (source `hand`) or `fantaclaude ingest lineup` read it back from
+  the platform (source `platform`), with the run it came from where one
+  applies. Never rewritten; the newest per giornata is the one calibration
+  scores my own week against.
 - `asta/<session>-<UTC stamp>.json` — the auction state file as it stood when
   the auction closed, copied by `fantaclaude asta close` (`<session>` is the
   code passed as `--session`, and the literal `session` when none was; the

@@ -1064,7 +1064,7 @@ def _render_lineup(payload: dict) -> str:
 LINEUP_RUN_OPTION = typer.Option(None, "--run", help="Read projections from this valuation run (default: the newest not superseded).")
 
 lineup_app = typer.Typer(name="lineup", invoke_without_command=True,
-                         help="The giornata's forecast and the XI (bare call); `note` beside it. Local, no network.")
+                         help="The giornata's forecast and the XI (bare call); `note` and `record` beside it. Local, no network.")
 app.add_typer(lineup_app)
 
 
@@ -1183,6 +1183,95 @@ def lineup_note_cmd(
                "giornata": round_.giornata, "path": str(path), "count": len(notes),
                "active": len(layer.entries) - layer.inert - len(layer.problems), "problems": list(layer.problems)}
     emit(payload, json_=json_, render=_render_note)
+
+
+RECORD_RUN_OPTION = typer.Option(None, "--lineup-run", help="The lineup run whose XI was fielded (default: the newest before the lock for the giornata).")
+RECORD_SWAP_OPTION = typer.Option(None, "--swap", help="Out=In -- a deviation from the run's XI, by the listone's spelling or id; repeatable.")
+RECORD_MODULE_OPTION = typer.Option(None, "--module", help="The module fielded (default: the run's).")
+RECORD_XI_OPTION = typer.Option(None, "--xi", help="The eleven, comma-separated, in full (needs --module).")
+RECORD_BENCH_OPTION = typer.Option(None, "--bench", help="The bench in order, comma-separated (with --xi; default none).")
+
+
+def _render_record(payload: dict) -> str:
+    origin = f"from run {payload['lineup_run_id']}" if payload["lineup_run_id"] is not None else "in full"
+    lines = [f"recorded: giornata {payload['giornata']} · {payload['module']} · {origin} · source {payload['source']} · "
+             f"lineup_submitted {payload['submitted_id']}" + (" · " + ", ".join(payload["records"]) if payload["records"] else "")]
+    lines += [f"  {x['slot']:<6} {x['name']}" for x in payload["xi"]]
+    if payload["bench"]:
+        lines.append("  bench: " + " · ".join(b["name"] for b in payload["bench"]))
+    return "\n".join(lines)
+
+
+@lineup_app.command("record")
+def lineup_record_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    lineup_run: int | None = RECORD_RUN_OPTION,
+    swap: list[str] | None = RECORD_SWAP_OPTION,
+    module: str | None = RECORD_MODULE_OPTION,
+    xi: str | None = RECORD_XI_OPTION,
+    bench: str | None = RECORD_BENCH_OPTION,
+) -> None:
+    """Record the XI actually fielded on the platform -- the run's XI, with --swap for the deviations, or --xi and --bench in full. Appended, never edited. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.analysis.weekly.submitted import (
+        SubmissionError,
+        build_submission,
+        export_submitted_record,
+        load_run_xi,
+        record_submitted,
+    )
+    from fantaclaude.analysis.weekly.xi import my_roster
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.model.modules import load_modules
+    from fantaclaude.paths import records_dir
+    from fantaclaude.timeutil import utc_now
+
+    entries = _league_yml_or_exit()
+    if not entries or "my_team" not in entries:
+        typer.echo("league.yml has no my_team leaf (asta verify-transfer prints it) -- nothing to record a roster against", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    my_team = int(entries["my_team"].value)
+    swaps: list[tuple[str, str]] = []
+    for s in swap or []:
+        out_name, sep, in_name = s.partition("=")
+        if not sep or not out_name.strip() or not in_name.strip():
+            typer.echo(f"--swap takes Out=In, got {s!r}", err=True)
+            raise typer.Exit(code=ExitCode.USAGE)
+        swaps.append((out_name.strip(), in_name.strip()))
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE if giornata is not None else ExitCode.NOT_READY) from None
+        allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
+        try:
+            roster = my_roster(con, my_team)
+            run = None if xi is not None and lineup_run is None else load_run_xi(
+                con, season_id=season_id, giornata=round_.giornata, lineup_run_id=lineup_run)
+            submission = build_submission(roster=roster, run=run, modules=load_modules(), allowed=list((allowed_row or [[]])[0] or []),
+                                          module=module, swaps=swaps,
+                                          xi_names=None if xi is None else [n.strip() for n in xi.split(",") if n.strip()],
+                                          bench_names=None if bench is None else [n.strip() for n in bench.split(",") if n.strip()])
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        except SubmissionError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE) from None
+        submitted_id = record_submitted(con, season_id=season_id, giornata=round_.giornata, submission=submission,
+                                        my_team=my_team, source="hand", now=utc_now())
+        records = export_submitted_record(con, submitted_id, records_dir())
+    finally:
+        con.close()
+    payload = {"submitted_id": submitted_id, "season_id": season_id, "giornata": round_.giornata, "my_team": my_team,
+               "source": "hand", **submission.to_dict(), "records": [str(p) for p in records]}
+    emit(payload, json_=json_, render=_render_record)
 
 
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "

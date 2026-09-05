@@ -345,3 +345,41 @@ def test_lineup_blends_by_precedence_and_writes_the_trace(monkeypatch, tmp_path,
     con.close()
     plain = runner.invoke(app, ["lineup"])
     assert "blend: " in plain.stdout and "warning: disagreement: Dimarco" in plain.stdout
+
+
+def test_lineup_record_writes_the_fielded_xi_by_hand(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    _calendar(tmp_path, first=datetime.now(UTC) + timedelta(days=2))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    everyone = [r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()]
+    seed_probabili(con, 21, 3, [(pid, f"p{pid}", "club", 90) for pid in everyone])
+    seed_rosters(con, 2578630, 21, {4242: ("G8 E CLAUDIO", {pid: 10 for pid in everyone})})
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write("my_team: {value: 4242, source: verify-transfer, verified_on: 2026-09-04}\n")
+    forecast = json.loads(runner.invoke(app, ["lineup", "--json"]).stdout)
+    xi_names = [s["name"] for s in forecast["xi"]["slots"]]
+    result = runner.invoke(app, ["lineup", "record", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["lineup_run_id"] == forecast["lineup_run_id"] and payload["module"] == forecast["xi"]["module"]
+    assert [x["name"] for x in payload["xi"]] == xi_names and payload["source"] == "hand" and payload["giornata"] == 3
+    assert [p.rsplit("/", 2)[-2] for p in payload["records"]] == ["lineup_submitted"]
+    # in full: the same eleven under the same module, a bench of two
+    bench_names = [e["name"] for e in forecast["bench"]["order"]][:2]
+    full = runner.invoke(app, ["lineup", "record", "--module", forecast["xi"]["module"], "--xi", ",".join(xi_names),
+                               "--bench", ",".join(bench_names), "--json"])
+    assert full.exit_code == ExitCode.OK, full.output
+    assert json.loads(full.stdout)["lineup_run_id"] is None and [b["name"] for b in json.loads(full.stdout)["bench"]] == bench_names
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 2
+    assert con.execute("SELECT lineup_run_id FROM v_lineup_submitted_current").fetchone()[0] is None
+    con.close()
+    for args, needle, code in (([ "--swap", "Nobody=" + bench_names[0]], "not on my roster", ExitCode.USAGE),
+                               (["--swap", "malformed"], "Out=In", ExitCode.USAGE),
+                               (["--xi", ",".join(xi_names)], "--xi needs --module", ExitCode.USAGE),
+                               (["--giornata", "99"], "not in the season", ExitCode.USAGE)):
+        bad = runner.invoke(app, ["lineup", "record", *args])
+        assert bad.exit_code == code and needle in bad.stderr, (args, bad.output)
+    plain = runner.invoke(app, ["lineup", "record"])
+    assert plain.exit_code == ExitCode.OK and "recorded: giornata 3" in plain.stdout
