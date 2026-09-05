@@ -18,6 +18,8 @@ V3_OBJECTS = {"valuation_runs", "valuations", "valuation_prices",
 V4_OBJECTS = {"probabili_files", "probabili", "roster_snapshots", "rosters", "lineup_runs", "predictions",
               "v_probabili_files_current", "v_probabili_current", "v_rosters_current", "v_rosters_first",
               "v_market_prices", "v_lineup_runs_current"}
+V5_OBJECTS = {"news_files", "unavailable", "lineup_submitted",
+              "v_news_files_current", "v_unavailable_current", "v_predictions_current", "v_lineup_submitted_current"}
 
 # advanced_snapshots exactly as Phase 0b created it: the shape a live version-2 file carries.
 V2_ADVANCED_SNAPSHOTS = """
@@ -41,7 +43,7 @@ def _columns(con, table):
 
 def test_apply_schema_is_idempotent(tmp_path):
     con = connect(tmp_path / "x.duckdb")
-    assert apply_schema(con) == SCHEMA_VERSION == 4
+    assert apply_schema(con) == SCHEMA_VERSION == 5
     assert apply_schema(con) == SCHEMA_VERSION
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 1
     con.close()
@@ -95,8 +97,8 @@ def test_a_version_1_file_is_migrated_forward_in_place(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 4
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 4
+    assert apply_schema(con) == 5
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 5
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 2      # history of versions kept
     assert con.execute("SELECT name FROM teams").fetchone()[0] == "Roma"               # v1 rows survive
     assert con.execute("SELECT count(*) FROM v_player_season").fetchone()[0] == 0
@@ -126,7 +128,7 @@ def test_a_version_2_file_gets_its_advanced_snapshots_rebuilt(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 4
+    assert apply_schema(con) == 5
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -170,7 +172,7 @@ def test_an_interrupted_migration_resumes_from_the_leftover_v2_table(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 4
+    assert apply_schema(con) == 5
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
@@ -199,7 +201,7 @@ def test_a_migration_already_corrupted_by_the_old_non_atomic_code_still_recovers
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 4
+    assert apply_schema(con) == 5
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -220,7 +222,7 @@ def test_an_old_shape_table_with_no_version_row_is_still_migrated(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 4
+    assert apply_schema(con) == 5
     assert "aliases_sha256" in _columns(con, "advanced_snapshots")
     assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
     con.close()
@@ -262,7 +264,7 @@ def test_a_failure_mid_migration_rolls_back_atomically(tmp_path, monkeypatch):
 
     # A later, unobstructed apply_schema still finishes the job.
     con = connect(path)
-    assert apply_schema(con) == 4
+    assert apply_schema(con) == 5
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -327,15 +329,72 @@ def test_valuation_views_pick_the_newest_run_under_the_rules_in_force(db, mcp_fi
 
 def test_version_4_adds_the_forecast_and_roster_layer(tmp_path):
     con = connect(tmp_path / "v4.duckdb")
-    assert apply_schema(con) == 4 and SCHEMA_VERSION == 4
+    assert apply_schema(con) == 5 and SCHEMA_VERSION == 5
     names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
     assert V4_OBJECTS <= names
     assert _columns(con, "predictions") == ["lineup_run_id", "season_id", "giornata", "player_id", "p_start_published",
-                                            "p_start", "fv_if_plays", "fv_sd", "expected_points", "source"]
+                                            "p_start", "fv_if_plays", "fv_sd", "expected_points", "source",
+                                            "kickoff", "late", "matchup", "trace"]
     assert _columns(con, "lineup_runs")[:6] == ["lineup_run_id", "season_id", "giornata", "run_id", "model_hash",
                                                 "probabili_file_id"]
     assert _columns(con, "rosters") == ["snapshot_id", "team_id", "team_name", "owner", "player_id", "cost", "position"]
     # a version-3 file upgrades in place: apply twice, version row once per level
-    assert apply_schema(con) == 4
-    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 4").fetchone()[0] == 1
+    assert apply_schema(con) == 5
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 5").fetchone()[0] == 1
+
+
+def test_version_5_adds_the_news_layer_and_widens_the_forecast(tmp_path):
+    con = connect(tmp_path / "v5.duckdb")
+    assert apply_schema(con) == 5 and SCHEMA_VERSION == 5
+    names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
+    assert V4_OBJECTS | V5_OBJECTS <= names
+    assert _columns(con, "predictions") == ["lineup_run_id", "season_id", "giornata", "player_id", "p_start_published",
+                                            "p_start", "fv_if_plays", "fv_sd", "expected_points", "source",
+                                            "kickoff", "late", "matchup", "trace"]
+    assert _columns(con, "lineup_runs")[-4:] == ["weekly_hash", "bench", "contingencies", "close_calls"]
+    assert _columns(con, "unavailable") == ["file_id", "season_id", "giornata", "kind", "team_name", "team_short", "name",
+                                            "player_id", "match_status", "detail", "position", "raw"]
+    assert _columns(con, "lineup_submitted") == ["submitted_id", "season_id", "giornata", "lineup_run_id", "my_team",
+                                                 "module", "xi", "bench", "source", "recorded_at"]
+    assert apply_schema(con) == 5
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 5").fetchone()[0] == 1
     con.close()
+
+
+def test_a_version_4_file_gains_the_new_columns_and_its_rows_keep_late_false(tmp_path):
+    """3a's live database has two giornata-3 runs written before the first
+    kickoff; upgrading must leave them readable, with the new per-row
+    `late` false, which is what they were."""
+    con = connect(tmp_path / "v4.duckdb")
+    apply_schema(con)
+    con.execute("DELETE FROM schema_version")
+    con.execute("INSERT INTO schema_version (version) VALUES (4)")
+    con.execute("ALTER TABLE predictions DROP COLUMN trace")
+    con.execute("ALTER TABLE predictions DROP COLUMN matchup")
+    con.execute("ALTER TABLE predictions DROP COLUMN late")
+    con.execute("ALTER TABLE predictions DROP COLUMN kickoff")
+    con.execute("ALTER TABLE lineup_runs DROP COLUMN close_calls")
+    con.execute("ALTER TABLE lineup_runs DROP COLUMN contingencies")
+    con.execute("ALTER TABLE lineup_runs DROP COLUMN bench")
+    con.execute("ALTER TABLE lineup_runs DROP COLUMN weekly_hash")
+    con.execute("INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
+                "late, predictions) VALUES (21, 3, 'r', 'm', 1, '2026-09-04 18:45', '2026-09-04 13:46', false, 1)")
+    con.execute("INSERT INTO predictions VALUES (1, 21, 3, 2764, 90, 0.9, 7.0, NULL, 6.3, 'published')")
+    assert apply_schema(con) == 5
+    assert con.execute("SELECT late, kickoff, trace FROM predictions").fetchone() == (False, None, None)
+    assert con.execute("SELECT weekly_hash, bench FROM lineup_runs").fetchone() == (None, None)
+    assert con.execute("SELECT count(*) FROM v_predictions_current").fetchone()[0] == 1
+    con.close()
+
+
+def test_v_predictions_current_reads_the_newest_honest_row_per_player(db):
+    for run_id, late_rows in ((1, {2764: False, 2120: False}), (2, {2764: False, 2120: True}), (3, {2764: True, 2120: True})):
+        db.execute("INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
+                   "late, predictions) VALUES (21, 3, 'r', 'm', 1, '2026-09-04 18:45', '2026-09-04 13:46', ?, 2)", [run_id > 1])
+        for pid, late in late_rows.items():
+            db.execute("INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
+                       "fv_if_plays, expected_points, source, late) VALUES (?, 21, 3, ?, 90, 0.9, 7.0, 6.3, 'published', ?)",
+                       [run_id, pid, late])
+    current = dict(db.execute("SELECT player_id, lineup_run_id FROM v_predictions_current ORDER BY player_id").fetchall())
+    assert current == {2120: 1, 2764: 2}        # Bastoni's run-2 row was late for him; Martinez's was not
+    assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchone()[0] == 1

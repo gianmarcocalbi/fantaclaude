@@ -17,6 +17,7 @@ kb/
     │                          #   overpays, avoids, max_single_share) read by fantaclaude.kb.participants
     ├── history/<season>.md
     └── season-2026-27/        # the journal, append-only: giornata-00-asta.md, giornata-01.md, …
+        # the weekly loop's own file is data/lineup-notes.yml, not here: a note is a fact for one giornata, not knowledge
 ```
 
 ## Front-matter contract

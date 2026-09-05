@@ -516,6 +516,109 @@ def ingest_probabili_cmd(
     emit(result.to_dict(), json_=json_, render=_render_probabili)
 
 
+def _render_news(payload: dict) -> str:
+    lines = []
+    for r in payload["news"]:
+        head = f"news {r['page']} {r['season_id']} giornata {r['giornata']}"
+        if r["skipped_duplicate"]:
+            lines.append(f"{head}: duplicate of file {r['file_id']} -- nothing new ({r['raw_path']})")
+            continue
+        line = f"{head}: file {r['file_id']}, {r['inserted']} entries over {r['teams']} clubs"
+        if r["empty_lists"]:
+            line += f" ({r['empty_lists']} empty list(s))"
+        if r["unmatched"]:
+            line += f"; {r['unmatched']} name(s) unmatched -- `fantaclaude query --sql \"SELECT * FROM v_unavailable_current WHERE player_id IS NULL\"`"
+        if r["unknown_teams"]:
+            line += f"; {r['unknown_teams']} club(s) not in the listone (kb/rules/aliases.yml, fantacalcio_teams)"
+        lines.append(f"{line} ({r['raw_path']})")
+    return "\n".join(lines)
+
+
+NEWS_PAGE_OPTION = typer.Option(None, "--page", help="squalificati or infortunati; repeatable (default: both, one request each).")
+
+
+@ingest_app.command("news")
+def ingest_news_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    page: list[str] | None = NEWS_PAGE_OPTION,
+) -> None:
+    """The squalificati/diffidati and infortunati lists (fantacalcio.it, public), matched by name within each club. One request per page."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.commands.ingest import ensure_schema
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.http import polite_pause, run_web
+    from fantaclaude.ingest.news import (
+        PAGES,
+        NewsShapeError,
+        fetch_news,
+        parse_news_page,
+        record_news,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import aliases_path, raw_dir
+    from fantaclaude.timeutil import utc_now
+
+    pages = list(dict.fromkeys(page)) if page else list(PAGES)
+    bad = [p for p in pages if p not in PAGES]
+    if bad:
+        typer.echo(f"--page must be one of {', '.join(PAGES)}, got {bad}", err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    ensure_schema()
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)
+    try:
+        round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+    except ForecastError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    store = RawStore(raw_dir())
+    label = f"{season_id}-{round_.giornata:02d}"
+
+    async def go(http):
+        raws = {}
+        for i, p in enumerate(pages):
+            if i:
+                await polite_pause()
+            raws[p] = await fetch_news(http, store, page=p, label=label)
+        return raws
+
+    with _source_errors():
+        raws = run_web(go)
+        # Each page is parsed and recorded on its own -- a `NewsShapeError` on
+        # one page (the site reworked that layout) must not cost the other:
+        # both requests are already spent, and a page that parsed cleanly has
+        # entries (squalifiche, most of all) that force a p_start to zero and
+        # must not be thrown away because its sibling page broke (review
+        # finding, cli/app.py:585).
+        con = connect()
+        try:
+            apply_schema(con)
+            results = []
+            failed: list[tuple[str, NewsShapeError]] = []
+            for p in pages:
+                try:
+                    parsed = parse_news_page(raws[p].path.read_text(encoding="utf-8"), page=p)
+                    results.append(record_news(con, season_id, round_.giornata, parsed, raws[p], aliases_path=aliases_path()))
+                except NewsShapeError as exc:
+                    failed.append((p, exc))
+        finally:
+            con.close()
+    if failed:
+        for p, exc in failed:
+            typer.echo(f"{p}: source shape unexpected: {exc}", err=True)
+        landed = ", ".join(r.page for r in results) if results else "none"
+        typer.echo(f"recorded: {landed}", err=True)
+        # ERROR (1), the same code a single-page failure already gets under
+        # `_source_errors()`: a source changed shape, a genuine fault the
+        # operator must act on, whether or not the other page still landed.
+        raise typer.Exit(code=ExitCode.ERROR)
+    emit({"news": [r.to_dict() for r in results]}, json_=json_, render=_render_news)
+
+
 def _render_rosters(payload: dict) -> str:
     head = f"rosters league {payload['league_id']}"
     if payload["skipped_duplicate"]:
@@ -793,7 +896,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, the auction state file, the dashboard bundle."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the auction state file, the dashboard bundle."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
@@ -803,6 +906,7 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
         db_path,
         kb_dir,
         league_yml_path,
+        lineup_notes_path,
         preferences_yml_path,
         pricing_yml_path,
         web_dist_dir,
@@ -811,8 +915,8 @@ def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readabl
 
     paths = DoctorPaths(env=env_path(), token_cache=token_cache_path(), db=db_path(),
                         league_yml=league_yml_path(), preferences=preferences_yml_path(), kb=kb_dir(),
-                        pricing=pricing_yml_path(), adjustments=adjustments_path(), asta_state=asta_state_path(),
-                        web_dist=web_dist_dir())
+                        pricing=pricing_yml_path(), adjustments=adjustments_path(), lineup_notes=lineup_notes_path(),
+                        asta_state=asta_state_path(), web_dist=web_dist_dir())
     checks = run_doctor(paths, now=utc_now())
     payload = {"ok": all(c.ok for c in checks), "checks": [c.to_dict() for c in checks]}
     emit(payload, json_=json_, render=_render_doctor)
@@ -920,8 +1024,16 @@ def _render_lineup(payload: dict) -> str:
     total_matches = page["matches"] + page["uncompiled"]
     lines = [(f"giornata {r['giornata']} · deadline {r['first_kickoff']} UTC · run {payload['run_id']} · page {page['fetched_at']} "
               f"({page['players']} players, {page['matches']}/{total_matches} matches compiled)")]
+    b = payload.get("blend") or {}
+    if b:
+        sources = " · ".join(f"{k} {v}" for k, v in b.get("sources", {}).items())
+        fetched = ", ".join(f"{k} {v}" for k, v in b.get("news_fetched", {}).items()) or "none"
+        lines.append(f"blend: {sources} · notes {b['notes']['count'] - b['notes']['inert']} active · news {fetched} · "
+                     f"weekly {payload['weekly_hash']}")
     if payload["late"]:
-        lines.append("LATE: written after the first kickoff -- marked, and calibration will exclude it")
+        on_time = payload["predictions"] - payload["late_predictions"]
+        lines.append(f"LATE XI: the round's first kickoff has passed -- the XI cannot be fielded; "
+                     f"predictions {on_time} on time, {payload['late_predictions']} late (their matches have started)")
     # Built from page['uncompiled']/page['fetched_at'] -- the same data
     # `lineup()` built its own copy of this sentence from -- rather than
     # located in `warnings` by substring-matching a fragment of that
@@ -940,7 +1052,8 @@ def _render_lineup(payload: dict) -> str:
                 + (f" ({shortfall} not priced)" if shortfall else ""))
     for role, rows in payload["top"].items():
         lines.append(f"  {role}: " + " · ".join(
-            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}={x['expected_points']:.2f}" for x in rows))
+            f"{x['name']} {x['p_start_published']}%×{x['fv_if_plays']:.2f}"
+            + (f"({x['matchup']:+.2f})" if x.get("matchup") else "") + f"={x['expected_points']:.2f}" for x in rows))
     xi = payload.get("xi")
     if xi is None:
         lines.append(f"XI: none -- {payload['no_xi_reason']}")
@@ -950,6 +1063,24 @@ def _render_lineup(payload: dict) -> str:
         others = " · ".join(f"{m} {v:.2f}" if v is not None else f"{m} -"
                             for m, v in xi["module_scores"].items() if m != xi["module"])
         lines.append(f"  other modules: {others}")
+        bench = payload.get("bench")
+        if bench and bench["order"]:
+            lines.append("bench: " + " · ".join(
+                f"{e['name']}{'!' if e['diffidato'] else ''} [{'/'.join(e['roles'])}] {e['coverage']:.2f}" for e in bench["order"]))
+            if bench["uncovered"]:
+                lines.append(f"  uncovered: {', '.join(bench['uncovered'])}")
+        for c in payload.get("contingencies") or []:
+            if c["note"]:
+                lines.append(f"if out: {c['name']} ({c['p_start']:.0%}) -- {c['note']}")
+                continue
+            enters = ", ".join(f"{s['name']} at {s['slot']}" for s in c["enters"]) or "nobody"
+            module = f", module {c['module']}" if c["module_changes"] else ""
+            lines.append(f"if out: {c['name']} ({c['p_start']:.0%}) -> {enters}{module}, -{c['points_lost']:.2f}")
+        for c in payload.get("close_calls") or []:
+            a, b = c["in"], c["out"]
+            sd = lambda x: f"±{x['fv_sd']:.1f}" if x.get("fv_sd") is not None else ""
+            lines.append(f"close: {c['slot']} {a['name']} {a['expected_points']:.2f}{sd(a)} over {b['name']} "
+                         f"{b['expected_points']:.2f}{sd(b)} (gap {c['gap']:.2f}; {a['source']} vs {b['source']})")
     lines.append(f"written: lineup_run {payload['lineup_run_id']}, {payload['predictions']} predictions"
                  + (" · " + ", ".join(payload["records"]) if payload["records"] else " · records already exist"))
     lines += [f"warning: {w}" for w in payload["warnings"] if w != uncompiled_warning]
@@ -958,19 +1089,26 @@ def _render_lineup(payload: dict) -> str:
 
 LINEUP_RUN_OPTION = typer.Option(None, "--run", help="Read projections from this valuation run (default: the newest not superseded).")
 
+lineup_app = typer.Typer(name="lineup", invoke_without_command=True,
+                         help="The giornata's forecast and the XI (bare call); `note` and `record` beside it. Local, no network.")
+app.add_typer(lineup_app)
 
-@app.command("lineup")
+
+@lineup_app.callback()
 def lineup_cmd(
+    ctx: typer.Context,
     json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
     giornata: int | None = GIORNATA_ONE_OPTION,
     run: str | None = LINEUP_RUN_OPTION,
-    late: bool = typer.Option(False, "--late", help="Write even though the giornata has kicked off; the row is marked and calibration excludes it."),
+    late: bool = typer.Option(False, "--late", help="Write even though every match of the giornata has kicked off; every row is marked and calibration excludes them."),
 ) -> None:
     """Write the giornata's forecast -- p_start x expected fantavoto for every player the probabili page lists -- and, when league.yml names my team, the XI and module that maximise expected points. Local, no network."""
+    if ctx.invoked_subcommand is not None:
+        return
     from fantaclaude.analysis.weekly import ForecastError, LateForecast, lineup
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
-    from fantaclaude.paths import records_dir
+    from fantaclaude.paths import aliases_path, kb_dir, lineup_notes_path, records_dir
     from fantaclaude.timeutil import utc_now
 
     entries = _league_yml_or_exit()
@@ -987,7 +1125,8 @@ def lineup_cmd(
         apply_schema(con)
         try:
             report = lineup(con, now=utc_now(), season_id=season_id, giornata=giornata, run_id=run, late=late,
-                            my_team=my_team, records_dir=records_dir())
+                            my_team=my_team, records_dir=records_dir(), notes_path=lineup_notes_path(), kb_dir=kb_dir(),
+                            aliases_path=aliases_path())
         except LateForecast as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=ExitCode.CONFLICT) from None
@@ -997,6 +1136,171 @@ def lineup_cmd(
     finally:
         con.close()
     emit(report.to_dict(), json_=json_, render=_render_lineup)
+
+
+NOTE_TYPE_OPTION = typer.Option(..., "--type", help="p_start | value | exclude.")
+NOTE_PLAYER_OPTION = typer.Option(None, "--player", help="The listone's spelling (\"Martinez L.\").")
+NOTE_PLAYER_ID_OPTION = typer.Option(None, "--player-id", help="The listone id, instead of --player.")
+NOTE_P_START_OPTION = typer.Option(None, "--p-start", help="For p_start: the probability of a voto, 0..1, set outright.")
+NOTE_FACTOR_OPTION = typer.Option(None, "--factor", help="For value: a factor on the expected fantavoto if he plays, (0, 2].")
+NOTE_REASON_OPTION = typer.Option(..., "--reason", help="Why -- the week's record explains itself afterwards.")
+
+
+def _render_note(payload: dict) -> str:
+    lines = [(f"appended to {payload['path']}: {payload['described']} · {payload['count']} note(s), {payload['active']} for "
+              f"giornata {payload['giornata']} -- re-run `fantaclaude lineup`")]
+    lines += [f"problem: {p}" for p in payload["problems"]]
+    return "\n".join(lines)
+
+
+@lineup_app.command("note")
+def lineup_note_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    type_: str = NOTE_TYPE_OPTION,
+    player: str | None = NOTE_PLAYER_OPTION,
+    player_id: int | None = NOTE_PLAYER_ID_OPTION,
+    p_start: float | None = NOTE_P_START_OPTION,
+    factor: float | None = NOTE_FACTOR_OPTION,
+    reason: str = NOTE_REASON_OPTION,
+    giornata: int | None = GIORNATA_ONE_OPTION,
+) -> None:
+    """Append a fact about this giornata to data/lineup-notes.yml -- a p_start, a value factor or an exclusion, with its reason. Resolved against the listone; refused when nobody matches. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.analysis.weekly.notes import (
+        LineupNotesError,
+        append_lineup_note,
+        note_from_entry,
+        resolve_notes,
+    )
+    from fantaclaude.db.connection import connect
+    from fantaclaude.ingest.names import load_candidates
+    from fantaclaude.paths import lineup_notes_path
+    from fantaclaude.timeutil import utc_now
+
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect(read_only=True)
+    try:
+        try:
+            round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE if giornata is not None else ExitCode.NOT_READY) from None
+        candidates = load_candidates(con)
+    finally:
+        con.close()
+    raw = {k: v for k, v in (("player", player), ("player_id", player_id), ("giornata", round_.giornata), ("type", type_),
+                             ("p_start", p_start), ("factor", factor), ("reason", reason)) if v is not None}
+    try:
+        note = note_from_entry(raw, "lineup note")
+    except LineupNotesError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.USAGE) from None
+    probe = resolve_notes([note], candidates, giornata=round_.giornata)
+    if probe.problems:
+        typer.echo(probe.problems[0], err=True)
+        raise typer.Exit(code=ExitCode.USAGE)
+    path = lineup_notes_path()
+    try:
+        notes = append_lineup_note(path, note)
+    except LineupNotesError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    layer = resolve_notes(notes, candidates, giornata=round_.giornata)
+    payload = {"note": note.to_entry(), "described": note.describe(), "player_id": probe.entries[0].player_id,
+               "giornata": round_.giornata, "path": str(path), "count": len(notes),
+               "active": len(layer.entries) - layer.inert - len(layer.problems), "problems": list(layer.problems)}
+    emit(payload, json_=json_, render=_render_note)
+
+
+RECORD_RUN_OPTION = typer.Option(None, "--lineup-run", help="The lineup run whose XI was fielded (default: the newest before the lock for the giornata).")
+RECORD_SWAP_OPTION = typer.Option(None, "--swap", help="Out=In -- a deviation from the run's XI, by the listone's spelling or id; repeatable.")
+RECORD_MODULE_OPTION = typer.Option(None, "--module", help="The module fielded (default: the run's).")
+RECORD_XI_OPTION = typer.Option(None, "--xi", help="The eleven, comma-separated, in full (needs --module).")
+RECORD_BENCH_OPTION = typer.Option(None, "--bench", help="The bench in order, comma-separated (with --xi; default none).")
+
+
+def _render_record(payload: dict) -> str:
+    origin = f"from run {payload['lineup_run_id']}" if payload["lineup_run_id"] is not None else "in full"
+    lines = [f"recorded: giornata {payload['giornata']} · {payload['module']} · {origin} · source {payload['source']} · "
+             f"lineup_submitted {payload['submitted_id']}" + (" · " + ", ".join(payload["records"]) if payload["records"] else "")]
+    lines += [f"  {x['slot']:<6} {x['name']}" for x in payload["xi"]]
+    if payload["bench"]:
+        lines.append("  bench: " + " · ".join(b["name"] for b in payload["bench"]))
+    return "\n".join(lines)
+
+
+@lineup_app.command("record")
+def lineup_record_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = GIORNATA_ONE_OPTION,
+    lineup_run: int | None = RECORD_RUN_OPTION,
+    swap: list[str] | None = RECORD_SWAP_OPTION,
+    module: str | None = RECORD_MODULE_OPTION,
+    xi: str | None = RECORD_XI_OPTION,
+    bench: str | None = RECORD_BENCH_OPTION,
+) -> None:
+    """Record the XI actually fielded on the platform -- the run's XI, with --swap for the deviations, or --xi and --bench in full. Appended, never edited. Local, no network."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.analysis.weekly.submitted import (
+        SubmissionError,
+        build_submission,
+        export_submitted_record,
+        load_run_xi,
+        record_submitted,
+    )
+    from fantaclaude.analysis.weekly.xi import my_roster
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.model.modules import load_modules
+    from fantaclaude.paths import records_dir
+    from fantaclaude.timeutil import utc_now
+
+    entries = _league_yml_or_exit()
+    if not entries or "my_team" not in entries:
+        typer.echo("league.yml has no my_team leaf (asta verify-transfer prints it) -- nothing to record a roster against", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    my_team = int(entries["my_team"].value)
+    swaps: list[tuple[str, str]] = []
+    for s in swap or []:
+        out_name, sep, in_name = s.partition("=")
+        if not sep or not out_name.strip() or not in_name.strip():
+            typer.echo(f"--swap takes Out=In, got {s!r}", err=True)
+            raise typer.Exit(code=ExitCode.USAGE)
+        swaps.append((out_name.strip(), in_name.strip()))
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            round_ = target_round(con, utc_now(), season_id=season_id, giornata=giornata)
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE if giornata is not None else ExitCode.NOT_READY) from None
+        allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
+        try:
+            if allowed_row is None or not allowed_row[0]:
+                raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
+            roster = my_roster(con, my_team)
+            run = None if xi is not None and lineup_run is None else load_run_xi(
+                con, season_id=season_id, giornata=round_.giornata, lineup_run_id=lineup_run)
+            submission = build_submission(roster=roster, run=run, modules=load_modules(), allowed=list(allowed_row[0]),
+                                          module=module, swaps=swaps,
+                                          xi_names=None if xi is None else [n.strip() for n in xi.split(",") if n.strip()],
+                                          bench_names=None if bench is None else [n.strip() for n in bench.split(",") if n.strip()])
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        except SubmissionError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.USAGE) from None
+        submitted_id = record_submitted(con, season_id=season_id, giornata=round_.giornata, submission=submission,
+                                        my_team=my_team, source="hand", now=utc_now())
+        records = export_submitted_record(con, submitted_id, records_dir())
+    finally:
+        con.close()
+    payload = {"submitted_id": submitted_id, "season_id": season_id, "giornata": round_.giornata, "my_team": my_team,
+               "source": "hand", **submission.to_dict(), "records": [str(p) for p in records]}
+    emit(payload, json_=json_, render=_render_record)
 
 
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from conftest import seed_fixtures, seed_probabili, seed_rosters
+from conftest import seed_fixtures, seed_probabili, seed_rosters, seed_voti
 from fantaclaude.analysis.weekly import (
     ADAPTED_MALUS,
     ForecastError,
@@ -61,7 +61,7 @@ def test_target_round_needs_a_calendar(db):
 def test_forecast_joins_the_page_to_the_run_for_every_listed_priced_player(db):
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90), (5841, "Svilar", "roma", 55), (777777, "Nobody", "roma", 5)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     assert [r.player_id for r in rows] == [2764, 5841]                # the unpriced id is not a row; Kolasinac unlisted is not a row
     lautaro = rows[0]
     assert lautaro.p_start_published == 90 and lautaro.p_start == pytest.approx(0.9)
@@ -70,36 +70,43 @@ def test_forecast_joins_the_page_to_the_run_for_every_listed_priced_player(db):
     assert newest_probabili_file(db, 21, 3)[0] == file_id and newest_probabili_file(db, 21, 4) is None
 
 
-def test_write_refuses_after_the_first_kickoff_unless_late_and_marks_the_row(db, tmp_path):
+def test_write_refuses_only_after_the_last_kickoff_unless_late_and_marks_the_row(db, tmp_path):
+    """3b: the XI is late once the round's first kickoff has passed, but the
+    write itself is refused only once EVERY match of the round has kicked
+    off (open question 18) -- unlike 3a, a write between the first and the
+    last kickoff succeeds and is simply marked late."""
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     r = target_round(db, NOW, season_id=21)
     first, first_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     assert first_late is False
-    after = datetime(2026, 9, 4, 19, 0, tzinfo=UTC)
-    with pytest.raises(LateForecast, match="--late"):
-        write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=False)
-    second, second_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after, late=True)
+    between = datetime(2026, 9, 4, 19, 0, tzinfo=UTC)                        # past the first kickoff, well before the last (7 Sept)
+    second, second_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=between, late=False)
     assert second != first and second_late is True
     assert db.execute("SELECT late, deadline FROM lineup_runs ORDER BY lineup_run_id").fetchall() == \
         [(False, datetime(2026, 9, 4, 18, 45)), (True, datetime(2026, 9, 4, 18, 45))]  # noqa: DTZ001 -- naive UTC, as stored
     assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(first,)]
     assert db.execute("SELECT p_start_published, p_start, expected_points, source FROM predictions WHERE lineup_run_id = ?",
                       [first]).fetchone() == (90, pytest.approx(0.9), pytest.approx(0.9 * 8.1), "published")
+    after_last = datetime(2026, 9, 7, 19, 0, tzinfo=UTC)                     # past every kickoff of the round
+    with pytest.raises(LateForecast, match="--late"):
+        write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after_last, late=False)
+    third, third_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=after_last, late=True)
+    assert third != second and third_late is True
     # --late before the deadline is not late: the flag permits, the clock decides
-    third, third_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
-    assert third_late is False
-    assert db.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [third]).fetchone() == (False,)
-    assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(third,)]
+    fourth, fourth_late = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=True)
+    assert fourth_late is False
+    assert db.execute("SELECT late FROM lineup_runs WHERE lineup_run_id = ?", [fourth]).fetchone() == (False,)
+    assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchall() == [(fourth,)]
 
 
 def test_a_second_run_before_the_deadline_is_a_second_row_and_nothing_is_touched(db):
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     r = target_round(db, NOW, season_id=21)
     a, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     b, _ = write_lineup_run(db, round_=r, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW + timedelta(hours=1), late=False)
@@ -121,7 +128,7 @@ def test_records_are_exported_once_by_giornata_and_write_time(db, tmp_path):
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     lineup_run_id, _ = write_lineup_run(db, round_=target_round(db, NOW, season_id=21), run_id=run_id, model_hash="m3",
                                         probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     written = export_lineup_records(db, lineup_run_id, tmp_path / "records")
@@ -140,7 +147,7 @@ def test_two_runs_in_the_same_second_each_get_their_own_permanent_record(db, tmp
     seed_fixtures(db, 21, {3: G3})
     run_id = _run(db)
     file_id = seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90)])
-    rows = forecast(db, run_id=run_id, probabili_file_id=file_id)
+    rows = forecast(db, run_id=run_id, probabili_file_id=file_id).rows
     round_ = target_round(db, NOW, season_id=21)
     a, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
     b, _ = write_lineup_run(db, round_=round_, run_id=run_id, model_hash="m3", probabili_file_id=file_id, rows=rows, now=NOW, late=False)
@@ -313,11 +320,16 @@ def test_compilation_staleness_is_silent_with_nothing_to_join_or_nothing_stale(d
     assert compilation_staleness(db, 5, fresh) == []
 
 
-def test_lineup_surfaces_the_staleness_warning(db, tmp_path):
+def test_lineup_surfaces_the_staleness_warning(db, tmp_path, mcp_fixture_json):
     """End-to-end: `lineup` wires `compilation_staleness` into its own
     warnings, the way `matchday_cross_check` and the uncompiled-match count
     already are."""
     from fantaclaude.analysis.weekly import lineup
+    from fantaclaude.league.settings import record_snapshot, snapshot_from_payloads
+    record_snapshot(db, snapshot_from_payloads(
+        profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
+        rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
+        calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
     run_id = _run(db)                                       # prices 2764 (INT), among others
     _seed_fixtures_with_shorts(db, 21, 3, [
         ("INT", "ROM", NOW + timedelta(days=2)),
@@ -333,3 +345,32 @@ def test_lineup_surfaces_the_staleness_warning(db, tmp_path):
                     records_dir=tmp_path / "records")
     assert any("INT-ROM" in w and "stale" in w for w in report.warnings)
     assert not any("JUV" in w or "MIL" in w for w in report.warnings)
+
+
+def test_lineup_warns_when_the_matchup_table_has_no_rows_but_not_once_it_does(db, tmp_path, mcp_fixture_json):
+    """`MatchupTable.rows` is computed but was never surfaced: an entirely
+    empty table (a renamed club, a season with no fixtures ingested) read
+    the same in the report as the matchup term being genuinely near zero
+    (review finding, forecast.py:93)."""
+    from fantaclaude.analysis.weekly import lineup
+    from fantaclaude.league.settings import record_snapshot, snapshot_from_payloads
+    record_snapshot(db, snapshot_from_payloads(
+        profile=mcp_fixture_json("league_profile"), status=mcp_fixture_json("league_status"),
+        rosters=mcp_fixture_json("roster_settings"), lineup=mcp_fixture_json("lineup_settings"),
+        calculate=mcp_fixture_json("calculation_settings"), teams=mcp_fixture_json("teams")))
+    db.execute("INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) "
+              "VALUES (now(), 'seed', 'x', 'seed-terms-teams', 0)")
+    sid = db.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0]
+    for tid, name, short in ((1, "Inter", "INT"), (2, "Roma", "ROM")):
+        db.execute("INSERT INTO teams VALUES (?, ?, ?, ?)", [sid, tid, name, short])
+    run_id = _run(db)                                       # prices 2764 (INT), 5841 (ROM), among others
+    _seed_fixtures_with_shorts(db, 21, 3, [("INT", "ROM", NOW + timedelta(days=2))])
+    seed_probabili(db, 21, 3, [(2764, "Martinez L.", "inter", 90), (5841, "Svilar", "roma", 100)])
+    empty = lineup(db, now=NOW, season_id=21, giornata=None, run_id=run_id, late=False, my_team=None,
+                   records_dir=tmp_path / "records" / "empty")
+    assert any("matchup table has no rows" in w for w in empty.warnings)
+    # the current season's own voti, joined to the fixture just seeded: the table is no longer empty
+    seed_voti(db, 21, 3, [(2764, "Martinez L.", "Inter", "A", 7.0, {}), (5841, "Svilar", "Roma", "P", 6.0, {})])
+    filled = lineup(db, now=NOW, season_id=21, giornata=None, run_id=run_id, late=False, my_team=None,
+                    records_dir=tmp_path / "records" / "filled")
+    assert not any("matchup table has no rows" in w for w in filled.warnings)

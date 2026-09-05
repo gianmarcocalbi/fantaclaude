@@ -1,6 +1,7 @@
 ---
 name: fanta-asta
 description: The auction copilot with fantaclaude — read the board the pinned run gives against the mirrored auction (`asta board`), explain one price (`asta explain`), turn a fact from the room into an adjustment (`asta adjust`), rehearse on a captured session (`asta replay`), close the auction (`asta close`). Use before and during the auction, and to rehearse. During the auction, `asta serve` mirrors the live session and serves the dashboard and the `fantaclaude-asta` MCP; `adjust` and `refresh` write through it.
+argument-hint: 'board | explain <player> | adjust <fact> | serve'
 ---
 
 # fanta-asta
@@ -34,6 +35,13 @@ Three rules, defended hard:
   maps to (`--map host=Marco`); a state file remembers them.
 
 ## Modes
+
+The argument names the mode; a bare player name means `explain`. With no
+argument, `board` — it is read-only and it is the question the night keeps
+asking. Never infer `adjust`, `close` or `verify-transfer --prune`: the
+first writes a belief that outlives the auction, and the others end or
+delete the night's record. `serve` is the one networked mode and the
+operator starts it — never to check.
 
 ### `board`
 
@@ -96,20 +104,21 @@ auction, `fantaclaude asta verify-transfer` checks the lega against it and
 
 ### `verify-transfer`
 
-`fantaclaude asta verify-transfer [--state records/asta/<file>.json] [--prune]`
-— once the admin has transferred the auction into the lega and
+`fantaclaude asta verify-transfer [--state records/asta/<file>.json]
+[--prune]` — once the admin has transferred the auction into the lega and
 `fantaclaude ingest rosters` has run once, the lega's rosters against the
-mirrored room. Teams are matched by roster overlap, never by name (four of
-ten labels lied on 2026-09-03). The report names what it tolerates — a lega
-team in no room roster ("not in the room", fine when empty), a player added
-after the close at the minimum bid ("added after the room") — and what fails
-it: a cost that differs, a room pick the lega lacks, a dear extra. When my
-room team's roster genuinely overlaps a lega roster, it names that lega team
-as the `my_team` leaf for `league.yml`, ready to paste in; when my room team
-bought nothing there is no overlap to match by, so it does not guess — it
-prints a hint that the id has to be pasted into `league.yml`'s `my_team` leaf
-by hand. `--prune` deletes `data/asta-state.json` on a clean diff and nothing
-else, never a `--state` file and never `records/`.
+mirrored room. Teams are matched by roster overlap, never by name (four of ten
+labels lied on 2026-09-03). The report names what it tolerates — a lega team
+in no room roster ("not in the room", fine when empty), a player added after
+the close at the minimum bid ("added after the room") — and what fails it: a
+cost that differs, a room pick the lega lacks, a dear extra. When my room
+team's roster genuinely overlaps a lega roster, it names that lega team as the
+`my_team` leaf for `league.yml`, ready to paste in (the weekly loop —
+`fanta-manager` — reads that leaf for the XI, the bench and the record); when
+my room team bought nothing there is no overlap to match by, so it does not
+guess — it prints a hint that the id has to be pasted into `league.yml`'s
+`my_team` leaf by hand. `--prune` deletes `data/asta-state.json` on a clean
+diff and nothing else, never a `--state` file and never `records/`.
 
 ### `market-prices`
 

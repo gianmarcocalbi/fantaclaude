@@ -60,6 +60,11 @@ def adjustments_path() -> Path:
     return data_dir() / "adjustments.yml"
 
 
+def lineup_notes_path() -> Path:
+    """data/lineup-notes.yml: my facts for the week -- mine, hand-editable, appended by `lineup note`, every entry with a giornata and a reason."""
+    return data_dir() / "lineup-notes.yml"
+
+
 def asta_state_path() -> Path:
     """data/asta-state.json: the mirrored auction as last seen, written atomically; removed only by `asta verify-transfer --prune` on a clean diff (3a). The copy under records/asta/ is permanent."""
     return data_dir() / "asta-state.json"

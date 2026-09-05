@@ -1,7 +1,7 @@
 # The `fantaclaude` CLI
 
 The `fantaclaude` command wraps the assistant's day-to-day, non-conversational
-work: pulling data in, building the knowledge base. Four groups of commands:
+work: pulling data in, building the knowledge base. Five groups of commands:
 
 ## `fantaclaude sync-league`
 
@@ -22,6 +22,17 @@ gone stale — for example a club changed coach, formation, or European
 competition status. It does not build or refresh anything itself; that work is
 done by the `fanta-kb` Claude skill, using the audit's report to decide what
 needs renewing.
+
+## `fantaclaude lineup`
+
+The weekly loop. `fantaclaude lineup` writes the giornata's forecast — every
+player the probabili page lists, p_start by precedence, an XI when
+`league.yml` names my team, the bench, the contingencies, the close calls —
+immutably, each prediction against its player's own kickoff. `lineup note`
+appends a fact for the week with its reason; `lineup record` appends the XI
+actually fielded. `ingest news` reads the squalificati/diffidati and
+infortunati lists beside `ingest probabili`. All local except the two ingests,
+which are one polite request per page.
 
 ## `fantaclaude asta`
 

@@ -14,6 +14,13 @@ file and the listone snapshot, so a changed alias re-matches on its own.
 Version 4 (Phase 3a) adds the observed roster and probabili layers and the
 forecast layer -- lineup_runs/predictions, immutable, refused after the first
 kickoff by the writer, never by the schema.
+Version 5 (Phase 3b) adds the news layer -- news_files/unavailable, the two
+public lists matched by name within the club -- widens predictions with the
+player's own kickoff and lateness, the matchup term and the trace, widens
+lineup_runs with the weekly hash, the bench, the contingencies and the close
+calls, and adds lineup_submitted, the XI actually fielded. The new columns
+are ALTER TABLE ... ADD COLUMN IF NOT EXISTS so a version-4 file upgrades in
+place; its rows keep late = false, which is what they were.
 The DDL is additive: apply_schema upgrades an older file in place and
 refuses only a newer one; the one table whose constraint changed (version 2
 to 3) is rebuilt around its rows, because DuckDB cannot drop a constraint.
@@ -25,7 +32,7 @@ from dataclasses import asdict, dataclass
 
 import duckdb
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 ADVANCED_SNAPSHOTS_DDL = """
 CREATE TABLE IF NOT EXISTS advanced_snapshots (
@@ -331,7 +338,11 @@ CREATE TABLE IF NOT EXISTS lineup_runs (
     module            VARCHAR,
     xi                JSON,
     module_scores     JSON,
-    predictions       INTEGER NOT NULL
+    predictions       INTEGER NOT NULL,
+    weekly_hash       VARCHAR,
+    bench             JSON,
+    contingencies     JSON,
+    close_calls       JSON
 );
 CREATE TABLE IF NOT EXISTS predictions (
     lineup_run_id     INTEGER NOT NULL,
@@ -344,7 +355,62 @@ CREATE TABLE IF NOT EXISTS predictions (
     fv_sd             DOUBLE,
     expected_points   DOUBLE NOT NULL,
     source            VARCHAR NOT NULL,
+    kickoff           TIMESTAMP,
+    late              BOOLEAN DEFAULT false,
+    matchup           DOUBLE,
+    trace             JSON,
     PRIMARY KEY (lineup_run_id, player_id)
+);
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS kickoff TIMESTAMP;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS late BOOLEAN DEFAULT false;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS matchup DOUBLE;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS trace JSON;
+ALTER TABLE lineup_runs ADD COLUMN IF NOT EXISTS weekly_hash VARCHAR;
+ALTER TABLE lineup_runs ADD COLUMN IF NOT EXISTS bench JSON;
+ALTER TABLE lineup_runs ADD COLUMN IF NOT EXISTS contingencies JSON;
+ALTER TABLE lineup_runs ADD COLUMN IF NOT EXISTS close_calls JSON;
+CREATE SEQUENCE IF NOT EXISTS seq_news_files START 1;
+CREATE TABLE IF NOT EXISTS news_files (
+    file_id     INTEGER PRIMARY KEY DEFAULT nextval('seq_news_files'),
+    kind        VARCHAR NOT NULL,
+    season_id   INTEGER NOT NULL,
+    giornata    INTEGER NOT NULL,
+    fetched_at  TIMESTAMP NOT NULL,
+    source      VARCHAR NOT NULL,
+    raw_path    VARCHAR NOT NULL,
+    sha256      VARCHAR NOT NULL,
+    row_count   INTEGER NOT NULL,
+    teams       INTEGER NOT NULL,
+    unmatched   INTEGER NOT NULL,
+    UNIQUE (kind, season_id, giornata, sha256)
+);
+CREATE TABLE IF NOT EXISTS unavailable (
+    file_id      INTEGER NOT NULL,
+    season_id    INTEGER NOT NULL,
+    giornata     INTEGER NOT NULL,
+    kind         VARCHAR NOT NULL,
+    team_name    VARCHAR NOT NULL,
+    team_short   VARCHAR,
+    name         VARCHAR NOT NULL,
+    player_id    INTEGER,
+    match_status VARCHAR NOT NULL,
+    detail       VARCHAR,
+    position     INTEGER NOT NULL,
+    raw          JSON NOT NULL,
+    PRIMARY KEY (file_id, position)
+);
+CREATE SEQUENCE IF NOT EXISTS seq_lineup_submitted START 1;
+CREATE TABLE IF NOT EXISTS lineup_submitted (
+    submitted_id  INTEGER PRIMARY KEY DEFAULT nextval('seq_lineup_submitted'),
+    season_id     INTEGER NOT NULL,
+    giornata      INTEGER NOT NULL,
+    lineup_run_id INTEGER,
+    my_team       INTEGER,
+    module        VARCHAR NOT NULL,
+    xi            JSON NOT NULL,
+    bench         JSON NOT NULL,
+    source        VARCHAR NOT NULL,
+    recorded_at   TIMESTAMP NOT NULL
 );
 CREATE OR REPLACE VIEW v_voti_files_current AS
     SELECT f.* FROM voti_files f
@@ -440,6 +506,23 @@ CREATE OR REPLACE VIEW v_lineup_runs_current AS
     WHERE NOT l.late AND l.lineup_run_id = (SELECT max(m.lineup_run_id) FROM lineup_runs m
                                             WHERE m.season_id = l.season_id AND m.giornata = l.giornata
                                               AND NOT m.late);
+CREATE OR REPLACE VIEW v_news_files_current AS
+    SELECT f.* FROM news_files f
+    WHERE f.file_id = (SELECT max(g.file_id) FROM news_files g
+                       WHERE g.kind = f.kind AND g.season_id = f.season_id AND g.giornata = f.giornata);
+CREATE OR REPLACE VIEW v_unavailable_current AS
+    SELECT u.* FROM unavailable u
+    WHERE u.file_id IN (SELECT file_id FROM v_news_files_current);
+CREATE OR REPLACE VIEW v_predictions_current AS
+    SELECT p.* FROM predictions p
+    WHERE NOT coalesce(p.late, false)
+      AND p.lineup_run_id = (SELECT max(q.lineup_run_id) FROM predictions q
+                             WHERE q.season_id = p.season_id AND q.giornata = p.giornata
+                               AND q.player_id = p.player_id AND NOT coalesce(q.late, false));
+CREATE OR REPLACE VIEW v_lineup_submitted_current AS
+    SELECT s.* FROM lineup_submitted s
+    WHERE s.submitted_id = (SELECT max(t.submitted_id) FROM lineup_submitted t
+                            WHERE t.season_id = s.season_id AND t.giornata = s.giornata);
 """
 
 

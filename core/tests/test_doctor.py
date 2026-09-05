@@ -16,15 +16,15 @@ NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_
          "listone", "league_yml", "preferences", "kb", "modules",
          "web_session", "player_match", "advanced", "fixtures", "aliases",
          "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "kb_favourite_clubs", "scoring", "pricing", "valuations",
-         "pinned_run", "adjustments", "asta_state", "dashboard"]
+         "pinned_run", "adjustments", "lineup_notes", "asta_state", "dashboard"]
 
 
 def _paths(root):
     return DoctorPaths(env=root / ".env", token_cache=root / ".auth" / "tokens.json",
                        db=root / "data" / "fanta.duckdb", league_yml=root / "league.yml",
                        preferences=root / "preferences.yml", kb=root / "kb", pricing=root / "pricing.yml",
-                       adjustments=root / "data" / "adjustments.yml", asta_state=root / "data" / "asta-state.json",
-                       web_dist=root / "web" / "dist")
+                       adjustments=root / "data" / "adjustments.yml", lineup_notes=root / "data" / "lineup-notes.yml",
+                       asta_state=root / "data" / "asta-state.json", web_dist=root / "web" / "dist")
 
 
 def _ready_workspace(root, fixture_json, mcp_fixture_json, *, token_exp_offset=31_536_000):
@@ -543,6 +543,19 @@ def test_the_asta_checks_read_the_run_the_adjustments_and_the_state_file(tmp_pat
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert not by["adjustments"].ok and "1 inert" in by["adjustments"].detail and "'Nobody'" in by["adjustments"].detail
     assert not by["asta_state"].ok and "asta-state.json" in by["asta_state"].detail
+
+
+def test_lineup_notes_check_parses_and_resolves_against_the_listone(tmp_path, fixture_json, mcp_fixture_json):
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert checks["lineup_notes"].ok and "none yet" in checks["lineup_notes"].detail
+    (tmp_path / "data" / "lineup-notes.yml").write_text(
+        "- {player: Kean, giornata: 4, type: exclude, reason: r}\n- {player: Nobody, giornata: 4, type: exclude, reason: r}\n")
+    checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not checks["lineup_notes"].ok and "Nobody" in checks["lineup_notes"].detail
+    (tmp_path / "data" / "lineup-notes.yml").write_text("- {player: Kean, giornata: 4, type: exclude, reason: r}\n")
+    checks = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert checks["lineup_notes"].ok and "1 note(s)" in checks["lineup_notes"].detail
 
 
 def test_the_pinned_run_is_loaded_once_for_the_asta_checks(tmp_path, fixture_json, mcp_fixture_json, monkeypatch):
