@@ -52,7 +52,8 @@ forever by default.
 
 ## Answer questions about the live league
 
-Questions about the state of the league — standings, a roster, who plays
-whom in a given round — can be answered directly and read-only, without a
-separate trip to the platform's own pages. Nothing here writes back to the
-league; the value is in the answer arriving inside the same conversation.
+Questions about the state of the league — a team's roster and credits, the
+scoring and roster rules in force, or the XI both sides fielded in a given
+match — can be answered directly and read-only, without a separate trip to
+the platform's own pages. Nothing here writes back to the league; the value
+is in the answer arriving inside the same conversation.

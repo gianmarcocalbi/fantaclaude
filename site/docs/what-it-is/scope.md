@@ -8,11 +8,12 @@ deliberate, not a gap waiting to be filled.
 
 !!! warning
     fantaclaude never submits a lineup, a bid, or any other action to the
-    league platform. The XI it recommends is typed in by hand — ninety
-    seconds of typing, weighed against a bug in the platform's own
-    submission flow that has, at least once, silently failed a save at
-    18:44 on a Friday, minutes before the lock. The read-back that later
-    checks what was actually fielded does not soften this rule: it is a
+    league platform. The XI it recommends is typed in by hand — the
+    asymmetry is deliberate: a manual entry costs about ninety seconds,
+    against the risk of an automated one going wrong at 18:44 on a Friday
+    and fielding a broken team with no time left to notice. The read-back
+    that later checks what was actually fielded does not soften this rule:
+    it is a
     single read of a page the league already renders, not a write in
     disguise.
 
