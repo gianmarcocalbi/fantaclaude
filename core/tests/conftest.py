@@ -81,6 +81,15 @@ class FakeAPI:
     async def players(self, league=None):
         return await self._answer("players")
 
+    async def competitions(self, league=None):
+        return await self._answer("competitions")
+
+    async def competition_calendar(self, idcomp, league=None):
+        return await self._answer("competition_calendar")
+
+    async def lineup(self, idcomp, mday, cmday, home_tid, away_tid, league=None):
+        return await self._answer("lineup")
+
 
 @pytest.fixture
 def fake_api(mcp_fixture_json):
@@ -187,6 +196,21 @@ def seed_news(con, season_id: int, giornata: int, page: str, rows) -> int:
                     [file_id, season_id, giornata, kind, team_name, team_short, name, player_id,
                      "matched" if player_id is not None else "unmatched", detail, position])
     return file_id
+
+
+def seed_players(con, rows) -> None:
+    """Extra `players` rows under the listone snapshot already written (the
+    max `listone_snapshots` row -- `v_players_current` keys off it) --
+    for a test that needs a handful of ids carrying real Mantra roles
+    beyond `listone_sample.json`'s own seventeen, without minting a second
+    snapshot that would disturb anything already keyed to the first one's
+    hash. `rows` are (player_id, name, mantra_roles) with `mantra_roles` an
+    iterable of `Role`; `my_roster` reads only `name` and `mantra_roles`
+    off this table, so every other column is a harmless placeholder."""
+    snapshot_id = con.execute("SELECT max(snapshot_id) FROM listone_snapshots").fetchone()[0]
+    con.executemany(
+        "INSERT INTO players VALUES (?, ?, ?, NULL, NULL, NULL, 'A', ?, [], 1, 1, 1, 1, 1, 1, NULL, NULL, false, '{}')",
+        [[snapshot_id, pid, name, [r.value for r in roles]] for pid, name, roles in rows])
 
 
 def seed_rosters(con, league_id: int, season_id: int, teams, *, matchday=None) -> int:

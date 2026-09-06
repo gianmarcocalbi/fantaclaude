@@ -64,6 +64,19 @@ def test_login_fixture_carries_league_tokens(fixture_json):
     assert {"alias", "jwt", "id", "id_squadra"} <= set(data["leghe"][0])
 
 
+def test_competitions_fixture_carries_the_observed_idcomp_and_giornata_range(fixture_json):
+    """Read once through the repo's own read-only MCP tool, 2026-09-05,
+    specifically to settle whether the competition id is API-derivable
+    (Phase 3b, Task 13's review): it is, and `sDay`/`eDay` are the
+    competition's own first and last Serie A giornata."""
+    rows = fixture_json("competitions")
+    assert len(rows) == 1
+    row = rows[0]
+    assert {"id", "sDay", "eDay", "lid", "name", "tmids"} <= set(row)
+    assert row["id"] == 539860 and row["sDay"] == 3 and row["eDay"] == 38
+    assert 19717181 in row["tmids"] and 11560187 in row["tmids"]
+
+
 def test_players_fixture_carries_confirmed_fields(fixture_json):
     rows = fixture_json("players")["players"]
     assert len(rows) == 3

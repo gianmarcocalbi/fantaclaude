@@ -11,10 +11,12 @@ is built to bound.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastmcp import FastMCP
 
+from .calendar import resolve_match
 from .models import (
     Account,
     League,
@@ -47,8 +49,24 @@ def _is_email_key(key: Any) -> bool:
     return "email" in normalised or normalised in {"mail", "mails"}
 
 
+# An email *shape*: local part, "@", domain, dot-TLD -- narrower than a bare
+# "@" so a free-text field that merely mentions one ("@bomber", a nickname)
+# is never redacted. Mirrors `fantaclaude.league.settings.EMAIL_PATTERN`
+# exactly, duplicated rather than imported: this package must not depend on
+# `fantaclaude` -- the dependency runs the other way (`core` depends on
+# this package, see calendar.py's own docstring).
+EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
+EMAIL_REDACTED = "[email redacted]"
+
+
+def _is_email_value(value: Any) -> bool:
+    return isinstance(value, str) and bool(EMAIL_PATTERN.search(value))
+
+
 def _without_emails(value: Any) -> Any:
-    """Drop every email-bearing key at ANY depth, preserving all else.
+    """Drop every email-bearing *key* at any depth, and redact every
+    *value* shaped like an email address regardless of the key it sits
+    under, preserving all else.
 
     The previous hand-rolled strip only removed an `email` key at the top
     level of each invitee row. `invitees.json` is `[]` -- the shape was
@@ -57,12 +75,19 @@ def _without_emails(value: Any) -> Any:
     (`{teamId, teamName, coaches: [{id, name, email, ...}]}`) it stripped
     nothing at all and forwarded every address. Recursing by key holds for
     whatever the endpoint really returns, which matters precisely because
-    the real shape is still unobserved.
+    the real shape is still unobserved -- but a key-only scrub still misses
+    an address riding in a free-text field under an innocuous key (`get_lineup`'s
+    own payload carries a `sign` field that can read "reach me at
+    scout@example.it": `fantaclaude.ingest.lineup_api.fetch_lineup` scrubs
+    the identical payload and proves exactly this case). The value check is
+    what catches that, mirroring `without_emails`'s own two-pronged scrub.
     """
     if isinstance(value, dict):
         return {k: _without_emails(v) for k, v in value.items() if not _is_email_key(k)}
     if isinstance(value, list):
         return [_without_emails(item) for item in value]
+    if _is_email_value(value):
+        return EMAIL_REDACTED
     return value
 
 
@@ -101,7 +126,7 @@ async def _all_teams(api: Any, *, league: str | None) -> tuple[Any, list[Any], s
 
 
 def build_server(api: Any) -> FastMCP:
-    """Build the FastMCP server exposing exactly seven read-only tools over `api`.
+    """Build the FastMCP server exposing exactly eight read-only tools over `api`.
 
     `api` only needs to satisfy the shape of `FantacalcioAPI` (see
     `tests/test_server.py`'s `FakeAPI` for the exact surface used); this
@@ -223,5 +248,28 @@ def build_server(api: Any) -> FastMCP:
         matchday's kickoff time from `get_league`.
         """
         return ServerTime.from_api(await api.server_time(league=league)).model_dump()
+
+    @mcp.tool
+    async def get_lineup(idcomp: int, team_id: int, championship_matchday: int,
+                         league: str | None = None) -> dict[str, Any]:
+        """Read the XI both sides fielded for one match, as the lega's own
+        formazioni page reads it.
+
+        `idcomp` is a competition id, from `list_competitions`.
+        `championship_matchday` is the Serie A giornata number; for a
+        *calendario* competition the competition's own round number can
+        differ from it (round 1 need not be giornata 1), so the
+        competition's own calendar is read first to find the round that
+        maps to it. `team_id` picks which of that round's several matches
+        to read. The result carries both sides -- the team asked for and
+        its opponent -- each with its own module, its starting eleven and
+        its ordered bench: useful for reading an opponent's XI, not only
+        your own. Pass `league` (the alias) only if the account belongs to
+        more than one league.
+        """
+        calendar = await api.competition_calendar(idcomp, league=league)
+        mday, cmday, home_tid, away_tid = resolve_match(calendar, championship_matchday=championship_matchday,
+                                                        team_id=team_id)
+        return _without_emails(await api.lineup(idcomp, mday, cmday, home_tid, away_tid, league=league))
 
     return mcp

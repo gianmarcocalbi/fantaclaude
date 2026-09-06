@@ -79,9 +79,12 @@ class Submission:
     xi: list[dict[str, Any]]           # [{slot, player_id, name}] in the module's slot order
     bench: list[dict[str, Any]]        # [{player_id, name}] in bench order
     lineup_run_id: int | None
+    warnings: tuple[str, ...] = ()     # noteworthy but non-fatal (e.g. a platform read-back naming a
+                                        # player no longer on the current roster snapshot); never raised on
 
     def to_dict(self) -> dict[str, Any]:
-        return {"module": self.module, "xi": list(self.xi), "bench": list(self.bench), "lineup_run_id": self.lineup_run_id}
+        return {"module": self.module, "xi": list(self.xi), "bench": list(self.bench),
+               "lineup_run_id": self.lineup_run_id, "warnings": list(self.warnings)}
 
 
 def _resolve(name: str, roster: list[RosterPlayer]) -> RosterPlayer:

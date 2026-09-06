@@ -1,0 +1,425 @@
+{
+ "away": {
+  "act": 1,
+  "allComp": true,
+  "bench": [
+   {
+    "b": "0;0;0;0;0;0;0;0;0;0;0;0;0;1;0;0",
+    "cscr": 7.5,
+    "m": 0,
+    "pid": 2097,
+    "ptype": "-",
+    "scr": 6.5
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6646,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6549,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5844,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6503,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6680,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 4502,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6898,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5851,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6821,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5820,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 2521,
+    "ptype": "-",
+    "scr": 56
+   }
+  ],
+  "capt": null,
+  "cdate": "20260904144556374",
+  "ldate": "20260904144556374",
+  "lply": null,
+  "lucnt": 2,
+  "mdl": "3421",
+  "nmdl": "3421",
+  "points": 0,
+  "rg": null,
+  "starts": [
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 4360,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 5,
+    "m": 0,
+    "pid": 5514,
+    "ptype": "-",
+    "scr": 5
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 2296,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6672,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 5.5,
+    "m": 0,
+    "pid": 6020,
+    "ptype": "-",
+    "scr": 5.5
+   },
+   {
+    "b": null,
+    "cscr": 6.5,
+    "m": 0,
+    "pid": 5559,
+    "ptype": "-",
+    "scr": 6.5
+   },
+   {
+    "b": null,
+    "cscr": 5,
+    "m": 0,
+    "pid": 5791,
+    "ptype": "-",
+    "scr": 5
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6844,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 632,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5687,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 5.5,
+    "m": 0,
+    "pid": 7017,
+    "ptype": "-",
+    "scr": 5.5
+   }
+  ],
+  "swtc": "2097;7017;1;3421;10",
+  "tbon": "0;0;0;0;0;0;0;0;0;0;0",
+  "tid": 19717181,
+  "tkply": null,
+  "tot": 27.5,
+  "useId": 10426252,
+  "visb": true
+ },
+ "cal": false,
+ "cmday": 3,
+ "home": {
+  "act": 0,
+  "allComp": false,
+  "bench": [
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 2814,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6618,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5995,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6190,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5685,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5680,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 4892,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6372,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5701,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 7564,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5739,
+    "ptype": "-",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 827,
+    "ptype": "-",
+    "scr": 56
+   }
+  ],
+  "capt": null,
+  "cdate": "20260904085300140",
+  "ldate": "20260904085300140",
+  "lply": null,
+  "lucnt": 2,
+  "mdl": "343",
+  "nmdl": "343",
+  "points": 0,
+  "rg": null,
+  "starts": [
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5116,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 6,
+    "m": 0,
+    "pid": 6869,
+    "ptype": "-",
+    "scr": 6
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6956,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5833,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 4856,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 1933,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6010,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 7181,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6398,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 6052,
+    "ptype": "U",
+    "scr": 56
+   },
+   {
+    "b": null,
+    "cscr": 100,
+    "m": 0,
+    "pid": 5734,
+    "ptype": "U",
+    "scr": 56
+   }
+  ],
+  "swtc": "6398;6618;0;343;8",
+  "tbon": "0;0;0;0;0;0;0;0;0;0;0",
+  "tid": 11560187,
+  "tkply": null,
+  "tot": 6.0,
+  "useId": 2102893,
+  "visb": true
+ },
+ "idcomp": 539860,
+ "mday": 1,
+ "res": "0-0",
+ "resr": null,
+ "sign": "X"
+}

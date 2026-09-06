@@ -5,12 +5,13 @@ import pytest
 from conftest import keys_at_any_depth
 from fantacalcio_mcp.server import build_server
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "fantacalcio_mcp"
 
 EXPECTED_TOOLS = {
     "get_account", "get_league", "get_league_settings", "get_my_team",
-    "list_teams", "list_competitions", "get_server_time",
+    "list_teams", "list_competitions", "get_server_time", "get_lineup",
 }
 
 
@@ -60,6 +61,12 @@ class FakeAPI:
     async def server_time(self, league=None):
         return self._f("server_time")
 
+    async def competition_calendar(self, idcomp, league=None):
+        self._record("competition_calendar", league=league); return self._f("competition_calendar")
+
+    async def lineup(self, idcomp, mday, cmday, home_tid, away_tid, league=None):
+        self._record("lineup", league=league); return self._f("lineup")
+
 
 @pytest.fixture
 def fake_api(fixture_json):
@@ -88,7 +95,7 @@ def test_server_module_never_imports_httpx():
                    for line in lines)
 
 
-async def test_exactly_seven_tools_are_registered(fake_api):
+async def test_exactly_eight_tools_are_registered(fake_api):
     async with Client(build_server(fake_api)) as client:
         names = {tool.name for tool in await client.list_tools()}
     assert names == EXPECTED_TOOLS
@@ -268,3 +275,62 @@ async def test_list_teams_reads_every_page_and_says_when_one_is_missing(fake_api
     async with Client(build_server(fake_api)) as client:
         short = json.loads((await client.call_tool("list_teams", {})).content[0].text)
     assert str(len(base["data"])) in short["incomplete"] and str(len(base["data"]) + 1) in short["incomplete"]
+
+
+# The competition's own calendar (Phase 3b, Task 13): a *calendario*'s own
+# round number and the Serie A championshipMatchDay it maps to are
+# different numbers -- round 1 here is championship matchday 3, exactly as
+# captured 2026-09-05 -- and one round carries several matches, only one of
+# which involves any given team.
+CALENDAR = [
+    {"matchDay": 1, "championshipMatchDay": 3, "calculated": False,
+     "matches": [{"tIdH": 11560832, "tIdA": 19689008}, {"tIdH": 11560187, "tIdA": 19717181}]},
+    {"matchDay": 2, "championshipMatchDay": 4, "calculated": False,
+     "matches": [{"tIdH": 19717181, "tIdA": 11560636}]},
+]
+MATCH = {"idcomp": 539860, "mday": 1, "cmday": 3, "home": {"tid": 11560187}, "away": {"tid": 19717181}}
+
+
+async def test_get_lineup_resolves_the_calendar_then_reads_the_match(fake_api):
+    """`championship_matchday` (a Serie A giornata) and the competition's
+    own `matchDay` are different numbers -- 3 and 1 here -- and the tool
+    must resolve the one from the other via the calendar rather than pass
+    the giornata straight through to `lineup()`'s `mday`."""
+    fake_api._f = lambda name: {"competition_calendar": CALENDAR, "lineup": MATCH}[name]
+    async with Client(build_server(fake_api)) as client:
+        result = await client.call_tool("get_lineup", {"idcomp": 539860, "team_id": 19717181,
+                                                        "championship_matchday": 3})
+    payload = json.loads(result.content[0].text)
+    assert payload == MATCH
+    assert ("competition_calendar", {"league": None}) in fake_api.calls
+    assert ("lineup", {"league": None}) in fake_api.calls
+
+
+async def test_get_lineup_refuses_a_team_with_no_match_at_that_matchday(fake_api):
+    """team_id 99999999 plays nobody in this calendar at all -- the tool
+    must refuse rather than call lineup() with a fabricated match."""
+    fake_api._f = lambda name: {"competition_calendar": CALENDAR}[name]
+    async with Client(build_server(fake_api)) as client:
+        with pytest.raises(ToolError, match="99999999"):
+            await client.call_tool("get_lineup", {"idcomp": 539860, "team_id": 99999999,
+                                                   "championship_matchday": 3})
+    assert not any(name == "lineup" for name, _ in fake_api.calls)
+
+
+async def test_get_lineup_scrubs_an_email_riding_in_a_free_text_field(fake_api):
+    """Every other tool here goes through a model or `_without_emails`;
+    this one used to return `api.lineup(...)` verbatim. The core side of
+    this same PR (`fantaclaude.ingest.lineup_api.fetch_lineup`) scrubs the
+    identical payload and its own test proves an address can ride in the
+    free-text `sign` field -- no email-shaped *key* would ever catch that,
+    only a value-shape check does. This tool must not forward it either."""
+    leaky = {**MATCH, "sign": "reach me at scout@example.it"}
+    fake_api._f = lambda name: {"competition_calendar": CALENDAR, "lineup": leaky}[name]
+    async with Client(build_server(fake_api)) as client:
+        result = await client.call_tool("get_lineup", {"idcomp": 539860, "team_id": 19717181,
+                                                        "championship_matchday": 3})
+    text = result.content[0].text
+    assert "@" not in text and "scout" not in text
+    payload = json.loads(text)
+    assert payload["sign"] == "[email redacted]"
+    assert payload["home"] == MATCH["home"] and payload["away"] == MATCH["away"]     # everything else survives

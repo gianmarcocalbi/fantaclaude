@@ -666,6 +666,79 @@ def ingest_rosters_cmd(
     emit(result.to_dict(), json_=json_, render=_render_rosters)
 
 
+INGEST_LINEUP_GIORNATA_OPTION = typer.Option(
+    None, "--giornata", help="Giornata number (default: the newest one fully finished -- the read-back is after the lock).")
+INGEST_LINEUP_COMPETITION_OPTION = typer.Option(
+    None, "--competition", help="The competition id (idcomp), when the account runs more than one; "
+                                "default: the only one, refused if that is ambiguous.")
+
+
+@ingest_app.command("lineup")
+def ingest_lineup_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: int | None = INGEST_LINEUP_GIORNATA_OPTION,
+    competition: int | None = INGEST_LINEUP_COMPETITION_OPTION,
+    league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+) -> None:
+    """Read the XI actually fielded back from the platform -- the GET the lega's own formazioni page makes for one match -- and record it as source `platform`. The competition id and its own giornata range are read live from the league API, never guessed. Appended, never edited. Network: the account in .env, three reads, once after the lock."""
+    from fantaclaude.analysis.weekly import ForecastError, target_round
+    from fantaclaude.analysis.weekly.submitted import (
+        export_submitted_record,
+        record_submitted,
+    )
+    from fantaclaude.analysis.weekly.xi import my_roster
+    from fantaclaude.api_client import run_with_api
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.lineup_api import fetch_lineup, load_lineup
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.model.modules import load_modules
+    from fantaclaude.paths import raw_dir, records_dir
+    from fantaclaude.timeutil import utc_now
+
+    entries = _league_yml_or_exit()
+    if not entries or "my_team" not in entries:
+        typer.echo("league.yml has no my_team leaf (asta verify-transfer prints it) -- nothing to read a lineup back against", err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY)
+    my_team = int(entries["my_team"].value)
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            ahead_giornata = None
+            if giornata is None:
+                # The read-back is after the lock: target_round names the
+                # round still ahead (in progress or not yet started), so the
+                # newest FINISHED giornata is one behind it -- clamped to the
+                # competition's own start once that is known (fetch_lineup's
+                # resolve_giornata; target_round knows nothing of a
+                # calendario's own sDay).
+                ahead_giornata = target_round(con, utc_now(), season_id=season_id, giornata=None).giornata
+            allowed_row = con.execute("SELECT modules FROM v_league_settings_current").fetchone()
+            if allowed_row is None or not allowed_row[0]:
+                raise ForecastError("no league_settings snapshot names the permitted modules -- run `fantaclaude sync-league`")
+            roster = my_roster(con, my_team)
+        except ForecastError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        store = RawStore(raw_dir())
+        with _source_errors():                      # LineupShapeError (and its CompetitionSelection/RangeError subclasses) are ValueErrors: exit 1
+            _raw, payload, resolved = run_with_api(
+                lambda api: fetch_lineup(api, store, team_id=my_team, requested_giornata=giornata,
+                                         ahead_giornata=ahead_giornata, competition_id=competition, league=league))
+            submission = load_lineup(payload, team_id=my_team, roster=roster, modules=load_modules(),
+                                     allowed=list(allowed_row[0]))
+        submitted_id = record_submitted(con, season_id=season_id, giornata=resolved, submission=submission,
+                                        my_team=my_team, source="platform", now=utc_now())
+        records = export_submitted_record(con, submitted_id, records_dir())
+    finally:
+        con.close()
+    payload_out = {"submitted_id": submitted_id, "season_id": season_id, "giornata": resolved, "my_team": my_team,
+                   "source": "platform", **submission.to_dict(), "records": [str(p) for p in records]}
+    emit(payload_out, json_=json_, render=_render_record)
+
+
 def _ranges(values: list[int]) -> str:
     """[1, 2, 3, 7] -> '1-3, 7'"""
     parts: list[tuple[int, int]] = []
@@ -1226,6 +1299,7 @@ def _render_record(payload: dict) -> str:
     lines += [f"  {x['slot']:<6} {x['name']}" for x in payload["xi"]]
     if payload["bench"]:
         lines.append("  bench: " + " · ".join(b["name"] for b in payload["bench"]))
+    lines += [f"  warning: {w}" for w in payload.get("warnings") or []]
     return "\n".join(lines)
 
 

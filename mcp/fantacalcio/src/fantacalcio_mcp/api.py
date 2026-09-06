@@ -157,6 +157,30 @@ class FantacalcioAPI:
         """
         return await self._get("/onboarding/v1/league/players", league=league)
 
+    async def competition_calendar(self, idcomp: int, league: str | None = None) -> Any:
+        """A competition's own schedule: a list of rounds, each carrying its
+        own `matchDay`, the Serie A `championshipMatchDay` it maps to (a
+        *calendario* competition's round 1 need not be giornata 1 -- the two
+        numbers are never the same thing), and that round's `matches`
+        (`tIdH`/`tIdA` -- which team plays which). Captured 2026-09-05 from
+        the lega's formazioni page, alongside `lineup()` below (Phase 3b,
+        Task 13; captured, not guessed).
+        """
+        return await self._get(f"/onboarding/v1/league/competition/calendar/{idcomp}", league=league)
+
+    async def lineup(self, idcomp: int, mday: int, cmday: int, home_tid: int, away_tid: int,
+                     league: str | None = None) -> Any:
+        """The XI both sides fielded for one match, as the formazioni page
+        reads it: per MATCH, not per team -- one call returns both `home`
+        and `away`. Every value is a path segment; there are no query
+        parameters, per the capture. Phase 3b, Task 13 first guessed a
+        per-team GET (`team_id`, `matchday` as query parameters); the
+        captured request needs these five path segments instead, so this
+        signature replaces that guess rather than reshaping the guess to
+        fit it.
+        """
+        return await self._get(f"/gaming/v1/teamLineup/{idcomp}/{mday}/{cmday}/{home_tid}/{away_tid}", league=league)
+
 
 def _pagination(page_number: int, page_size: int) -> dict[str, int]:
     return {"pageNumber": max(1, page_number), "pageSize": min(max(1, page_size), 1000)}

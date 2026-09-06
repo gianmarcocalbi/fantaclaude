@@ -32,7 +32,11 @@ Four rules, defended hard:
 - **Never submit, never write to the platform.** The XI goes on the
   platform by hand (Non-goals): ninety seconds of typing, against a bug at
   18:44 on a Friday. Then `fantaclaude lineup record` writes what was
-  fielded, and that record is what calibration scores.
+  fielded (source `hand`), and that record is what calibration scores. Once
+  the lock has passed, `fantaclaude ingest lineup` reads the same fact back
+  from the platform itself (source `platform`) — the same `lineup_submitted`
+  table, append-only either way; run it once after the round, never in
+  place of watching what was actually submitted.
 - **Fetch at the two moments, not "to check".** `ingest probabili` and
   `ingest news` run in `refresh` and in `lineup`, and at most once more
   before a later kickoff day of the same round. `ingest stats-web` runs once,
@@ -113,6 +117,16 @@ re-run `fantaclaude lineup` to see what moved.
 <code>] [--xi "a,b,..." --bench "c,d,..."] [--giornata N]` — appended, never
 edited; the newest per giornata is current. After the round, pass
 `--giornata` (the target has moved on).
+
+`fantaclaude ingest lineup [--giornata N] [--competition ID]` is the
+read-back: after the lock, one GET reads the XI the platform actually
+shows for that giornata and records it the same way, with source
+`platform` instead of `hand`. Needs `league.yml`'s `my_team` leaf; the
+competition id and its own giornata range come from the league API itself
+(`--competition` disambiguates only if the account runs more than one).
+Defaults to the newest giornata that has fully kicked off, clamped to the
+competition's own start. A network call against the real account — run it
+once per giornata, not "to check" the hand record.
 
 ## Worked example
 

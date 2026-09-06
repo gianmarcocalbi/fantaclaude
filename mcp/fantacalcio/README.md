@@ -85,7 +85,7 @@ the precedence note above for what happens if you leave both set).
 
 ## Tools
 
-The server exposes exactly seven read-only tools, all scoped to the
+The server exposes exactly eight read-only tools, all scoped to the
 signed-in account's league (pass `league`, the league alias, only if the
 account belongs to more than one league):
 
@@ -105,6 +105,10 @@ account belongs to more than one league):
 - **`list_competitions`** — the competitions configured in the league.
 - **`get_server_time`** — Fantacalcio's own server clock, for reasoning
   about deadlines relative to a matchday's kickoff time.
+- **`get_lineup`** — the XI both sides fielded for one match (module,
+  starting eleven, ordered bench), as the lega's own formazioni page reads
+  it; resolves the competition's own matchday from the Serie A
+  championship matchday first, since the two numbers can differ.
 
 ## Running the smoke test
 

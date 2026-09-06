@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -5,14 +6,17 @@ import httpx
 import respx
 from conftest import (
     FIXTURE_DIR,
+    MCP_FIXTURE_DIR,
     seed_fixtures,
     seed_matches,
     seed_news,
+    seed_players,
     seed_probabili,
     seed_rosters,
 )
 from fantaclaude.cli.app import ExitCode, _render_lineup, app
 from fantaclaude.db.connection import connect
+from test_lineup_api import AWAY_XI_BY_ASSIGN, ROLES
 from test_rank_cli import _workspace
 from typer.testing import CliRunner
 
@@ -560,3 +564,179 @@ def test_lineup_record_finds_the_run_that_named_an_xi_even_when_a_later_run_has_
     assert result.exit_code == ExitCode.OK, result.output
     payload = json.loads(result.stdout)
     assert payload["lineup_run_id"] == wednesday["lineup_run_id"]
+
+
+LINEUP_SAMPLE = json.loads((FIXTURE_DIR / "lineup_sample.json").read_text(encoding="utf-8"))
+HOME_TID, AWAY_TID = LINEUP_SAMPLE["home"]["tid"], LINEUP_SAMPLE["away"]["tid"]      # my team is away: 19717181
+AWAY_XI = [4360, 5514, 2296, 6672, 6020, 5559, 5791, 6844, 632, 5687, 7017]
+AWAY_BENCH = [2097, 6646, 6549, 5844, 6503, 6680, 4502, 6898, 5851, 6821, 5820, 2521]
+LINEUP_CALENDAR = [{"matchDay": 1, "championshipMatchDay": 3, "calculated": False,
+                    "matches": [{"tIdH": HOME_TID, "tIdA": AWAY_TID}]}]
+# The default `competitions.json` fixture (Task 13's review) is this one competition,
+# id 539860, sDay 3, eDay 38 -- the real observed shape. A second, unrelated
+# competition for the ambiguity tests below.
+COPPA = {"id": 1, "sDay": 1, "eDay": 38, "lid": 2578630, "type": 2, "name": "Coppa", "win": "", "tmids": []}
+
+
+def _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json, *, exclude_from_roster=()):
+    """A roster carrying real Mantra roles for the fixture's own away-side
+    ids (`ROLES`, from `test_lineup_api`) -- not the degenerate no-roles
+    roster the review's High finding named as the reason the mapping bug
+    was invisible to these tests. Two of these ids (2097, 6052) already sit
+    in `listone_sample.json`'s own snapshot with matching roles; the rest
+    are added to that same snapshot via `seed_players` so `v_players_current`
+    carries all of them at once. `exclude_from_roster` drops ids from the
+    seeded roster (not from `players`) to simulate a departed player."""
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    roster_ids = [pid for pid in AWAY_XI + AWAY_BENCH if pid not in exclude_from_roster]
+    seed_rosters(con, 2578630, 21, {AWAY_TID: ("Mine", {pid: 1 for pid in roster_ids})})
+    already_seeded = {r[0] for r in con.execute("SELECT player_id FROM v_players_current").fetchall()}
+    seed_players(con, [(pid, f"p{pid}", ROLES[pid]) for pid in roster_ids if pid not in already_seeded])
+    con.close()
+    with open(tmp_path / "league.yml", "a", encoding="utf-8") as fh:
+        fh.write(f"my_team: {{value: {AWAY_TID}, source: verify-transfer, verified_on: 2026-09-04}}\n")
+
+
+def test_ingest_lineup_reads_my_own_side_by_team_id_and_writes_source_platform(monkeypatch, tmp_path, fixture_json,
+                                                                                mcp_fixture_json, fake_api):
+    """The competition id is read live off `competitions()` (the default
+    fixture's own real, observed shape), never a `league.yml` guess."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["source"] == "platform" and payload["giornata"] == 3 and payload["module"] == "3421"
+    # AWAY_XI_BY_ASSIGN, not AWAY_XI (the platform's own `starts` order): the review's High finding --
+    # positional starts[k]/slots[k] pairing records a slot 3421 forbids (Da Cunha, C/W, at its own `M`
+    # slot) -- a real-roled roster (`ROLES`) is what makes this assertion able to catch that regression.
+    assert [x["player_id"] for x in payload["xi"]] == AWAY_XI_BY_ASSIGN
+    assert [b["player_id"] for b in payload["bench"]] == AWAY_BENCH
+    assert payload["lineup_run_id"] is None
+    assert payload["warnings"] == []
+    assert [p.rsplit("/", 2)[-2] for p in payload["records"]] == ["lineup_submitted"]
+    assert api.calls == ["competitions", "competition_calendar", "lineup"]
+    assert list((tmp_path / "data" / "raw" / "lineup").glob("*-lineup-*.json"))
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT source, giornata FROM lineup_submitted").fetchone() == ("platform", 3)
+    con.close()
+    plain = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert plain.exit_code == ExitCode.OK and "source platform" in plain.stdout
+
+
+def test_ingest_lineup_warns_but_still_records_a_player_who_has_left_the_roster(monkeypatch, tmp_path, fixture_json,
+                                                                                mcp_fixture_json, fake_api):
+    """`my_roster` is the *current* roster snapshot; this reads back an
+    already-finished giornata. Da Cunha (5559) is dropped from the seeded
+    roster here (a market move, or any `ingest rosters` run, since the
+    giornata) while the platform's own fixture still names him -- the
+    read-back must still record him (as `#5559`) and say so on stdout, not
+    stay silent about it the way it used to."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json, exclude_from_roster={5559})
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert len(payload["xi"]) == 11
+    assert any("5559" in w for w in payload["warnings"])
+    assert [x["name"] for x in payload["xi"] if x["player_id"] == 5559] == ["#5559"]
+    plain = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert plain.exit_code == ExitCode.OK and "warning:" in plain.stdout and "5559" in plain.stdout
+
+
+def test_ingest_lineup_needs_my_team(monkeypatch, tmp_path, fixture_json, mcp_fixture_json, fake_api):
+    _ranked(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    no_team = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert no_team.exit_code == ExitCode.NOT_READY and "my_team" in no_team.stderr and api.calls == []
+
+
+def test_ingest_lineup_defaults_to_the_newest_finished_giornata(monkeypatch, tmp_path, fixture_json, mcp_fixture_json,
+                                                                fake_api):
+    """No `--giornata`: giornata 3 has fully kicked off (both its matches in
+    the past) and giornata 4 has not -- the read-back must default to 3,
+    the newest FINISHED round, not to 4 (`target_round`'s own answer, which
+    is the round still ahead)."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    past = datetime.now(UTC) - timedelta(days=3)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_fixtures(con, 21, {3: [past, past + timedelta(hours=2)], 4: [datetime.now(UTC) + timedelta(days=4)]})
+    con.close()
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert json.loads(result.stdout)["giornata"] == 3
+
+
+def test_ingest_lineup_refuses_a_giornata_outside_the_competitions_own_range(monkeypatch, tmp_path, fixture_json,
+                                                                             mcp_fixture_json, fake_api):
+    """This competition's own range is 3-38 (`sDay`/`eDay`, the default
+    fixture's real shape) -- giornata 2 was never played under it."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    api = fake_api()
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "2"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "3-38" in result.stderr
+    assert api.calls == ["competitions"]                       # refused before ever reading the calendar
+
+
+def test_ingest_lineup_refuses_the_default_when_it_clamps_below_the_competitions_start(monkeypatch, tmp_path,
+                                                                                       fixture_json, mcp_fixture_json,
+                                                                                       fake_api):
+    """`target_round`'s own answer can be this competition's very first
+    giornata (`sDay` 3): giornata 3 has not kicked off yet, so the round
+    still ahead is 3 itself, and one behind that -- giornata 2 -- is
+    outside this calendario entirely. A hardcoded `<= 1` guard would have
+    let this default through and failed later with an unrelated
+    resolve_match error instead of naming the actual cause."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_fixtures(con, 21, {3: [datetime.now(UTC) + timedelta(days=2)]})
+    con.close()
+    api = fake_api()
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "starts at 3" in result.stderr
+    assert api.calls == ["competitions"]
+
+
+def test_ingest_lineup_refuses_more_than_one_competition_without_disambiguation(monkeypatch, tmp_path, fixture_json,
+                                                                                mcp_fixture_json, fake_api):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    default_competitions = json.loads((MCP_FIXTURE_DIR / "competitions.json").read_text(encoding="utf-8"))
+    api = fake_api(overrides={"competitions": [*default_competitions, COPPA]})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "2 competitions" in result.stderr and "--competition" in result.stderr
+    assert api.calls == ["competitions"]
+
+
+def test_ingest_lineup_disambiguates_with_the_competition_option(monkeypatch, tmp_path, fixture_json,
+                                                                 mcp_fixture_json, fake_api):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    default_competitions = json.loads((MCP_FIXTURE_DIR / "competitions.json").read_text(encoding="utf-8"))
+    api = fake_api(overrides={"competitions": [*default_competitions, COPPA],
+                              "competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3", "--competition", "539860", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert json.loads(result.stdout)["giornata"] == 3
+
+
+def test_ingest_lineup_help_states_the_true_network_cost():
+    """`fetch_lineup` makes three GETs against the real account per
+    invocation -- `competitions()`, `competition_calendar()` and
+    `lineup()` -- not one, as the help text used to say. This is what a
+    reader budgets against, and this repo is unusually strict about call
+    counts."""
+    result = runner.invoke(app, ["ingest", "lineup", "--help"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert "three reads" in " ".join(result.stdout.split())          # the help panel wraps at 80 columns
