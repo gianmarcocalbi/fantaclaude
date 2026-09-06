@@ -33,22 +33,24 @@ updated: 2026-08-24
 ttl: 30d
 confidence: high
 source: regolamento
-team: Bologna
-team_short: BOL
-coach: Vincenzo Italiano
-module: 4-2-3-1
-europe: UEL
-rotation_factor: 0.85
+team: Example FC
+team_short: EXF
+coach: Coach A
+module: 4-4-2
+europe: none
+rotation_factor: 0.80
 takers:
-  penalties: Castro
-  corners: Orsolini
+  penalties: Player A
+  corners: Player B
 ---
 ```
 
-`ttl` is either `"<days>d"` or `"never"`; a document expires when `updated +
-ttl` falls before today. A player note carries a sparser set —
-`player_id`, `depth`, `availability`, `prior_fantamedia` — because it only
-exists at all where prose changes a decision, not for every roster player by
+The club above is invented on purpose — no real team, coach, module or
+rotation factor should ever be read off this page. `ttl` is either
+`"<days>d"` or `"never"`; a document expires when `updated + ttl` falls
+before today. A player note carries a sparser set — `player_id`, `name`,
+`team_short`, `depth`, `availability`, `prior_fantamedia` — because it only
+exists where prose changes a decision, not for every roster player by
 default.
 
 ## The audit
