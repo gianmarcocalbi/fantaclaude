@@ -2,14 +2,14 @@
 
 `fantaclaude rank` prices the entire listone before the auction. It re-syncs
 the league's settings from the live league API first unless `--offline` is
-passed; everything after that one read is local computation over
+passed; everything after that sync is local computation over
 [the data spine](data-spine.md).
 
 ## Projection
 
-Every listone player is projected from his own history under this league's own
-bonus/malus rather than a published fantamedia: each past appearance is
-re-scored through the league's own scoring table.
+Every listone player is projected from his own history, with each past
+appearance re-scored under this league's own bonus/malus rather than taken
+from a published fantamedia.
 
 Two quantities come out, each as a distribution rather than a point. The
 expected fantamedia is shrunk toward the role's mean by a weight driven by how
@@ -90,4 +90,4 @@ That is the point. Two runs whose `model_hash` differs are not comparable as
 "before and after a fix" — they are two different models, and the gap between
 their numbers cannot be attributed to any single change. A tuned knob is a new
 model, not a tweak. Which scenarios a run priced is deliberately *not* in the
-hash — everything that actually moves a price is.
+hash: the model is the same, so a filtered run stays comparable.

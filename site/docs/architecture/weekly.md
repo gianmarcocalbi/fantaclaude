@@ -1,7 +1,7 @@
 # The weekly forecast
 
 `fantaclaude lineup` forecasts every player the probabili page lists and the
-pinned valuation run priced, then builds the XI that maximises expected points.
+newest valuation run priced, then builds the XI that maximises expected points.
 It is local: what it reads was fetched by `fantaclaude ingest probabili` and
 `fantaclaude ingest news`.
 
@@ -86,8 +86,8 @@ platform's answer back after the lock as source `platform`, calling the live
 league API.
 
 Neither edits the other. Both are checked before they are recorded — eleven
-distinct roster players, each a natural or adapted fit somewhere in the module
-— because a record of an XI nobody could field is not a record; a hand-written
+distinct players, each a natural or adapted fit somewhere in the module —
+because a record of an XI nobody could field is not a record; a hand-written
 one must also name a module the league permits; the read-back records whatever
 module was fielded. The newest row per giornata is the current one — the record
 a forecast can be checked against.
