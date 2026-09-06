@@ -823,7 +823,13 @@ Second person. 700–800 words.
 Second person. 600–800 words.
 
 - `## Tuesday — refresh` — the finished giornata's voti, then the probabili and
-  news pages, then an early forecast so calibration has a point per player.
+  news pages, then an early forecast so a prediction exists per player, written
+  honestly against that player's own kickoff and never revised. Note: there is
+  no calibration mechanism in this codebase — `grep -rn "calibrat" core/src/`
+  returns a config docstring and two `--late` messages saying calibration
+  *excludes* late rows, nothing that scores predictions against outcomes. The
+  records exist so a forecast **can** be checked against what happened; do not
+  write that anything checks it today.
   What to do with an unmatched name: it is an alias to add, never a guess.
 - `## Friday — the lineup` — read the report top to bottom, band by band: the
   header and its deadline; uncompiled matches and staleness, where a Tuesday
@@ -1017,7 +1023,11 @@ Second person. 700–800 words. The reference page.
 - A table per group — `sync-league`, `ingest`, `schema`, `query`, `kb`,
   `doctor`, `rank`, `lineup`, `asta` — each command one row: what it does, and
   whether it touches the network. Enumerate from `cli/app.py`, not from memory;
-  `ingest` has eight subcommands including `lineup`, and `asta` has nine.
+  `ingest` has nine subcommands — `listone`, `advanced`, `calendar`,
+  `probabili`, `news`, `rosters`, `stats-web`, `lineup`, `all` — and `asta`
+  has nine. (Corrected during Task 5: this line said eight for `ingest`.
+  Counts verified with `grep -c '@ingest_app.command'` and
+  `grep -c '@asta_app.command'` over `core/src/fantaclaude/cli/app.py`.)
 - `ingest lineup` needs a sentence of its own: it needs the `my_team` leaf in
   `league.yml`, reads the competition id and its giornata range live rather
   than guessing them, and is run once after a round.
@@ -1259,6 +1269,7 @@ into a link; **do not add new sentences.**
 | `architecture/valuation.md` | `../using/arguing-with-the-model.md` |
 | `architecture/weekly.md` | `../tools/mcp-servers.md` |
 | `architecture/auction-engine.md` | `../tools/mcp-servers.md` |
+| `using/index.md` | `../tools/cli.md` |
 | `using/before-the-auction.md` | `../tools/cli.md` |
 | `using/auction-night.md` | `../tools/cli.md`, `../tools/mcp-servers.md` |
 | `using/the-week.md` | `../tools/cli.md` |
@@ -1268,6 +1279,27 @@ into a link; **do not add new sentences.**
 Links are relative to the page's own directory — `../tools/cli.md` from inside
 `using/`, plain `valuation.md` between siblings. `--strict` catches a wrong one.
 
+The anchors already exist in the prose; these were located and verified after
+Tasks 1-6 landed, so no sentence needs inventing:
+
+- every "Full flags: Tools › The CLI." line inside a `??? note "what ran"`
+  block — on all five `using/` pages;
+- `using/auction-night.md` "More on the server: Tools › MCP servers.";
+- `using/arguing-with-the-model.md` "More on the knowledge base's own document
+  schema: Tools › …";
+- `index.md`'s three bold section names, **Architecture** / **Using
+  fantaclaude** / **Tools & patterns**;
+- `what-it-is/scope.md` "covered under Tools & patterns";
+- `architecture/weekly.md` "The MCP servers page covers the resolver.";
+- `architecture/auction-engine.md` "as the MCP servers page describes";
+- `architecture/valuation.md:80` "Scenarios and knowledge-base notes are where
+  a human argues" — the anchor for `../using/arguing-with-the-model.md`;
+- `what-it-is/capabilities.md`'s prose mentions of the valuation and the
+  forecast.
+
+Leave `docs/asta-night-runbook.md` as a plain path — it is outside the docs
+tree and `--strict` rejects a relative link to it.
+
 - [ ] **Step 2: Run the build and confirm every link resolves**
 
 ```bash
@@ -1276,6 +1308,39 @@ uv run poe docs-build
 
 Expected: PASS. Any `contains a link '…', but the target is not found` names a
 relative path written from the wrong directory.
+
+- [ ] **Step 2b: Correct the calibration overclaim (required)**
+
+Found during Tasks 3 and 4, and deferred to here deliberately because this
+task already edits both files. **There is no calibration mechanism in this
+codebase.** `grep -rn "calibrat" core/src/` returns three hits: one config
+docstring and two `--late` messages saying calibration *excludes* late rows.
+Nothing scores predictions against outcomes. The trap is that
+`records/README.md` describes calibration in the present tense, and three
+separate implementers drifted toward the same false claim from it.
+
+Two files still carry it:
+
+- `site/docs/what-it-is/capabilities.md`, in "Read back what was actually
+  fielded": "That figure is checked back against the forecast that preceded
+  it, so predictions are tested against reality rather than left to stand
+  unexamined." This asserts an automatic check that does not exist. Rewrite so
+  it says what is true — both the forecast and the XI actually fielded are
+  recorded immutably in the same store, side by side, so the forecast **can**
+  be scored against the outcome. Do not claim anything scores it today. Keep
+  the page in third person and within 300–800 words.
+- `site/docs/architecture/data-spine.md`, two mentions: "a run that a journal
+  entry or a later calibration points at" (conditional — acceptable, leave it)
+  and "what calibration later scores is the newest row for that giornata"
+  (presupposes the mechanism — reword to what the records are *for*, e.g. the
+  newest row for that giornata is the one a later check would read).
+
+`site/docs/using/the-week.md` already handles this correctly — its "no command
+in this codebase performs that check today" is accurate and deliberate. Leave
+it alone.
+
+After editing, `grep -rniE "calibrat" site/docs/` should return only wording
+that is conditional or explicitly denies the mechanism.
 
 - [ ] **Step 3: Run the privacy pass over the whole section**
 

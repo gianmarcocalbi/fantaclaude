@@ -47,3 +47,7 @@ nav:
       - tools/index.md
       - tools/mcp-servers.md
       - tools/cli.md
+      - tools/ingest-contract.md
+      - tools/knowledge-base.md
+      - tools/skill-pattern.md
+      - tools/records.md
