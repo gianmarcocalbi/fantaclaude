@@ -323,7 +323,7 @@ succeeds), the second prints `1`, and the third prints `[('What it is', '.')]`
 - [ ] **Step 10: Commit**
 
 ```bash
-git add site/mkdocs.yml site/docs/
+git add site/mkdocs.yml site/docs/ docs/superpowers/plans/2026-09-06-docs-rework.md
 git commit -m "docs(site): the four-section scaffold and What it is
 
 mkdocs.yml gains navigation.indexes, content.code.copy and the
@@ -333,7 +333,11 @@ ships. No plugin, no new dependency.
 
 nav is replaced with the first of four sections. index.md is both the site
 root and What it is' landing page. architecture.md, cli.md and mcp.md are
-deleted here and redistributed across the sections that follow."
+deleted here and redistributed across the sections that follow.
+
+Carries two pre-flight corrections to the plan: a historical read pinned to
+a commit sha rather than HEAD~2, and word boundaries on the privacy grep,
+which without them matched general/generated/cavalry."
 ```
 
 ---
@@ -512,11 +516,14 @@ sed -n '1,60p' core/src/fantaclaude/analysis/weekly/forecast.py
 sed -n '1,80p' core/src/fantaclaude/asta/state.py
 sed -n '1,60p' core/src/fantaclaude/asta/pressure.py
 sed -n '1,60p' core/src/fantaclaude/asta/mcp.py
-git show HEAD~2:site/docs/architecture.md | sed -n '30,52p'
+git show 4c3f7c4:site/docs/architecture.md | sed -n '30,52p'
 ```
 
 The last command reads the deleted page's `AstaServer` ASCII diagram for
-reference only. Redraw it from `asta/state.py` and `api/serve.py`; do not
+reference only — `4c3f7c4` is this plan's own commit, the last one before
+Task 1 deletes that page, and is pinned deliberately rather than written as
+`HEAD~2`, which would drift if any earlier task lands a different number of
+commits. Redraw the diagram from `asta/state.py` and `api/serve.py`; do not
 transcribe it.
 
 - [ ] **Step 2: Add the three pages to `nav`**
@@ -1273,10 +1280,14 @@ relative path written from the wrong directory.
 - [ ] **Step 3: Run the privacy pass over the whole section**
 
 ```bash
-grep -rniE "fantabalotelli|539860|piantaz|chuck|cava|radyandre|gene|edo|marco" site/docs/ || echo "no league or participant identifiers"
+grep -rniE "fantabalotelli|539860|\b(piantaz|chuck|cava|radyandre|gene|edo|marco)\b" site/docs/ || echo "no league or participant identifiers"
 grep -rnE "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}" site/docs/ || echo "no email addresses"
 grep -rniE "captured/|\.env|asta-state\.json|FANTACALCIO_WEB_COOKIE" site/docs/
 ```
+
+The word boundaries are load-bearing: without them `gene` matches "general"
+and "generated", and `cava` matches "cavalry", so the check fires on ordinary
+prose and gets waved through. Do not remove them.
 
 Expected: the first two print their "no …" lines. The third may legitimately
 match — naming `.env` as the place credentials live, or naming
