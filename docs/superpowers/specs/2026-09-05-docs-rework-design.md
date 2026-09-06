@@ -407,8 +407,15 @@ markdown_extensions:         # the file currently has none
           format: !!python/name:pymdownx.superfences.fence_code_format
 ```
 
-`nav:` is rewritten to the four sections, listing all 21 pages — `--strict`
-fails on any page absent from it.
+`nav:` is rewritten to the four sections, listing all 21 pages.
+
+A correction, found by testing mkdocs 1.6.1 while the plan was being written:
+**`--strict` does not catch a page that exists but is absent from `nav`.** That
+condition is logged at INFO and the build exits 0. `--strict` *does* fail the
+reverse — a `nav` entry naming a file that does not exist — and it fails a link
+whose target is missing. So nav completeness is not build-enforced and needs
+its own check; the plan makes counting `nav` entries against `site/docs/*.md`
+an explicit verification step rather than assuming the build covers it.
 
 `navigation.indexes` is required by the structure, not cosmetic: without it a
 tab click expands its section without opening a page, and the four `index.md`
@@ -437,10 +444,13 @@ root.
 
 ## Testing
 
-- `uv run poe docs-build` — `mkdocs build --strict` is the pass/fail gate. Under
-  `--strict` a page missing from `nav`, a broken internal link and a bad anchor
-  are all build failures. There is no unit suite for markdown; this is the
-  correctness signal.
+- `uv run poe docs-build` — `mkdocs build --strict` is the pass/fail gate. It
+  fails on a `nav` entry naming a file that does not exist, and on a link whose
+  target is not among the documentation files. It does **not** fail on a page
+  that exists but is missing from `nav` — that is an INFO line and a zero exit
+  (verified against mkdocs 1.6.1) — so nav completeness is checked separately,
+  by counting entries against files. There is no unit suite for markdown;
+  otherwise this is the correctness signal.
 - `uv run poe docs-serve`, then read all four tabs. Two things `--strict`
   cannot catch and a human must:
   - **the mermaid diagrams must actually render.** A misconfigured custom fence
