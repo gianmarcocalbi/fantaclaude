@@ -39,3 +39,9 @@ nav:
       - architecture/valuation.md
       - architecture/weekly.md
       - architecture/auction-engine.md
+  - Using fantaclaude:
+      - using/index.md
+      - using/before-the-auction.md
+      - using/auction-night.md
+      - using/the-week.md
+      - using/arguing-with-the-model.md
