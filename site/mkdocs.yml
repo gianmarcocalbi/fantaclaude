@@ -20,8 +20,6 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.details
-  - pymdownx.tabbed:
-      alternate_style: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -45,3 +43,7 @@ nav:
       - using/auction-night.md
       - using/the-week.md
       - using/arguing-with-the-model.md
+  - Tools & patterns:
+      - tools/index.md
+      - tools/mcp-servers.md
+      - tools/cli.md
