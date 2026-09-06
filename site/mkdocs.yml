@@ -32,3 +32,7 @@ nav:
       - index.md
       - what-it-is/capabilities.md
       - what-it-is/scope.md
+  - Architecture:
+      - architecture/index.md
+      - architecture/data-spine.md
+      - architecture/rules-as-data.md
