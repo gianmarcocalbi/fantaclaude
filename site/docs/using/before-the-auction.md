@@ -63,9 +63,10 @@ passed.
 ## Commit the run you keep
 
 `records/` holds a permanent parquet copy of every ranking run; `rank`
-writes to it every time. Once you have a run you intend to carry into the
-auction, commit that copy — it is what any later reference to the run_id
-resolves against, even if `data/` itself is ever lost.
+writes to it every time. Once you have a run you intend to carry into
+[the auction](auction-night.md), commit that copy — it is what any later
+reference to the run_id resolves against, even if `data/` itself is ever
+lost.
 
 ??? note "what ran"
 

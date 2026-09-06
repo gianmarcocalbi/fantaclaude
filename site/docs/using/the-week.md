@@ -4,7 +4,8 @@ The moment: it is a giornata week, and `fanta-manager` runs the same two
 beats every time — a refresh early in the week, a lineup before the lock.
 The forecast and the XI it builds are described in
 [the weekly forecast](../architecture/weekly.md); this page is about reading
-what that engine hands back and arguing with it before Friday.
+what that engine hands back and [arguing with it](arguing-with-the-model.md)
+before Friday.
 
 ## Tuesday — refresh
 
@@ -63,7 +64,8 @@ not play, and move on to actually submitting it.
 !!! warning
     The XI goes on the platform by hand. Nothing in fantaclaude submits a
     lineup, a bid, or anything else — this command only tells you what to
-    type in, never types it for you.
+    type in, never types it for you. See
+    [Scope and non-goals](../what-it-is/scope.md).
 
 ## And record it
 

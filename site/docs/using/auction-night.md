@@ -23,15 +23,15 @@ knowing whose bidding you are actually reading.
 `fantaclaude asta board` ("what's the board?") is the question the night
 keeps asking. Every `asta` command except `serve` is local — no network —
 so ask as often as you like. Read it top to bottom: your credits and
-picks, and what your roster still needs;
-the board's inflation and reserve, and the completion those numbers would
-currently buy; the room per class, as the ranks your squad already covers
-over the ranks the pricer still has open; the block — the role class the
-room is calling for, read off the lot or the latest pick; the players
-re-pinned to a different role because your roster now covers the class
-they were priced under; the lot, with its band and the pressure against
-it — what beating the room for this player costs, distinct from what he is
-worth; the tier board per class; and every `problem:` line.
+picks, and what your roster still needs; the board's inflation and
+reserve, and the completion those numbers would currently buy; the room
+per class, as the ranks your squad already covers over the ranks the
+pricer still has open; the block — the role class the room is calling for,
+read off the lot or the latest pick; the players the board
+[re-pins](../architecture/auction-engine.md) as your own roster fills out;
+the lot, with its band and the pressure against it — what beating the room
+for this player costs, distinct from what he is worth; the tier board per
+class; and every `problem:` line.
 
 ## One price, explained
 
@@ -57,19 +57,20 @@ that is his call.
 
 The dashboard at the address `asta serve` prints is the same board
 rendered for a browser. While the server runs, prefer its MCP tools over
-the CLI — they read the exact same in-memory board the dashboard shows,
-with nothing to fall out of sync between the two. More on the server:
-Tools › MCP servers.
+the CLI — they read the exact same in-memory board the dashboard shows.
+More on the server: Tools › MCP servers.
 
 ## Closing the night
 
 Once the room has stopped, close the auction: the state file is copied
-permanently into `records/`, and you commit that copy. Once the admin has
-moved the auction into the league, verify the transfer — it checks the
-league's own rosters against what fantaclaude mirrored, matching teams by
-roster overlap rather than by name, since table names are not guaranteed
-to match the league's. Then read what the room paid against what the run
-expected, per class — whether the model's read of this room held up.
+permanently into `records/`, and you commit that copy.
+
+Once the admin has moved the auction into the league, run `fantaclaude
+ingest rosters` first — a live call against the league API, made now, not
+"to check." Only then verify the transfer: it matches teams to the
+league's rosters by roster overlap, never by name, since table names are
+not guaranteed to match. Then `fantaclaude asta market-prices` reads what
+the room paid against what the run expected, per class.
 
 !!! warning
     Two things fantaclaude never infers on its own. An adjustment outlives
@@ -87,8 +88,12 @@ published site.
     ```
     fantaclaude asta serve --session FA-xxx-xxx
     fantaclaude asta board
+    fantaclaude asta explain "<player>"
     fantaclaude asta adjust --type value --player "<player>" --factor <n> --reason "<why>"
     fantaclaude asta close --session FA-xxx-xxx
+    fantaclaude ingest rosters
+    fantaclaude asta verify-transfer
+    fantaclaude asta market-prices
     ```
 
     Full flags: Tools › The CLI.

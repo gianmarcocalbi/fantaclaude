@@ -41,9 +41,10 @@ on your mind, in your own words close to the phrasing above, and the skill
 that owns the moment picks up the rest — which mode to run, what to read
 back to you, what it needs from you next.
 
-The four pages that follow walk each moment in turn: before the auction,
-the night itself, the week, and a page on arguing with the model that cuts
-across all three.
+The four pages that follow walk each moment in turn:
+[before the auction](before-the-auction.md), [the night
+itself](auction-night.md), [the week](the-week.md), and [a page on arguing
+with the model](arguing-with-the-model.md) that cuts across all three.
 
 ## One rule, across all four
 
