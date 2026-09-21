@@ -26,10 +26,11 @@ Every source — the league API, the public pages read for stats and news —
 lands through ingest before anything is derived from it. Ingest writes into a
 single DuckDB database, which is the one place every engine reads from and
 every surface queries through. Three engines sit on top of that store:
-valuation prices the pool before the auction, the weekly engine forecasts and
-builds a lineup for the coming giornata, and the auction engine prices what
-is happening live in the room. Four surfaces expose the result: the
-command-line interface, MCP, a dashboard, and the Claude Code skills that
+[valuation](valuation.md) prices the pool before the auction, the [weekly
+engine](weekly.md) forecasts and builds a lineup for the coming giornata, and
+the [auction engine](auction-engine.md) prices what is happening live in the
+room. Four surfaces expose the result: the command-line interface,
+[MCP](../tools/mcp-servers.md), a dashboard, and the Claude Code skills that
 drive all of this from a conversation.
 
 The arrow leaving the weekly engine does not end at the surfaces. Once a

@@ -34,20 +34,20 @@ the loop the forecast opened.
 
 The rest of this site is organized around that arc, in four sections.
 
-**Architecture** describes how the system is built to support it: the data
+[**Architecture**](architecture/index.md) describes how the system is built to support it: the data
 spine that turns raw ingestion into a queryable history, the treatment of the
 league's own rules as data rather than as assumptions, and the three engines
 — valuation, the weekly loop, and the auction — that turn that history into
 prices and decisions.
 
-**Using fantaclaude** is written for the operator, not the engineer: for each
+[**Using fantaclaude**](using/index.md) is written for the operator, not the engineer: for each
 moment of the season, which skill to reach for, what it does, and how to read
 what comes back. It follows the season end to end, from building the
 knowledge base before an auction to the Friday lineup, and closes with the
 one pattern that spans every moment in between — arguing with the model by
 changing an input, never an output.
 
-**Tools & patterns** covers what is underneath those skills and what of it
+[**Tools & patterns**](tools/index.md) covers what is underneath those skills and what of it
 could be lifted into another project entirely: the command-line interface,
 the MCP servers that expose the league and the auction to Claude, the
 contract every ingestion source follows, and the shape of the knowledge base

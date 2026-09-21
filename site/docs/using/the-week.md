@@ -89,4 +89,4 @@ wrote.
     fantaclaude ingest lineup      # once, after the round
     ```
 
-    Full flags: Tools › The CLI.
+    Full flags: Tools › [The CLI](../tools/cli.md).

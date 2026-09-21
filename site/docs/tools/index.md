@@ -16,15 +16,17 @@ different codebase built around a different game and it would still hold.
   Leghe Fantacalcio.it league over stdio and nothing else; any project
   wrapping that same API could reuse it unchanged. See [MCP
   servers](mcp-servers.md).
-- **The ingest contract** — the shape every source module honors before its
-  numbers are trusted: fetch raw first, record it verbatim, then derive,
-  never the reverse. It has nothing to do with football.
-- **The knowledge-base pattern** — plain files with front matter and a
-  freshness date, audited rather than trusted forever, is a way to hold
-  facts a model should read but never silently assume are still current.
-- **The skill pattern** — a skill that owns one recurring moment, reads the
-  system's own outputs, and only ever changes an input, is a shape any
-  Claude Code project can repeat for its own recurring moment.
+- **[The ingest contract](ingest-contract.md)** — the shape every source
+  module honors before its numbers are trusted: fetch raw first, record it
+  verbatim, then derive, never the reverse. It has nothing to do with
+  football.
+- **[The knowledge-base pattern](knowledge-base.md)** — plain files with
+  front matter and a freshness date, audited rather than trusted forever, is
+  a way to hold facts a model should read but never silently assume are
+  still current.
+- **[The skill pattern](skill-pattern.md)** — a skill that owns one recurring
+  moment, reads the system's own outputs, and only ever changes an input, is
+  a shape any Claude Code project can repeat for its own recurring moment.
 
 ## Components of this one
 
@@ -37,10 +39,10 @@ meant to generalize.
 - **The session-scoped auction MCP** — `fantaclaude-asta`, which exists only
   while `asta serve` is running an auction, answering questions about the
   board being served at that moment. See [MCP servers](mcp-servers.md).
-- **The records format** — the append-only parquet and JSON this system
-  writes under `records/` for every run, every submitted lineup and every
-  closed auction, so a season can be checked after the fact against what it
-  actually did.
+- **[The records format](records.md)** — the append-only parquet and JSON
+  this system writes under `records/` for every run, every submitted lineup
+  and every closed auction, so a season can be checked after the fact
+  against what it actually did.
 
 ## Reading order
 

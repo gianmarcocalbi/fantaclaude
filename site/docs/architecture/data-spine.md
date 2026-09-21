@@ -56,6 +56,6 @@ produced, and once written it is not edited or replaced. Running the same
 command twice before one deadline does not overwrite the first attempt with
 the second; it produces two files. That matters for a lineup forecast in
 particular, because a note argued into the model partway through the week
-is a legitimate reason to run again before the same deadline — what
-calibration later scores is the newest row for that giornata, not the only
-one, and the earlier one is not lost in order to make room for it.
+is a legitimate reason to run again before the same deadline — the newest row
+for that giornata is the one a later check would read, not the only one, and
+the earlier one is not lost in order to make room for it.

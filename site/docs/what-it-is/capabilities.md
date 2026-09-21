@@ -19,7 +19,7 @@ cannot represent on its own.
 
 ## Price a live auction as it happens
 
-The same valuation carries into the auction room and is re-priced against
+The same [valuation](../architecture/valuation.md) carries into the auction room and is re-priced against
 each participant's remaining credits and open roster spots every time a
 player sells. A price standing alone before the auction starts is only a
 starting point; what a player is worth on the night depends on what is left
@@ -37,10 +37,11 @@ score — rather than presenting one XI as though no other choice came close.
 ## Read back what was actually fielded
 
 Once a giornata locks, what was actually put on the pitch — not merely what
-was forecast — is captured from the platform's own record. That figure is
-checked back against the forecast that preceded it, so predictions are
-tested against reality rather than left to stand unexamined. This is the
-step that turns a forecast into something that can be improved.
+was forecast — is captured from the platform's own record. Both that record
+and the [forecast](../architecture/weekly.md) it followed are written to the
+same store, immutably and side by side, so the forecast can be scored
+against the outcome it preceded. This is what makes a forecast improvable in
+principle, not a step that improves it today.
 
 ## Hold opinionated prose with provenance and an expiry date
 

@@ -1248,7 +1248,8 @@ adds no prose — only links — and then runs the two checks `--strict` cannot.
 
 **Files:**
 - Modify: every page carrying a deferred link (listed below)
-- Test: `uv run poe docs-build`, then `uv run poe docs-serve`
+- Test: `uv run poe docs-build`, then the built-HTML checks in Step 4 (**not**
+  `docs-serve` — it blocks)
 
 **Interfaces:**
 - Consumes: all 21 pages.
@@ -1360,28 +1361,58 @@ match — naming `.env` as the place credentials live, or naming
 confirm it names a key or a path and never shows a value, and that no page
 quotes anything out of `captured/` or a real state file.
 
-- [ ] **Step 4: Serve the site and read all four tabs**
+- [ ] **Step 4: Verify the built HTML for what `--strict` cannot see**
 
-```bash
-uv run poe docs-serve
+**Do not run `uv run poe docs-serve`** — it starts a blocking server and will
+hang a non-interactive run. `uv run poe docs-build` already writes the whole
+site to `site/_build/`; check that instead. It is the same HTML a browser
+would receive, and unlike a visual pass these checks are repeatable.
+
+Save this as a scratch file and run it with `python3`:
+
+```python
+import re, pathlib
+b = pathlib.Path("site/_build")
+
+# 1. every tab lands on a real page
+h = (b / "index.html").read_text()
+tabs = re.search(r'md-tabs__list.*?</ul>', h, re.S).group(0)
+print("tabs:", [(m.group(2).strip(), m.group(1))
+                for m in re.finditer(r'href="([^"]+)"[^>]*>\s*([^<]+?)\s*<', tabs)])
+
+# 2. every mermaid fence became a diagram, not a code block
+for q in sorted(b.rglob("index.html")):
+    n = q.read_text().count('class="mermaid"')
+    if n:
+        print("mermaid", n, q.relative_to(b))
+
+# 3. the collapsed blocks are real <details>
+for q in sorted(b.rglob("index.html")):
+    n = q.read_text().count('<details class="note"')
+    if n:
+        print("details", n, q.relative_to(b))
 ```
 
-Open `http://127.0.0.1:8000`. Check the four things `--strict` cannot:
+Expected: four tabs, each resolving to a page (the first to `.`, the site
+root); a `class="mermaid"` count of at least one on every page carrying a
+diagram — **a misconfigured fence renders as `<code>` and the build still
+succeeds**, which is the whole reason for this check; and a `<details>` on
+each page carrying a "what ran" block.
 
-1. **Each tab lands on a page**, not on an expanded-but-empty section. Four
-   tabs, four landing pages; "What it is" resolves to the site root.
-2. **Every mermaid diagram renders as a diagram**, not as a code block. A
-   misconfigured fence renders as `<code>` and the build still succeeds. There
-   are three: the season arc on `index.md`, the system diagram on
-   `architecture/index.md`, and the single-writer diagram on
-   `architecture/auction-engine.md`, plus the timeline on `using/index.md`.
-   Material loads mermaid from a CDN, so this needs network at view time.
-3. **The collapsed "what ran" blocks open and close** on the three §3 phase
-   pages.
-4. **The voice switches** at `using/index.md` — §1 and §2 read as third person
-   throughout, §3 and §4 as second.
+Then check the two things that need reading rather than counting:
 
-Stop the server with Ctrl-C.
+1. **The voice switches** at `using/index.md` — §1 and §2 read as third person
+   throughout, §3 and §4 as second. `grep -rnE "\byou\b|\byour\b"
+   site/docs/index.md site/docs/what-it-is/ site/docs/architecture/` must
+   return nothing.
+2. **Every link goes somewhere sensible**, not merely somewhere that exists.
+   `--strict` proves a target resolves; it never proves it is the right
+   target. Read each link's own sentence and confirm the destination is what
+   that sentence promises.
+
+A human visual pass in a browser is still worth doing before publishing, but
+it belongs to the operator, not to this task: mermaid is fetched from a CDN
+at view time, so rendering also depends on the viewer's network.
 
 - [ ] **Step 5: Confirm the nav lists all 21 pages**
 

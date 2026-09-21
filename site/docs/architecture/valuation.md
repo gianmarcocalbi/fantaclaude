@@ -77,8 +77,8 @@ a risk appetite, a cap on the budget share any one role class may take. Its
 run prices every one of them by default — one board per scenario, one committed
 band per player per scenario — so the auction board can be read under any of
 them later. Naming the base scenario as an override is refused rather than
-quietly merged. Scenarios and knowledge-base notes are where a human argues
-with the model.
+quietly merged. Scenarios and knowledge-base notes are where [a human argues
+with the model](../using/arguing-with-the-model.md).
 
 ## A model has an identity
 

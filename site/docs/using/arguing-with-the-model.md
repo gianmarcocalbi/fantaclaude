@@ -26,7 +26,7 @@ things. **Scope** marks how long a change lasts unattended: a lineup note
 is inert again the moment its giornata passes, an auction adjustment sits
 in its file until you remove it by hand, and a knowledge-base note expires
 on its own TTL. More on the knowledge base's own document schema: Tools ›
-Knowledge base.
+[Knowledge base](../tools/knowledge-base.md).
 
 ## Three traps
 
@@ -67,4 +67,4 @@ what shows the fix actually took effect.
     fantaclaude rank --offline
     ```
 
-    Full flags: Tools › The CLI.
+    Full flags: Tools › [The CLI](../tools/cli.md).

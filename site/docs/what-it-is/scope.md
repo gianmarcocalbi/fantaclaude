@@ -23,8 +23,8 @@ Every point where the system reaches a live service — the league's own API,
 the auction feed, the public pages it reads for news and team form — is
 read-only by construction. There is no write surface anywhere in the
 codebase, and none should be added. The tools that reach these services,
-covered under Tools & patterns, expose reading the league, never acting on
-it.
+covered under [Tools & patterns](../tools/mcp-servers.md), expose reading the
+league, never acting on it.
 
 ## One league, one operator
 

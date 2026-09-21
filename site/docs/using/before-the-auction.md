@@ -76,4 +76,4 @@ lost.
     fantaclaude rank --offline      # after an edit of your own
     ```
 
-    Full flags: Tools › The CLI.
+    Full flags: Tools › [The CLI](../tools/cli.md).

@@ -95,4 +95,4 @@ a forecast can be checked against.
 Reading the platform's answer is not one lookup: the request is per match, so
 finding it means resolving which competition, then which round of *its*
 calendar the Serie A giornata maps to — a competition's own matchday is not the
-giornata. The MCP servers page covers the resolver.
+giornata. [The MCP servers page](../tools/mcp-servers.md) covers the resolver.

@@ -80,7 +80,8 @@ saturate three classes at once. An empty roster re-pins exactly as the run did.
 The mirrored auction does not live in DuckDB. It lives in memory and in
 `data/asta-state.json`, written atomically on every mutation and copied to
 `records/` when the auction is closed. That is what makes the split in the
-auction MCP clean, as the MCP servers page describes: the board tools answer
+auction MCP clean, as [the MCP servers page](../tools/mcp-servers.md)
+describes: the board tools answer
 from the in-memory state on the event loop, and the one tool that reaches the
 analytical database opens `fanta.duckdb` read-only per call, inside a
 threadpool, with a hard row cap — so an analytical scan the model asks for can

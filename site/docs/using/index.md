@@ -75,4 +75,4 @@ instead.
     fantaclaude lineup
     ```
 
-    Full flags: Tools › The CLI.
+    Full flags: Tools › [The CLI](../tools/cli.md).

@@ -58,7 +58,7 @@ that is his call.
 The dashboard at the address `asta serve` prints is the same board
 rendered for a browser. While the server runs, prefer its MCP tools over
 the CLI — they read the exact same in-memory board the dashboard shows.
-More on the server: Tools › MCP servers.
+More on the server: Tools › [MCP servers](../tools/mcp-servers.md).
 
 ## Closing the night
 
@@ -96,4 +96,4 @@ published site.
     fantaclaude asta market-prices
     ```
 
-    Full flags: Tools › The CLI.
+    Full flags: Tools › [The CLI](../tools/cli.md).
