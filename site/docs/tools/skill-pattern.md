@@ -56,7 +56,8 @@ is "did a person actually say this."
 
 The technique that pins this down is showing the failure next to the
 success, in the skill's own document. One pair, adapted from this project's
-auction skill, with the rival's name replaced by a neutral label:
+auction skill, with the rival's name replaced by a neutral label ([Auction
+night](../using/auction-night.md) walks it end to end):
 
 **Ask:** "Bastoni is on the block, and the room says he's limping — what do I
 do?"

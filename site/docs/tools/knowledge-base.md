@@ -73,10 +73,9 @@ sparse player notes beneath it, written only where a note would change a
 projection. Neither carries anything about this league or its members.
 
 `league/` is different: it holds opponent dossiers, season history, and an
-append-only journal of this league's own auction and giornate — a private
-subtree, not published anywhere this site or its examples reach. Nothing from
-it appears on this page, including the front-matter sample above, which is
-invented.
+append-only journal of this league's own auction and giornate. None of it is
+reproduced on this site, and nothing here is drawn from it — including the
+front-matter sample above, which is invented.
 
 ## Aliases
 

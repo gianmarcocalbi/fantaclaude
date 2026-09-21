@@ -43,10 +43,11 @@ gitignored and rebuildable from `data/raw/`.
 The split exists because a run that a journal entry or a later calibration
 points at by name has to be resolvable even if `data/` is ever lost — a
 machine wiped, a database file corrupted. Whatever is worth referring back to
-later is copied into `records/` and committed at that moment; everything
-else stays in `data/`, disposable because it can always be re-derived, and
-not committed because committing it would only add churn without adding
-anything that `records/` does not already guarantee.
+later is copied into `records/` and committed at that moment — see
+[Records](../tools/records.md) for exactly what gets copied and how it is
+named; everything else stays in `data/`, disposable because it can always be
+re-derived, and not committed because committing it would only add churn
+without adding anything that `records/` does not already guarantee.
 
 ## Written once
 

@@ -12,9 +12,8 @@ deliberate, not a gap waiting to be filled.
     asymmetry is deliberate: a manual entry costs about ninety seconds,
     against the risk of an automated one going wrong at 18:44 on a Friday
     and fielding a broken team with no time left to notice. The read-back
-    that later checks what was actually fielded does not soften this rule:
-    it is a
-    single read of a page the league already renders, not a write in
+    that later checks what was actually fielded does not soften this rule: it
+    is a single read of a page the league already renders, not a write in
     disguise.
 
 ## Read-only wherever it touches a live service

@@ -34,6 +34,10 @@ the loop the forecast opened.
 
 The rest of this site is organized around that arc, in four sections.
 
+**What it is** is this page, plus two more: [Capabilities](what-it-is/capabilities.md) names
+what the system does end to end, and [Scope and non-goals](what-it-is/scope.md) draws the
+boundaries it deliberately stops at.
+
 [**Architecture**](architecture/index.md) describes how the system is built to support it: the data
 spine that turns raw ingestion into a queryable history, the treatment of the
 league's own rules as data rather than as assumptions, and the three engines

@@ -10,8 +10,8 @@ actually reads it, and you run again.
 
 | Input | What it moves | Read by | Scope | New model? |
 | --- | --- | --- | --- | --- |
-| `kb` team profile | rotation, penalty takers, module, European status | valuation | until edited | no |
-| `kb` player note | one player's depth and availability | valuation | until its TTL expires | no |
+| `kb` team profile | rotation, penalty takers, module, European status | valuation; the weekly engine reads it as a check | until edited | no |
+| `kb` player note | one player's depth and availability | valuation; the weekly engine reads it as a check | until its TTL expires | no |
 | `preferences.yml` | targets, risk appetite, scenarios | valuation | until edited | **yes** |
 | `pricing.yml` | the pricer's knobs | valuation, auction | until edited | **yes** |
 | `data/adjustments.yml` | one player's value, an exclusion, a target | auction | outlives the auction | no |

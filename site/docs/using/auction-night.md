@@ -3,7 +3,7 @@
 The moment: the room is filling, the admin is about to open, and you need
 the board to keep up with what happens live. You say "start the auction"
 and `fanta-asta` runs `fantaclaude asta serve --session FA-xxx-xxx` — the
-one command in the toolkit that touches the network. It subscribes
+one command in the auction toolkit that touches the network. It subscribes
 read-only to the FantaAstaLive feed, as the session's one allowed
 subscriber, and mirrors it; everything else runs against that mirror.
 

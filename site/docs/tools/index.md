@@ -46,8 +46,8 @@ meant to generalize.
 
 ## Reading order
 
-If you came here from a "Full flags" note on a §3 page, go straight to [the
-CLI](cli.md). If you are trying to understand what a Claude session actually
+If you came here from a "Full flags" note on a *Using fantaclaude* page, go
+straight to [the CLI](cli.md). If you are trying to understand what a Claude session actually
 sees when it calls into this system, start with [MCP servers](mcp-servers.md)
 — the two servers differ enough in lifetime and transport that the contrast
 is worth reading before either tool list. The remaining pages in this

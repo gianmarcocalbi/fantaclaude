@@ -67,9 +67,9 @@ player who fits it.
 
 Lateness is recorded per row: the run is late once the round's first kickoff
 has passed — when the platform locks the XI — and a prediction once *its own*
-player's kickoff has. The write is refused once every match of the round has
-started, unless `--late`, which marks the rows so the current-predictions view
-skips them.
+player's kickoff has, regardless of `--late`. The write is refused once every
+match has started; `--late` lifts only that refusal, not the lateness
+itself, which the clock sets either way.
 
 Nothing is revised afterwards: runs are appended, never edited. Each carries
 `weekly_hash`, a digest over the weekly layer's version and every constant the
@@ -89,8 +89,8 @@ Neither edits the other. Both are checked before they are recorded — eleven
 distinct players, each a natural or adapted fit somewhere in the module —
 because a record of an XI nobody could field is not a record; a hand-written
 one must also name a module the league permits; the read-back records whatever
-module was fielded. The newest row per giornata is the current one — the record
-a forecast can be checked against.
+module was fielded. The newest row per giornata is current — the record a
+forecast can be checked against.
 
 Reading the platform's answer is not one lookup: the request is per match, so
 finding it means resolving which competition, then which round of *its*

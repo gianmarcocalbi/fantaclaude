@@ -4,7 +4,7 @@ The reference every "Full flags" note points at: every `fantaclaude`
 command, enumerated from the definitions, with the network column a fact
 you can check rather than infer.
 
-### sync-league, schema, query, kb, doctor, rank
+## sync-league, schema, query, kb, doctor, rank
 
 | Command | What it does | Network |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ you can check rather than infer.
 | `doctor` | Readiness: credentials, caches, database, snapshot coverage, `league.yml`, kb, the pinned run, `adjustments.yml`, the auction state. | local |
 | `rank` | One valuation run: project every player, price the board, write records and exports. Re-syncs the league unless `--offline`. | networked (`--offline`: local) |
 
-### ingest
+## ingest
 
 | Command | What it does | Network |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ reads the competition id and its own giornata range live rather than
 assuming they match the Serie A calendar. Run it once, after a round locks
 and plays.
 
-### lineup
+## lineup
 
 | Command | What it does | Network |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ and plays.
 | `lineup note` | Append a fact about the giornata (a start probability, factor, or exclusion) to the week's override file, with a reason. | local |
 | `lineup record` | Record the XI actually fielded — the run's XI with `--swap` for deviations, or `--xi`/`--bench` in full. Appended, never edited. | local |
 
-### asta
+## asta
 
 | Command | What it does | Network |
 | --- | --- | --- |

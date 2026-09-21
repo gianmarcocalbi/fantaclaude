@@ -2,9 +2,9 @@
 
 `records/` is committed to the repository and permanent. `data/exports/` is
 gitignored and disposable — it holds a rendering, rewritten by every run,
-never itself the source of truth. Whoever reads a journal entry later and
-follows the `run_id` it links must be able to resolve that run from
-`records/` alone, even if the entire `data/` directory is gone.
+never itself the source of truth. [The data spine](../architecture/data-spine.md)
+covers why the split exists; this page covers what actually lands under
+`records/` and in what shape.
 
 A valuation run writes three parquet files — the run's own row, every
 player's valuation, and the price every scenario assigned — plus one more
@@ -12,9 +12,10 @@ for the league-settings row it used, keyed by its own hash. A `fantaclaude
 lineup` invocation writes a forecast: published start probability, expected
 score if fielded, their product, for every player the probabili page listed.
 Closing an auction copies the mirrored auction state into `records/asta/`,
-named by the session and the moment it closed. None of these files is ever
-rewritten once it lands: the export step checks whether the target path
-already exists and, if it does, leaves it alone rather than overwriting it.
+named by the session and the moment it closed. [Written
+once](../architecture/data-spine.md#written-once) means something concrete
+here: the export step checks whether the target path already exists and, if
+it does, leaves it alone rather than overwriting it.
 
 ## One table, two commands
 
