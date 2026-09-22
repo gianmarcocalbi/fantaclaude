@@ -1455,6 +1455,103 @@ def lineup_record_cmd(
     emit(payload, json_=json_, render=_render_record)
 
 
+CALIBRATE_GIORNATA_OPTION = typer.Option(
+    None, "--giornata", help="A giornata to calibrate; repeatable. Default: every giornata of the season with voti "
+                             "and either predictions or a recorded match.")
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{100 * value:.0f}%"
+
+
+def _render_calibrate(payload: dict) -> str:
+    lines = [(f"calibration · season {payload['season_id']} · giornate {_ranges(payload['giornate'])} · "
+              f"computed on read, nothing stored")]
+    for w in payload["weeks"]:
+        opponent = w["opponent_name"] or f"team {w['opponent']}"
+        verdict = {3: "won", 1: "drew", 0: "lost"}.get(w["points"], f"{w['points']} pts")
+        lines.append(f"giornata {w['giornata']}: {w['my_total']:g} – {w['opponent_total']:g} vs {opponent} · "
+                     f"{verdict} {w['result'] or ''} · {w['points']} pts")
+        missing = (f", {len(w['eleven_missing'])} without a voto ({', '.join(w['eleven_missing'])})"
+                   if w["eleven_missing"] else "")
+        lines.append(f"  fielded {w['module'] or '?'}: the eleven {w['eleven_total']:g}{missing}; "
+                     f"the bench and the malus added {w['bench_added']:+g}")
+        if w["best"]:
+            lines.append(f"  best possible {w['best']['module']}: {w['best']['total']:g} -- "
+                         f"{w['left_on_bench']:g} left on the bench")
+        else:
+            lines.append(f"  best possible: {w['best_note']}")
+        model = w["model_xi"]
+        if model is None:
+            lines.append(f"  model's XI: {w['model_note']}")
+        elif model["exact"]:
+            lines.append(f"  model's XI {model['module']} (run {w['lineup_run_id']}): {model['total']:g}, exact -- "
+                         f"all eleven got a voto")
+        else:
+            lines.append(f"  model's XI {model['module']} (run {w['lineup_run_id']}): at least {model['total']:g} -- "
+                         f"{len(model['missing'])} starter(s) without a voto ({', '.join(model['missing'])}), "
+                         f"the bench would have decided")
+        lines.append(f"  {w['roster_note']}")
+    p = payload["p_start"]
+    if p["n"]:
+        lines.append(f"p_start (published, {p['n']} rows, {payload['dropped']} dropped): brier "
+                     f"{p['brier_published']:.3f} page · {p['brier_blend']:.3f} blend · "
+                     f"{p['brier_base_rate']:.3f} base rate ({_pct(p['base_rate'])} got a voto)")
+        for b in p["bins"]:
+            lines.append(f"  {b['low']:>3}-{b['high']:<3} n {b['n']:>4}  predicted {_pct(b['mean_predicted']):>4}  "
+                         f"got a voto {_pct(b['observed']):>4}  [{_pct(b['ci_low'])}–{_pct(b['ci_high'])}]")
+    else:
+        lines.append("p_start: no prediction to score")
+    for m in payload["fantavoto"]:
+        groups = " · ".join(f"{g['group']} n {g['n']} {g['mean_error']:+.2f}"
+                            + (f" ±{g['se']:.2f}" if g["se"] is not None else "") + f" mae {g['mae']:.2f}"
+                            for g in m["groups"])
+        lines.append(f"fantavoto (model {m['model_hash'][:8]}, weekly {(m['weekly_hash'] or '—')[:8]}): {groups}")
+        lines.append(f"  spread: within 1 sd {_pct(m['within_1sd'])}, 2 sd {_pct(m['within_2sd'])} (n {m['spread_n']})"
+                     if m["spread_n"] else "  spread: no fv_sd on these rows (written before 3b)")
+    s = payload["surprises"]
+    lines.append("confident no-shows (≥80): " + (", ".join(
+        f"{i['name']} {i['p_start_published']} (g{i['giornata']})" for i in s["no_shows"]) or "none"))
+    lines.append("long shots who played (≤20): " + (", ".join(
+        f"{i['name']} {i['p_start_published']} → {i['fantavoto']:g} (g{i['giornata']})" for i in s["long_shots"])
+        or "none"))
+    if s["my_misses"]:
+        lines.append("my biggest misses: " + ", ".join(f"{i['name']} {i['error']:+.1f} (g{i['giornata']})"
+                                                       for i in s["my_misses"]))
+    check = payload["scoring"]
+    if check["disagreements"]:
+        lines.append(f"scoring: {len(check['disagreements'])} of {check['checked']} platform rows DISAGREE "
+                     f"with the voti -- the voto source or the bonus table is wrong")
+        lines += [f"  {d['describe']}" for d in check["disagreements"]]
+    else:
+        skipped = f" ({check['skipped']} skipped: no voti yet)" if check["skipped"] else ""
+        lines.append(f"scoring: {check['checked']} platform rows agree with the voti{skipped}")
+    lines += [f"warning: {w}" for w in payload["warnings"]]
+    return "\n".join(lines)
+
+
+@app.command("calibrate")
+def calibrate_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: list[int] | None = CALIBRATE_GIORNATA_OPTION,
+) -> None:
+    """Predicted against actual, computed on read: my week as the platform scored it beside the best eleven and the model's, the p_start reliability curve, the fantavoto bias, and the platform's scores checked against the voti. Local and read-only: no network, nothing written."""
+    from fantaclaude.analysis.calibration import CalibrationError, calibrate
+
+    entries = _league_yml_or_exit()
+    my_team = int(entries["my_team"].value) if entries and "my_team" in entries else None
+    season_id = _seasons_or_exit(None)[-1]
+    con = _open_read_only()
+    try:
+        report = calibrate(con, season_id=season_id, giornate=giornata, my_team=my_team)
+    except CalibrationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_calibrate)
+
+
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "
                                          "adjustments, the state file. No network.", no_args_is_help=True)
 app.add_typer(asta_app)
