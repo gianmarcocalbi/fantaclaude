@@ -76,8 +76,8 @@ with a swap for every deviation from it; this is local, no network. In
 Tuesday's refresh, `fantaclaude ingest lineup` calls the live league API to
 read the same fact back off the platform itself, together with the
 platform's score. Both land in the same append-only record; the read-back
-is run once, after the round, and never as a way to double-check the hand
-record you already wrote.
+is run once per round, in that refresh, and never as a way to double-check
+the hand record you already wrote.
 
 ??? note "what ran"
 

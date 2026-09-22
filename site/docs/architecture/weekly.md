@@ -82,8 +82,8 @@ The XI actually fielded reaches one append-only table, `lineup_submitted`, by
 two routes. `fantaclaude lineup record` writes it by hand at submission time —
 the run's XI with `--swap` for the deviations, or the eleven and bench in full
 — as source `hand`; it is local. `fantaclaude ingest lineup` reads the
-platform's answer back after the lock as source `platform`, calling the live
-league API.
+platform's answer back in Tuesday's refresh, once the round is calculated,
+as source `platform`, calling the live league API.
 
 Neither edits the other. Both are checked before they are recorded — eleven
 distinct players, each a natural or adapted fit somewhere in the module —
