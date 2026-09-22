@@ -23,6 +23,7 @@ import yaml
 from fantacalcio_mcp.auth import AuthError, is_expired
 from fantacalcio_mcp.config import ConfigurationError, load_dotenv, resolve_credentials
 
+from fantaclaude.analysis.calibration.scoring_check import check_scoring
 from fantaclaude.analysis.valuation import PreferencesError, load_preferences
 from fantaclaude.analysis.weekly.notes import LineupNotesError, load_lineup_notes
 from fantaclaude.analysis.weekly.notes import resolve_notes as resolve_lineup_notes
@@ -40,6 +41,7 @@ from fantaclaude.ingest.names import (
     match_listone,
     unresolved_detail,
 )
+from fantaclaude.kb.journal import entry_path as journal_entry_path
 from fantaclaude.kb.notes import (
     NoteError,
     load_player_notes,
@@ -460,11 +462,27 @@ def _scoring_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
     calculate = payload.get("calculate") or {}
     try:
         sheet = voto_sheet(calculate)
-        BonusMalus.from_calculate(calculate)
+        bm = BonusMalus.from_calculate(calculate)
     except ScoringError as exc:
         return Check("scoring", False, str(exc))
+    source = f"voto source {calculate.get('sourcev')} -> sheet {sheet}"
+    try:
+        platform = check_scoring(con, sheet=sheet, bm=bm)
+    except duckdb.Error:
+        platform = None                           # an older schema: no match_scores yet
+    if platform is not None and platform.disagreements:
+        first = "; ".join(d.describe() for d in platform.disagreements[:3])
+        return Check("scoring", False, f"{source}; {len(platform.disagreements)} of {platform.checked} platform row(s) "
+                                       f"disagree with the voti: {first} -- a wrong voto source or bonus table "
+                                       f"corrupts every projection")
+    if platform is not None and platform.checked:
+        head = f"{source}, verified against the platform on {platform.checked} rows"
+    elif platform is not None and platform.skipped:
+        head = (f"{source} (mapping unverified: {platform.skipped} platform row(s) wait for their voti -- "
+                f"`fantaclaude ingest stats-web`)")
+    else:
+        head = f"{source} (mapping unverified until `fantaclaude ingest lineup` records a calculated round)"
     status = modifier_status(calculate)
-    head = f"voto source {calculate.get('sourcev')} -> sheet {sheet} (mapping unverified: confirm on the league's calcolo page)"
     if status.unknown_active:
         return Check("scoring", False, f"{head}; modifier(s) {list(status.unknown_active)} active: `rank` refuses until modelled")
     if status.d_factor:
@@ -476,6 +494,25 @@ def _scoring_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
             return Check("scoring", False, f"{head}; D-Factor active but model/d_factor.yml has no bands -- transcribe the league's table")
         return Check("scoring", True, f"{head}; D-Factor active, table verified {table.verified_on}")
     return Check("scoring", True, f"{head}; no modifier active")
+
+
+def _journal_check(kb: Path, con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
+    """The unwritten-journal notice (spec, "The season journal"): a giornata
+    with a recorded match and no entry is named. Never a failure -- a missing
+    entry makes the future poorer, not this week's answer wrong."""
+    if con is None:
+        return Check("journal", True, skip)
+    try:
+        rows = con.execute("SELECT DISTINCT season_id, giornata FROM v_match_files_current ORDER BY 1, 2").fetchall()
+    except duckdb.Error:
+        return Check("journal", True, "no recorded match yet")
+    if not rows:
+        return Check("journal", True, "no recorded match yet")
+    missing = [giornata for season_id, giornata in rows if not journal_entry_path(kb, season_id, giornata).is_file()]
+    if missing:
+        return Check("journal", True, f"notice: no entry for giornata {', '.join(map(str, missing))} -- "
+                                      f"the fanta-manager refresh drafts it")
+    return Check("journal", True, f"entries through giornata {rows[-1][1]}")
 
 
 def _pricing_check(path: Path) -> Check:
@@ -658,6 +695,7 @@ def run_doctor(paths: DoctorPaths, *, now: datetime) -> list[Check]:
         checks.append(pinned_run)
         checks.append(_adjustments_check(paths.adjustments, con, run, skip))
         checks.append(_lineup_notes_check(paths.lineup_notes, con, skip))
+        checks.append(_journal_check(paths.kb, con, skip))
         checks.append(_asta_state_check(paths.asta_state, now))
         checks.append(_dashboard_check(paths.web_dist))
     finally:

@@ -20,6 +20,7 @@ V4_OBJECTS = {"probabili_files", "probabili", "roster_snapshots", "rosters", "li
               "v_market_prices", "v_lineup_runs_current"}
 V5_OBJECTS = {"news_files", "unavailable", "lineup_submitted",
               "v_news_files_current", "v_unavailable_current", "v_predictions_current", "v_lineup_submitted_current"}
+V6_OBJECTS = {"match_files", "match_scores", "v_match_files_current", "v_match_scores_current"}
 
 # advanced_snapshots exactly as Phase 0b created it: the shape a live version-2 file carries.
 V2_ADVANCED_SNAPSHOTS = """
@@ -43,7 +44,7 @@ def _columns(con, table):
 
 def test_apply_schema_is_idempotent(tmp_path):
     con = connect(tmp_path / "x.duckdb")
-    assert apply_schema(con) == SCHEMA_VERSION == 5
+    assert apply_schema(con) == SCHEMA_VERSION == 6
     assert apply_schema(con) == SCHEMA_VERSION
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 1
     con.close()
@@ -97,8 +98,8 @@ def test_a_version_1_file_is_migrated_forward_in_place(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 5
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 5
+    assert apply_schema(con) == 6
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 6
     assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 2      # history of versions kept
     assert con.execute("SELECT name FROM teams").fetchone()[0] == "Roma"               # v1 rows survive
     assert con.execute("SELECT count(*) FROM v_player_season").fetchone()[0] == 0
@@ -128,7 +129,7 @@ def test_a_version_2_file_gets_its_advanced_snapshots_rebuilt(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -172,7 +173,7 @@ def test_an_interrupted_migration_resumes_from_the_leftover_v2_table(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     assert _columns(con, "advanced_snapshots")[6:8] == ["aliases_sha256", "listone_snapshot_id"]
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
@@ -201,7 +202,7 @@ def test_a_migration_already_corrupted_by_the_old_non_atomic_code_still_recovers
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -222,7 +223,7 @@ def test_an_old_shape_table_with_no_version_row_is_still_migrated(tmp_path):
     con.close()
 
     con = connect(path)
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     assert "aliases_sha256" in _columns(con, "advanced_snapshots")
     assert con.execute("SELECT count(*) FROM advanced_snapshots").fetchone()[0] == 1
     con.close()
@@ -264,7 +265,7 @@ def test_a_failure_mid_migration_rolls_back_atomically(tmp_path, monkeypatch):
 
     # A later, unobstructed apply_schema still finishes the job.
     con = connect(path)
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     kept = con.execute("SELECT snapshot_id, sha256, aliases_sha256, listone_snapshot_id, matched "
                        "FROM advanced_snapshots").fetchall()
     assert kept == [(1, "deadbeef", None, None, 5)]
@@ -329,7 +330,7 @@ def test_valuation_views_pick_the_newest_run_under_the_rules_in_force(db, mcp_fi
 
 def test_version_4_adds_the_forecast_and_roster_layer(tmp_path):
     con = connect(tmp_path / "v4.duckdb")
-    assert apply_schema(con) == 5 and SCHEMA_VERSION == 5
+    assert apply_schema(con) == 6 and SCHEMA_VERSION == 6
     names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
     assert V4_OBJECTS <= names
     assert _columns(con, "predictions") == ["lineup_run_id", "season_id", "giornata", "player_id", "p_start_published",
@@ -339,13 +340,13 @@ def test_version_4_adds_the_forecast_and_roster_layer(tmp_path):
                                                 "probabili_file_id"]
     assert _columns(con, "rosters") == ["snapshot_id", "team_id", "team_name", "owner", "player_id", "cost", "position"]
     # a version-3 file upgrades in place: apply twice, version row once per level
-    assert apply_schema(con) == 5
-    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 5").fetchone()[0] == 1
+    assert apply_schema(con) == 6
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 6").fetchone()[0] == 1
 
 
 def test_version_5_adds_the_news_layer_and_widens_the_forecast(tmp_path):
     con = connect(tmp_path / "v5.duckdb")
-    assert apply_schema(con) == 5 and SCHEMA_VERSION == 5
+    assert apply_schema(con) == 6 and SCHEMA_VERSION == 6
     names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
     assert V4_OBJECTS | V5_OBJECTS <= names
     assert _columns(con, "predictions") == ["lineup_run_id", "season_id", "giornata", "player_id", "p_start_published",
@@ -356,8 +357,8 @@ def test_version_5_adds_the_news_layer_and_widens_the_forecast(tmp_path):
                                             "player_id", "match_status", "detail", "position", "raw"]
     assert _columns(con, "lineup_submitted") == ["submitted_id", "season_id", "giornata", "lineup_run_id", "my_team",
                                                  "module", "xi", "bench", "source", "recorded_at"]
-    assert apply_schema(con) == 5
-    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 5").fetchone()[0] == 1
+    assert apply_schema(con) == 6
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 6").fetchone()[0] == 1
     con.close()
 
 
@@ -380,7 +381,7 @@ def test_a_version_4_file_gains_the_new_columns_and_its_rows_keep_late_false(tmp
     con.execute("INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
                 "late, predictions) VALUES (21, 3, 'r', 'm', 1, '2026-09-04 18:45', '2026-09-04 13:46', false, 1)")
     con.execute("INSERT INTO predictions VALUES (1, 21, 3, 2764, 90, 0.9, 7.0, NULL, 6.3, 'published')")
-    assert apply_schema(con) == 5
+    assert apply_schema(con) == 6
     assert con.execute("SELECT late, kickoff, trace FROM predictions").fetchone() == (False, None, None)
     assert con.execute("SELECT weekly_hash, bench FROM lineup_runs").fetchone() == (None, None)
     assert con.execute("SELECT count(*) FROM v_predictions_current").fetchone()[0] == 1
@@ -398,3 +399,45 @@ def test_v_predictions_current_reads_the_newest_honest_row_per_player(db):
     current = dict(db.execute("SELECT player_id, lineup_run_id FROM v_predictions_current ORDER BY player_id").fetchall())
     assert current == {2120: 1, 2764: 2}        # Bastoni's run-2 row was late for him; Martinez's was not
     assert db.execute("SELECT lineup_run_id FROM v_lineup_runs_current").fetchone()[0] == 1
+
+
+def test_version_6_adds_the_platforms_own_scores(tmp_path):
+    con = connect(tmp_path / "v6.duckdb")
+    assert apply_schema(con) == 6 and SCHEMA_VERSION == 6
+    names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()}
+    assert V5_OBJECTS | V6_OBJECTS <= names
+    assert _columns(con, "match_files") == ["file_id", "season_id", "giornata", "competition_id", "matchday", "fetched_at",
+                                            "raw_path", "sha256", "home_team", "away_team", "home_module", "away_module",
+                                            "home_total", "away_total", "home_points", "away_points", "result", "sign"]
+    assert _columns(con, "match_scores") == ["file_id", "team_id", "player_id", "part", "position", "status", "voto",
+                                             "fantavoto", "malus", "events", "raw"]
+    assert _columns(con, "v_match_scores_current")[:3] == ["season_id", "giornata", "file_id"]
+    assert apply_schema(con) == 6
+    assert con.execute("SELECT count(*) FROM schema_version WHERE version = 6").fetchone()[0] == 1
+    con.close()
+
+
+def test_a_version_5_file_upgrades_in_place_and_keeps_its_rows(tmp_path):
+    """The live database is at schema 5 with three platform read-backs in
+    lineup_submitted; upgrading adds the two tables and touches nothing else."""
+    con = connect(tmp_path / "v5.duckdb")
+    apply_schema(con)
+    for statement in ("DROP VIEW v_match_scores_current", "DROP VIEW v_match_files_current", "DROP TABLE match_scores",
+                      "DROP TABLE match_files", "DROP SEQUENCE seq_match_files", "DELETE FROM schema_version",
+                      "INSERT INTO schema_version (version) VALUES (5)"):
+        con.execute(statement)
+    con.execute("INSERT INTO lineup_submitted (season_id, giornata, module, xi, bench, source, recorded_at) "
+                "VALUES (21, 3, '3421', '[]', '[]', 'platform', now())")
+    assert apply_schema(con) == 6
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 0
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 6
+    con.close()
+
+
+def test_v_match_files_current_keeps_the_newest_file_per_match(db):
+    for sha, total in (("a", 60.0), ("b", 67.0)):
+        db.execute("INSERT INTO match_files (season_id, giornata, competition_id, matchday, fetched_at, raw_path, sha256, "
+                   "home_team, away_team, home_total, away_total, home_points, away_points) "
+                   "VALUES (21, 3, 539860, 1, now(), ?, ?, 1, 2, 80.0, ?, 3, 0)", [f"raw/{sha}", sha, total])
+    assert db.execute("SELECT away_total FROM v_match_files_current").fetchall() == [(67.0,)]

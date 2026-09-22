@@ -82,8 +82,8 @@ The XI actually fielded reaches one append-only table, `lineup_submitted`, by
 two routes. `fantaclaude lineup record` writes it by hand at submission time —
 the run's XI with `--swap` for the deviations, or the eleven and bench in full
 — as source `hand`; it is local. `fantaclaude ingest lineup` reads the
-platform's answer back after the lock as source `platform`, calling the live
-league API.
+platform's answer back in Tuesday's refresh, once the round is calculated,
+as source `platform`, calling the live league API.
 
 Neither edits the other. Both are checked before they are recorded — eleven
 distinct players, each a natural or adapted fit somewhere in the module —
@@ -96,3 +96,24 @@ Reading the platform's answer is not one lookup: the request is per match, so
 finding it means resolving which competition, then which round of *its*
 calendar the Serie A giornata maps to — a competition's own matchday is not the
 giornata. [The MCP servers page](../tools/mcp-servers.md) covers the resolver.
+
+## Scoring the week
+
+The read-back is the round's scoring, not only its lineup: once the round is
+calculated, the same response carries every listed player's voto and
+fantavoto as the platform computed them, the adaptation malus, both sides'
+totals and the result. They are recorded as observed data, and every row is
+checked against the voti — the voto source and the bonus table verified
+weekly, for free. The week's score is the platform's own total, never a
+recomputation: its substitutions are already in it, and reimplementing them
+is out of scope.
+
+`fantaclaude calibrate` computes everything else on read and stores nothing:
+the best eleven the roster could have fielded knowing the fantavoti (the
+same exact solve the XI uses), the model's XI on its own eleven — exact when
+all eleven got a voto, a named lower bound otherwise, never completed by a
+guessed substitution — the reliability curve on the published start
+probability, with the Brier scores of the page, the blend and the base
+rate, and the fantavoto bias per role and per model. A bias that holds up
+is written into the model by hand, as a new model; calibration itself never
+corrects anything.

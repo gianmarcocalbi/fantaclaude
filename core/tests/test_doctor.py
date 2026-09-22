@@ -16,7 +16,7 @@ NAMES = ["env", "credentials", "token_cache", "database", "extensions", "league_
          "listone", "league_yml", "preferences", "kb", "modules",
          "web_session", "player_match", "advanced", "fixtures", "aliases",
          "kb_profiles", "kb_takers", "kb_notes", "kb_participants", "kb_favourite_clubs", "scoring", "pricing", "valuations",
-         "pinned_run", "adjustments", "lineup_notes", "asta_state", "dashboard"]
+         "pinned_run", "adjustments", "lineup_notes", "journal", "asta_state", "dashboard"]
 
 
 def _paths(root):
@@ -543,6 +543,77 @@ def test_the_asta_checks_read_the_run_the_adjustments_and_the_state_file(tmp_pat
     by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
     assert not by["adjustments"].ok and "1 inert" in by["adjustments"].detail and "'Nobody'" in by["adjustments"].detail
     assert not by["asta_state"].ok and "asta-state.json" in by["asta_state"].detail
+
+
+def _record_calculated(root, *, overrides=None):
+    from conftest import seed_voti_matching
+    from fantaclaude.ingest.match_scores import record_match
+
+    payload = json.loads((FIXTURE_DIR / "lineup_calculated_sample.json").read_text(encoding="utf-8"))
+    con = connect(root / "data" / "fanta.duckdb")
+    record_match(con, RawStore(root / "data" / "raw").write("lineup", payload, label="19717181-03"), payload,
+                 season_id=21)
+    seed_voti_matching(con, 21, payload, overrides=overrides)
+    con.close()
+
+
+def test_the_scoring_check_is_verified_against_the_platform(tmp_path, fixture_json, mcp_fixture_json):
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    before = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert before["scoring"].ok and "unverified" in before["scoring"].detail
+    _record_calculated(tmp_path)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["scoring"].ok and "verified against the platform on 46 rows" in by["scoring"].detail
+    assert "sheet Fantacalcio" in by["scoring"].detail and "no modifier active" in by["scoring"].detail
+
+
+def test_the_scoring_check_points_at_stats_web_when_every_platform_row_is_skipped(tmp_path, fixture_json, mcp_fixture_json):
+    """Matches are recorded but the giornata's voti are not ingested yet, so
+    every platform row is skipped rather than checked -- the head must name
+    the actual next step, `ingest stats-web`, not the generic "record a
+    calculated round" wording that fits only when nothing was recorded at
+    all."""
+    from fantaclaude.ingest.match_scores import record_match
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    payload = json.loads((FIXTURE_DIR / "lineup_calculated_sample.json").read_text(encoding="utf-8"))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    record_match(con, RawStore(tmp_path / "data" / "raw").write("lineup", payload, label="19717181-03"), payload,
+                 season_id=21)
+    con.close()
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["scoring"].ok and "ingest stats-web" in by["scoring"].detail
+    assert "sheet Fantacalcio" in by["scoring"].detail and "no modifier active" in by["scoring"].detail
+
+
+def test_the_scoring_check_fails_on_a_platform_disagreement(tmp_path, fixture_json, mcp_fixture_json):
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    _record_calculated(tmp_path, overrides={632: (7.0, {"assists": 1})})
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert not by["scoring"].ok and "disagree" in by["scoring"].detail and "player 632" in by["scoring"].detail
+
+
+def test_the_journal_check_names_a_recorded_giornata_without_an_entry_and_never_fails(tmp_path, fixture_json,
+                                                                                       mcp_fixture_json):
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["journal"].ok and by["journal"].detail == "no recorded match yet"
+    _record_calculated(tmp_path)
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["journal"].ok and "notice" in by["journal"].detail and "giornata 3" in by["journal"].detail
+    entry = tmp_path / "kb" / "league" / "season-2026-27" / "giornata-03.md"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("---\nttl: never\n---\n# Giornata 3\n")
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["journal"].ok and by["journal"].detail == "entries through giornata 3"
+
+
+def test_journal_entry_paths_follow_entry_zero():
+    from pathlib import Path
+
+    from fantaclaude.kb.journal import entry_path
+
+    assert entry_path(Path("kb"), 21, 3) == Path("kb/league/season-2026-27/giornata-03.md")
 
 
 def test_lineup_notes_check_parses_and_resolves_against_the_listone(tmp_path, fixture_json, mcp_fixture_json):

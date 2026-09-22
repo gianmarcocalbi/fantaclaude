@@ -242,3 +242,71 @@ def seed_fixtures(con, season_id: int, rounds) -> int:
             con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, 'Home', 'Away', NULL, NULL, '{}')",
                         [snapshot_id, season_id, f"seed-{giornata}-{i}", str(giornata), giornata, to_db(kickoff)])
     return snapshot_id
+
+
+def seed_listone(con, rows) -> int:
+    """A fresh listone snapshot -- `v_players_current` follows the newest.
+    `rows` are (player_id, name, team_name, classic_role, mantra_roles), the
+    roles an iterable of role strings ("Dc", "Pc", ...)."""
+    from uuid import uuid4
+    snapshot_id = con.execute(
+        "INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) "
+        "VALUES (now(), 'seed', 'seed/listone', ?, ?) RETURNING snapshot_id",
+        [f"seed-listone-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    con.executemany(
+        "INSERT INTO players VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, [], 1, 1, 1, 1, 1, 1, NULL, NULL, false, '{}')",
+        [[snapshot_id, pid, name, team, role, list(roles)] for pid, name, team, role, roles in rows])
+    return snapshot_id
+
+
+def seed_lineup_run(con, season_id: int, giornata: int, rows, *, late=False, model_hash="m1", weekly_hash=None,
+                    run_id="r1", module=None, xi=None, my_team=None) -> int:
+    """One lineup_runs row and its predictions. `rows` are (player_id,
+    p_start_published, p_start, fv_if_plays, fv_sd); every prediction carries
+    the run's own `late`."""
+    lineup_run_id = con.execute(
+        "INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
+        "late, my_team, module, xi, predictions, weekly_hash) "
+        "VALUES (?, ?, ?, ?, 1, '2026-09-04 18:45', '2026-09-04 13:46', ?, ?, ?, ?::JSON, ?, ?) RETURNING lineup_run_id",
+        [season_id, giornata, run_id, model_hash, late, my_team, module, None if xi is None else json.dumps(xi),
+         len(rows), weekly_hash]).fetchone()[0]
+    for pid, published, p_start, fv, fv_sd in rows:
+        con.execute(
+            "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
+            "fv_if_plays, fv_sd, expected_points, source, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
+            [lineup_run_id, season_id, giornata, pid, published, p_start, fv, fv_sd, p_start * fv, late])
+    return lineup_run_id
+
+
+def events_for(delta: float) -> dict:
+    """Event counts whose bonus/malus under the fixtures' own table (goal +3,
+    assist +1, yellow -0.5, goal conceded -1) add up to `delta`: a half point
+    is a yellow, the rest goals and assists, or goals conceded."""
+    yellow = 1 if round(delta * 2) % 2 else 0
+    rest = round(delta + 0.5 * yellow)
+    if rest >= 0:
+        goals, assists = divmod(rest, 3)
+        return {"yellow": yellow, "goals": goals, "assists": assists}
+    return {"yellow": yellow, "goals_conceded": -rest}
+
+
+def seed_voti_matching(con, season_id: int, payload, *, overrides=None) -> int:
+    """One voti file agreeing, row for row, with the calculated match `payload`:
+    a voto where the platform has one (events chosen so the fantavoto, less
+    the malus, is the platform's), a senza voto for 55, no row for 56.
+    `overrides` maps player_id to a (voto, events) pair that replaces the
+    agreeing one -- how a test seeds a disagreement."""
+    from fantaclaude.ingest.match_scores import STATUS_SV, STATUS_VOTO, parse_match
+
+    match = parse_match(payload)
+    rows = []
+    for p in match.players:
+        if p.status == STATUS_VOTO:
+            voto, events = p.voto, events_for(p.fantavoto + p.malus - p.voto)
+        elif p.status == STATUS_SV:
+            voto, events = None, {}
+        else:
+            continue
+        voto, events = (overrides or {}).get(p.player_id, (voto, events))
+        rows.append((p.player_id, f"p{p.player_id}", f"club{p.team_id}", "C", voto, events))
+    return seed_voti(con, season_id, match.giornata, rows)

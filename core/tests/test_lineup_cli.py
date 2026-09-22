@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -572,6 +573,7 @@ AWAY_XI = [4360, 5514, 2296, 6672, 6020, 5559, 5791, 6844, 632, 5687, 7017]
 AWAY_BENCH = [2097, 6646, 6549, 5844, 6503, 6680, 4502, 6898, 5851, 6821, 5820, 2521]
 LINEUP_CALENDAR = [{"matchDay": 1, "championshipMatchDay": 3, "calculated": False,
                     "matches": [{"tIdH": HOME_TID, "tIdA": AWAY_TID}]}]
+LINEUP_CALCULATED = json.loads((FIXTURE_DIR / "lineup_calculated_sample.json").read_text(encoding="utf-8"))
 # The default `competitions.json` fixture (Task 13's review) is this one competition,
 # id 539860, sDay 3, eDay 38 -- the real observed shape. A second, unrelated
 # competition for the ambiguity tests below.
@@ -740,3 +742,95 @@ def test_ingest_lineup_help_states_the_true_network_cost():
     result = runner.invoke(app, ["ingest", "lineup", "--help"])
     assert result.exit_code == ExitCode.OK, result.output
     assert "three reads" in " ".join(result.stdout.split())          # the help panel wraps at 80 columns
+
+
+def test_ingest_lineup_records_the_platforms_score_once_the_round_is_calculated(monkeypatch, tmp_path, fixture_json,
+                                                                                 mcp_fixture_json, fake_api):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_CALCULATED})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    match = json.loads(result.stdout)["match"]
+    assert match["calculated"] and not match["duplicate"] and match["players"] == 46
+    assert (match["home_total"], match["away_total"], match["result"]) == (82.5, 67.0, "4-1")
+    assert api.calls == ["competitions", "competition_calendar", "lineup"]          # still three reads
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 1
+    con.close()
+    plain = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert plain.exit_code == ExitCode.OK and "score: 67 – 82.5 (1-4)" in plain.stdout
+
+
+def test_ingest_lineup_keeps_the_xi_when_the_score_is_malformed(monkeypatch, tmp_path, fixture_json, mcp_fixture_json,
+                                                                 fake_api):
+    """MatchScoresShapeError is a ValueError -- exit 1, the XI already kept
+    (app.py's own comment on the second `_source_errors()` around
+    `record_match`): the score parse runs *after* `record_submitted` and
+    `export_submitted_record`, so a malformed platform response must not
+    cost the read-back that already succeeded."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    payload = copy.deepcopy(LINEUP_CALCULATED)
+    payload["away"]["starts"][0]["scr"] = 57
+    payload["away"]["starts"][0]["cscr"] = 100
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": payload})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "57" in result.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 0
+    con.close()
+
+
+def test_ingest_lineup_records_no_score_for_a_round_not_yet_calculated(monkeypatch, tmp_path, fixture_json,
+                                                                        mcp_fixture_json, fake_api):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": LINEUP_SAMPLE})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert "not calculated" in result.stdout and "source platform" in result.stdout
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 0
+    con.close()
+
+
+def test_ingest_lineup_from_disk_makes_no_request_and_records_no_xi(monkeypatch, tmp_path, fixture_json,
+                                                                    mcp_fixture_json):
+    from fantaclaude.ingest.raw import RawStore
+
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    seed_fixtures(con, 21, {3: [datetime(2026, 9, 4, 18, 45, tzinfo=UTC)]})
+    con.close()
+    RawStore(tmp_path / "data" / "raw").write("lineup", LINEUP_CALCULATED, label=f"{AWAY_TID}-03")
+
+    def no_network(fn):
+        raise AssertionError("--from-disk must not reach the API")
+
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", no_network)
+    result = runner.invoke(app, ["ingest", "lineup", "--from-disk", "--json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert (payload["recorded"], payload["duplicates"], payload["not_calculated"]) == (1, 0, 0)
+    again = runner.invoke(app, ["ingest", "lineup", "--from-disk"])
+    assert again.exit_code == ExitCode.OK and "1 already recorded" in again.stdout
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 0
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 1
+    con.close()
+
+
+def test_ingest_lineup_from_disk_refuses_the_network_options(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    result = runner.invoke(app, ["ingest", "lineup", "--from-disk", "--giornata", "3"])
+    assert result.exit_code == ExitCode.USAGE and "--from-disk" in result.stderr
+
+
+def test_ingest_lineup_from_disk_needs_the_calendar(monkeypatch, tmp_path, fixture_json, mcp_fixture_json):
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    result = runner.invoke(app, ["ingest", "lineup", "--from-disk"])
+    assert result.exit_code == ExitCode.NOT_READY and "ingest calendar" in result.stderr

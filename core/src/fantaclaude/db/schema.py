@@ -21,6 +21,12 @@ lineup_runs with the weekly hash, the bench, the contingencies and the close
 calls, and adds lineup_submitted, the XI actually fielded. The new columns
 are ALTER TABLE ... ADD COLUMN IF NOT EXISTS so a version-4 file upgrades in
 place; its rows keep late = false, which is what they were.
+Version 6 (Phase 3c) adds the platform's own scoring of a lega match, read
+back with the XI from the same response: match_files, one row per calculated
+read-back (unique by the raw file's sha256), and match_scores, one row per
+listed player per side -- voto, fantavoto and malus as the platform
+calculated them, a missing voto as a status. Additive, like every version
+before it.
 The DDL is additive: apply_schema upgrades an older file in place and
 refuses only a newer one; the one table whose constraint changed (version 2
 to 3) is rebuilt around its rows, because DuckDB cannot drop a constraint.
@@ -32,7 +38,7 @@ from dataclasses import asdict, dataclass
 
 import duckdb
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 ADVANCED_SNAPSHOTS_DDL = """
 CREATE TABLE IF NOT EXISTS advanced_snapshots (
@@ -412,6 +418,41 @@ CREATE TABLE IF NOT EXISTS lineup_submitted (
     source        VARCHAR NOT NULL,
     recorded_at   TIMESTAMP NOT NULL
 );
+CREATE SEQUENCE IF NOT EXISTS seq_match_files START 1;
+CREATE TABLE IF NOT EXISTS match_files (
+    file_id        INTEGER PRIMARY KEY DEFAULT nextval('seq_match_files'),
+    season_id      INTEGER NOT NULL,
+    giornata       INTEGER NOT NULL,
+    competition_id INTEGER NOT NULL,
+    matchday       INTEGER NOT NULL,
+    fetched_at     TIMESTAMP NOT NULL,
+    raw_path       VARCHAR NOT NULL,
+    sha256         VARCHAR NOT NULL UNIQUE,
+    home_team      INTEGER NOT NULL,
+    away_team      INTEGER NOT NULL,
+    home_module    VARCHAR,
+    away_module    VARCHAR,
+    home_total     DOUBLE NOT NULL,
+    away_total     DOUBLE NOT NULL,
+    home_points    INTEGER NOT NULL,
+    away_points    INTEGER NOT NULL,
+    result         VARCHAR,
+    sign           VARCHAR
+);
+CREATE TABLE IF NOT EXISTS match_scores (
+    file_id    INTEGER NOT NULL,
+    team_id    INTEGER NOT NULL,
+    player_id  INTEGER NOT NULL,
+    part       VARCHAR NOT NULL,
+    position   INTEGER NOT NULL,
+    status     VARCHAR NOT NULL,
+    voto       DOUBLE,
+    fantavoto  DOUBLE,
+    malus      INTEGER NOT NULL,
+    events     VARCHAR,
+    raw        JSON NOT NULL,
+    PRIMARY KEY (file_id, team_id, part, position)
+);
 CREATE OR REPLACE VIEW v_voti_files_current AS
     SELECT f.* FROM voti_files f
     WHERE f.file_id = (SELECT max(g.file_id) FROM voti_files g
@@ -523,6 +564,14 @@ CREATE OR REPLACE VIEW v_lineup_submitted_current AS
     SELECT s.* FROM lineup_submitted s
     WHERE s.submitted_id = (SELECT max(t.submitted_id) FROM lineup_submitted t
                             WHERE t.season_id = s.season_id AND t.giornata = s.giornata);
+CREATE OR REPLACE VIEW v_match_files_current AS
+    SELECT f.* FROM match_files f
+    WHERE f.file_id = (SELECT max(g.file_id) FROM match_files g
+                       WHERE g.season_id = f.season_id AND g.giornata = f.giornata
+                         AND g.competition_id = f.competition_id AND g.matchday = f.matchday
+                         AND g.home_team = f.home_team AND g.away_team = f.away_team);
+CREATE OR REPLACE VIEW v_match_scores_current AS
+    SELECT f.season_id, f.giornata, s.* FROM match_scores s JOIN v_match_files_current f USING (file_id);
 """
 
 

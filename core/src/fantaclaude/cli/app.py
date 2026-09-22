@@ -667,10 +667,76 @@ def ingest_rosters_cmd(
 
 
 INGEST_LINEUP_GIORNATA_OPTION = typer.Option(
-    None, "--giornata", help="Giornata number (default: the newest one fully finished -- the read-back is after the lock).")
+    None, "--giornata", help="Giornata number (default: the newest one fully finished -- the read-back is after the round).")
 INGEST_LINEUP_COMPETITION_OPTION = typer.Option(
     None, "--competition", help="The competition id (idcomp), when the account runs more than one; "
                                 "default: the only one, refused if that is ambiguous.")
+INGEST_LINEUP_FROM_DISK_OPTION = typer.Option(
+    False, "--from-disk", help="No network: record the platform's scores from the read-backs already under "
+                               "data/raw/lineup/ (never the XI again).")
+
+
+def _match_line(match: dict, my_team: int) -> str:
+    from fantaclaude.ingest.match_scores import oriented_result
+
+    if not match["calculated"]:
+        return (f"score: giornata {match['giornata']} is not calculated on the platform yet -- nothing recorded; "
+                f"read it back once it is")
+    mine_home = match["home_team"] == my_team
+    mine, theirs = (match["home_total"], match["away_total"]) if mine_home else (match["away_total"], match["home_total"])
+    where = (f"already recorded as match_file {match['file_id']}" if match["duplicate"]
+             else f"match_file {match['file_id']}, {match['players']} player rows")
+    return f"score: {mine:g} – {theirs:g} ({oriented_result(match['result'], mine_home)}) · {where}"
+
+
+def _render_ingest_lineup(payload: dict) -> str:
+    return _render_record(payload) + "\n" + _match_line(payload["match"], payload["my_team"])
+
+
+def _render_lineup_from_disk(payload: dict) -> str:
+    lines = []
+    for f in payload["files"]:
+        name = f["raw_path"].rsplit("/", 1)[-1]
+        if not f["calculated"]:
+            state = "not calculated -- skipped"
+        elif f["duplicate"]:
+            state = f"already recorded (match_file {f['file_id']})"
+        else:
+            state = f"recorded as match_file {f['file_id']} ({f['players']} player rows)"
+        lines.append(f"giornata {f['giornata']}: {name} -- {state}")
+    tail = (f", {payload['before_season']} fetched before season {payload['season_id']} began (ignored)"
+            if payload["before_season"] else "")
+    lines.append(f"{payload['recorded']} recorded, {payload['duplicates']} already recorded, "
+                 f"{payload['not_calculated']} not calculated{tail}")
+    return "\n".join(lines)
+
+
+def _ingest_lineup_from_disk(*, json_: bool) -> None:
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.match_scores import (
+        MatchScoresShapeError,
+        NoSeasonCalendar,
+        record_from_disk,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            sweep = record_from_disk(con, RawStore(raw_dir()), season_id=season_id)
+        except NoSeasonCalendar as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        except MatchScoresShapeError as exc:
+            typer.echo(f"source shape unexpected: {exc}", err=True)
+            raise typer.Exit(code=ExitCode.ERROR) from None
+    finally:
+        con.close()
+    emit({"season_id": season_id, **sweep.to_dict()}, json_=json_, render=_render_lineup_from_disk)
 
 
 @ingest_app.command("lineup")
@@ -679,8 +745,16 @@ def ingest_lineup_cmd(
     giornata: int | None = INGEST_LINEUP_GIORNATA_OPTION,
     competition: int | None = INGEST_LINEUP_COMPETITION_OPTION,
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+    from_disk: bool = INGEST_LINEUP_FROM_DISK_OPTION,
 ) -> None:
-    """Read the XI actually fielded back from the platform -- the GET the lega's own formazioni page makes for one match -- and record it as source `platform`. The competition id and its own giornata range are read live from the league API, never guessed. Appended, never edited. Network: the account in .env, three reads, once after the lock."""
+    """Read the XI actually fielded back from the platform -- the GET the lega's own formazioni page makes for one match -- and record it as source `platform`; once the round is calculated, record the same response's scores too (match_files, match_scores). The competition id and its own giornata range are read live from the league API, never guessed. Appended, never edited. Network: the account in .env, three reads, once for the finished giornata in Tuesday's refresh. --from-disk: no network, the scores of the read-backs already on disk."""
+    if from_disk:
+        if giornata is not None or competition is not None or league is not None:
+            typer.echo("--from-disk reads what is already on disk -- it takes no --giornata, --competition or --league",
+                       err=True)
+            raise typer.Exit(code=ExitCode.USAGE)
+        _ingest_lineup_from_disk(json_=json_)
+        return
     from fantaclaude.analysis.weekly import ForecastError, target_round
     from fantaclaude.analysis.weekly.submitted import (
         export_submitted_record,
@@ -691,6 +765,7 @@ def ingest_lineup_cmd(
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
     from fantaclaude.ingest.lineup_api import fetch_lineup, load_lineup
+    from fantaclaude.ingest.match_scores import record_match
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.model.modules import load_modules
     from fantaclaude.paths import raw_dir, records_dir
@@ -724,7 +799,7 @@ def ingest_lineup_cmd(
             raise typer.Exit(code=ExitCode.NOT_READY) from None
         store = RawStore(raw_dir())
         with _source_errors():                      # LineupShapeError (and its CompetitionSelection/RangeError subclasses) are ValueErrors: exit 1
-            _raw, payload, resolved = run_with_api(
+            raw, payload, resolved = run_with_api(
                 lambda api: fetch_lineup(api, store, team_id=my_team, requested_giornata=giornata,
                                          ahead_giornata=ahead_giornata, competition_id=competition, league=league))
             submission = load_lineup(payload, team_id=my_team, roster=roster, modules=load_modules(),
@@ -732,11 +807,14 @@ def ingest_lineup_cmd(
         submitted_id = record_submitted(con, season_id=season_id, giornata=resolved, submission=submission,
                                         my_team=my_team, source="platform", now=utc_now())
         records = export_submitted_record(con, submitted_id, records_dir())
+        with _source_errors():                      # MatchScoresShapeError is a ValueError: exit 1, the XI already kept
+            recorded = record_match(con, raw, payload, season_id=season_id)
     finally:
         con.close()
     payload_out = {"submitted_id": submitted_id, "season_id": season_id, "giornata": resolved, "my_team": my_team,
-                   "source": "platform", **submission.to_dict(), "records": [str(p) for p in records]}
-    emit(payload_out, json_=json_, render=_render_record)
+                   "source": "platform", **submission.to_dict(), "records": [str(p) for p in records],
+                   "match": recorded.to_dict()}
+    emit(payload_out, json_=json_, render=_render_ingest_lineup)
 
 
 def _ranges(values: list[int]) -> str:
@@ -969,7 +1047,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the auction state file, the dashboard bundle."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the journal, the auction state file, the dashboard bundle."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
@@ -1375,6 +1453,103 @@ def lineup_record_cmd(
     payload = {"submitted_id": submitted_id, "season_id": season_id, "giornata": round_.giornata, "my_team": my_team,
                "source": "hand", **submission.to_dict(), "records": [str(p) for p in records]}
     emit(payload, json_=json_, render=_render_record)
+
+
+CALIBRATE_GIORNATA_OPTION = typer.Option(
+    None, "--giornata", help="A giornata to calibrate; repeatable. Default: every giornata of the season with voti "
+                             "and either predictions or a recorded match.")
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{100 * value:.0f}%"
+
+
+def _render_calibrate(payload: dict) -> str:
+    lines = [(f"calibration · season {payload['season_id']} · giornate {_ranges(payload['giornate'])} · "
+              f"computed on read, nothing stored")]
+    for w in payload["weeks"]:
+        opponent = w["opponent_name"] or f"team {w['opponent']}"
+        verdict = {3: "won", 1: "drew", 0: "lost"}.get(w["points"], f"{w['points']} pts")
+        lines.append(f"giornata {w['giornata']}: {w['my_total']:g} – {w['opponent_total']:g} vs {opponent} · "
+                     f"{verdict} {w['result'] or ''} · {w['points']} pts")
+        missing = (f", {len(w['eleven_missing'])} without a voto ({', '.join(w['eleven_missing'])})"
+                   if w["eleven_missing"] else "")
+        lines.append(f"  fielded {w['module'] or '?'}: the eleven {w['eleven_total']:g}{missing}; "
+                     f"the bench and the malus added {w['bench_added']:+g}")
+        if w["best"]:
+            lines.append(f"  best possible {w['best']['module']}: {w['best']['total']:g} -- "
+                         f"{w['left_on_bench']:g} left on the bench")
+        else:
+            lines.append(f"  best possible: {w['best_note']}")
+        model = w["model_xi"]
+        if model is None:
+            lines.append(f"  model's XI: {w['model_note']}")
+        elif model["exact"]:
+            lines.append(f"  model's XI {model['module']} (run {w['lineup_run_id']}): {model['total']:g}, exact -- "
+                         f"all eleven got a voto")
+        else:
+            lines.append(f"  model's XI {model['module']} (run {w['lineup_run_id']}): at least {model['total']:g} -- "
+                         f"{len(model['missing'])} starter(s) without a voto ({', '.join(model['missing'])}), "
+                         f"the bench would have decided")
+        lines.append(f"  {w['roster_note']}")
+    p = payload["p_start"]
+    if p["n"]:
+        lines.append(f"p_start (published, {p['n']} rows, {payload['dropped']} dropped): brier "
+                     f"{p['brier_published']:.3f} page · {p['brier_blend']:.3f} blend · "
+                     f"{p['brier_base_rate']:.3f} base rate ({_pct(p['base_rate'])} got a voto)")
+        for b in p["bins"]:
+            lines.append(f"  {b['low']:>3}-{b['high']:<3} n {b['n']:>4}  predicted {_pct(b['mean_predicted']):>4}  "
+                         f"got a voto {_pct(b['observed']):>4}  [{_pct(b['ci_low'])}–{_pct(b['ci_high'])}]")
+    else:
+        lines.append("p_start: no prediction to score")
+    for m in payload["fantavoto"]:
+        groups = " · ".join(f"{g['group']} n {g['n']} {g['mean_error']:+.2f}"
+                            + (f" ±{g['se']:.2f}" if g["se"] is not None else "") + f" mae {g['mae']:.2f}"
+                            for g in m["groups"])
+        lines.append(f"fantavoto (model {m['model_hash'][:8]}, weekly {(m['weekly_hash'] or '—')[:8]}): {groups}")
+        lines.append(f"  spread: within 1 sd {_pct(m['within_1sd'])}, 2 sd {_pct(m['within_2sd'])} (n {m['spread_n']})"
+                     if m["spread_n"] else "  spread: no fv_sd on these rows (written before 3b)")
+    s = payload["surprises"]
+    lines.append("confident no-shows (≥80): " + (", ".join(
+        f"{i['name']} {i['p_start_published']} (g{i['giornata']})" for i in s["no_shows"]) or "none"))
+    lines.append("long shots who played (≤20): " + (", ".join(
+        f"{i['name']} {i['p_start_published']} → {i['fantavoto']:g} (g{i['giornata']})" for i in s["long_shots"])
+        or "none"))
+    if s["my_misses"]:
+        lines.append("my biggest misses: " + ", ".join(f"{i['name']} {i['error']:+.1f} (g{i['giornata']})"
+                                                       for i in s["my_misses"]))
+    check = payload["scoring"]
+    if check["disagreements"]:
+        lines.append(f"scoring: {len(check['disagreements'])} of {check['checked']} platform rows DISAGREE "
+                     f"with the voti -- the voto source or the bonus table is wrong")
+        lines += [f"  {d['describe']}" for d in check["disagreements"]]
+    else:
+        skipped = f" ({check['skipped']} skipped: no voti yet)" if check["skipped"] else ""
+        lines.append(f"scoring: {check['checked']} platform rows agree with the voti{skipped}")
+    lines += [f"warning: {w}" for w in payload["warnings"]]
+    return "\n".join(lines)
+
+
+@app.command("calibrate")
+def calibrate_cmd(
+    json_: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    giornata: list[int] | None = CALIBRATE_GIORNATA_OPTION,
+) -> None:
+    """Predicted against actual, computed on read: my week as the platform scored it beside the best eleven and the model's, the p_start reliability curve, the fantavoto bias, and the platform's scores checked against the voti. Local and read-only: no network, nothing written."""
+    from fantaclaude.analysis.calibration import CalibrationError, calibrate
+
+    entries = _league_yml_or_exit()
+    my_team = int(entries["my_team"].value) if entries and "my_team" in entries else None
+    season_id = _seasons_or_exit(None)[-1]
+    con = _open_read_only()
+    try:
+        report = calibrate(con, season_id=season_id, giornate=giornata, my_team=my_team)
+    except CalibrationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=ExitCode.NOT_READY) from None
+    finally:
+        con.close()
+    emit(report.to_dict(), json_=json_, render=_render_calibrate)
 
 
 asta_app = typer.Typer(name="asta", help="The auction core, offline: the pinned run priced against the mirrored session, "
