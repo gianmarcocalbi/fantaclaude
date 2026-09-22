@@ -8,7 +8,7 @@ source: "no lineup run (no forecast was written); match_file 3, the platform rea
 # Giornata 5 — Sanzimippi FC, 18-20 September 2026
 
 Lost 1-3, 67.5 to 76.5, the last round before the international break. The
-numbers below are `calibrate`'s and reproduce with it:
+scores below are `calibrate`'s and reproduce with it:
 
 ```
 fantaclaude calibrate --giornata 5
@@ -25,7 +25,7 @@ below was read back from the platform on 2026-09-22.
 A 4-1-4-1 this time: Caprile; Doig, Mancini, Bertola, Hainaut; Karlstrom;
 Zaccagni, Da Cunha, Thorstvedt, Rowe; Douvikas. The eleven scored 63 on their
 own — Bertola did not play — and the bench added 4.5: Gallo came on in his
-place, adapted, with the one-point malus.
+place through a forced substitution, with the one-point malus.
 
 There is no "best possible" eleven for this week, and the reason is the week's
 real story. Of the five players on the roster who can play Dc — Mancini,

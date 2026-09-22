@@ -8,7 +8,7 @@ source: "lineup run 2 (valuation run 20260904T091947Z-7694bd6a); match_file 1, t
 # Giornata 3 — Fabio Borini, 4-7 September 2026
 
 The first round of the calendario, and the only one of the first three with a
-forecast. Lost 1-4, 67 to 82.5. The numbers below are `calibrate`'s and
+forecast. Lost 1-4, 67 to 82.5. The scores below are `calibrate`'s and
 reproduce with it:
 
 ```
@@ -52,8 +52,8 @@ The fantavoto side, on a single round, is noise until proven otherwise: the
 goalkeepers came in about half a point under the model's expectation, the
 forwards a little over. On my own roster the three biggest misses were all
 upside — Doig, Karlstrom and Adams C. each more than three points above what
-the model expected of them — and the largest downside was Douvikas, a point
-and a half below.
+the model expected of them — and the largest downside was Douvikas, nearly
+two points below.
 
 ## What I learned
 

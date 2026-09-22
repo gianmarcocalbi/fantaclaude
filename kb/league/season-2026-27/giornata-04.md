@@ -7,7 +7,7 @@ source: "no lineup run (no forecast was written); match_file 2, the platform rea
 
 # Giornata 4 — Due amici al VAR, 11-14 September 2026
 
-Won 1-0, 67 to 62.5: the first three points of the season. The numbers below
+Won 1-0, 67 to 62.5: the first three points of the season. The scores below
 are `calibrate`'s and reproduce with it:
 
 ```
