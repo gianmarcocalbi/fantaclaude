@@ -1,6 +1,9 @@
 # Published docs — rework
 
 **Date:** 2026-09-05
+**Revised:** 2026-09-06 — for #11 (the lineup read-back and the eighth MCP
+tool). Page contents shift in eight places; the four-section structure and
+every decision in the table below are unchanged.
 **Status:** Draft for review
 **Scope:** the content of the mkdocs site under `site/`, restructured into four
 sections; `site/mkdocs.yml` edited only where the structure requires it
@@ -75,17 +78,15 @@ site/docs/
     records.md
 ```
 
-21 pages, 300–800 words each. `index.md` is both the site root and §1's landing
-page, so §1 has no folder of its own for its overview; its two children live
-under `what-it-is/`.
+21 pages, 300–800 words each.
 
 `navigation.indexes` makes each folder's `index.md` the page its tab lands on.
 Without it a tab click expands the section without opening anything, and the
 four `index.md` files become unreachable except from the sidebar.
 
 §1 is shaped differently from the other three and it is deliberate: its landing
-page is `site/docs/index.md`, the site root, while its two children live under
-`what-it-is/`. `nav:` binds them into one section explicitly —
+page is `site/docs/index.md`, the site root itself, while its two children live
+under `what-it-is/`. `nav:` binds them into one section explicitly —
 
 ```yaml
 - What it is:
@@ -117,13 +118,16 @@ commands, and not one command named:
 - price a live auction as it happens, against the room's remaining credits;
 - pick a legal XI every week, with the bench in the platform's order, a
   contingency for every doubtful starter, and the close calls named;
+- read back what was actually fielded, from the platform itself, and score
+  its own forecast against it;
 - hold opinionated prose with provenance and an expiry date;
 - answer questions about the live league, read-only.
 
 **`scope.md`** — non-goals, each with its reason:
 
 - it never writes to the platform — the XI is typed by hand, against a bug at
-  18:44 on a Friday;
+  18:44 on a Friday. The read-back added in #11 does not soften this: it is a
+  GET of the page the lega already renders, and the non-goal stands unchanged;
 - read-only wherever it touches a live service, with no write surface anywhere
   in the codebase;
 - one league, one operator; the league's rules are configuration, not identity;
@@ -133,10 +137,14 @@ commands, and not one command named:
 
 **`index.md`** — the whole system in one mermaid diagram: sources → ingest →
 DuckDB → the three engines (valuation, weekly, auction) → the four surfaces
-(CLI, MCP, dashboard, skills). Plus the two-package uv workspace (`core/` =
-`fantaclaude`, `mcp/fantacalcio/` = `fantacalcio_mcp`) and why `core` imports
-the MCP package as a library: exactly one copy of "what the league API looks
-like".
+(CLI, MCP, dashboard, skills). The weekly engine's arrow returns: the XI the
+platform shows is read back into the same store the forecast was written to,
+which is what closes the calibration loop rather than leaving it open-ended.
+Plus the two-package uv workspace (`core/` = `fantaclaude`,
+`mcp/fantacalcio/` = `fantacalcio_mcp`) and why `core` imports the MCP package
+as a library: exactly one copy of "what the league API looks like" — a
+direction #11 makes visible, since its matchday resolver sits in the MCP
+package and `core`'s ingest imports it.
 
 **`data-spine.md`** — raw-first ingestion (every fetch lands in a dated
 snapshot under `data/raw/` before anything is derived, so re-derivation needs
@@ -170,6 +178,15 @@ module; the bench in the platform's order with its `coverage` and what it
 cannot cover; the `contingencies` by re-solve; the close calls. Per-player
 deadlines: a prediction is late against its own kickoff, the XI against the
 first. `weekly_hash`.
+
+Then the loop closes. The XI actually fielded is recorded twice over, by two
+routes into one append-only `lineup_submitted`: `lineup record` writes it by
+hand the moment you submit (source `hand`), and after the lock
+`ingest lineup` reads the same fact back off the platform (source
+`platform`). Neither edits the other and the newest row per giornata is what
+calibration scores. Reading the platform's own answer needs the competition's
+own matchday, which is not the Serie A giornata — see `tools/mcp-servers.md`
+for the resolution, which both this command and the MCP tool share.
 
 **`auction-engine.md`** — the single-writer process. The mermaid version of the
 diagram already in today's `architecture.md`: the feed, `adjustments.yml` and
@@ -240,28 +257,57 @@ and what is a component of this one (the CLI, the session-scoped MCP, the
 records format).
 
 **`mcp-servers.md`** — two servers, deliberately different. `fantacalcio-mcp`:
-standalone, read-only, stdio, seven tools over a private Leghe Fantacalcio.it
-league, and also imported by `core/` as an ordinary library so there is one API
-client rather than two. `fantaclaude-asta`: session-scoped, HTTP at `/mcp/` on
-the same process and port as the dashboard, six tools over the live board, only
+standalone, read-only, stdio, **eight** tools over a private Leghe
+Fantacalcio.it league, and also imported by `core/` as an ordinary library so
+there is one API client rather than two.
+
+Two of those eight earn their own paragraph. `get_lineup` reads the XI both
+sides fielded for one match, and getting there is the interesting part: a
+competition's own `matchDay` and the Serie A `championshipMatchDay` are
+different numbers and neither derives from the other — a *calendario*'s round
+one can be championship matchday three — so the competition's calendar is read
+first and the round matched, with more than one round allowed to share a
+championship matchday. That resolver lives in the MCP package as pure data
+logic and is imported by `core`'s ingest, not copied, which is the dependency
+direction made visible.
+
+The other is not a tool but an invariant over all of them: **no email address
+may reach a tool result.** The scrub is two-pronged — every email-bearing key
+dropped at any depth, and every email-*shaped* value redacted regardless of
+the key it sits under, because an address can ride in a free-text field under
+an innocuous name. Documented because it is a standing rule of the project,
+not an implementation detail.
+
+`fantaclaude-asta` is the other server: session-scoped, HTTP at `/mcp/` on the
+same process and port as the dashboard, six tools over the live board, only
 existing while an auction is served — and why that is correct rather than a
 limitation. The trailing slash in `.mcp.json` is load-bearing and the reason is
 stated.
 
 **`cli.md`** — the full reference by group (`sync-league`, `ingest`, `schema`,
 `query`, `kb`, `doctor`, `rank`, `lineup`, `asta`), each command one row: what
-it does, and whether it touches the network. Exit codes as a contract (0 ok,
-1 error, 2 usage, 3 not ready, 4 `league.yml` conflicts with the API). `--json`
-on every read command. The section ends with the network split stated once as a
+it does, and whether it touches the network. `ingest lineup` is in the table
+and in the network list: it needs `league.yml`'s `my_team` leaf, reads the
+competition id and its giornata range live rather than guessing them, and is
+run once after a round. Exit codes as a contract (0 ok, 1 error, 2 usage,
+3 not ready, 4 `league.yml` conflicts with the API). `--json` on every read
+command. The section ends with the network split stated once as a
 list, because it is the fact most worth being able to check quickly.
 
-**`ingest-contract.md`** — polite by construction: one request at a time, a
-pause between pages, no retries, named hosts, and the standing rule against
-fetching "to check" or during a match. Raw-first, so a fix to an alias
-re-derives offline. The bounded login — single-flight lock, cooldown,
-staleness check, recovery-only clock — and why a retry that escapes it locks a
-real account. Written so someone could adopt the discipline without this
-codebase.
+**`ingest-contract.md`** — two kinds of ingest, and the page leads with the
+split rather than burying it. Against **public web hosts** (`advanced`,
+`calendar`, `probabili`, `news`, `stats-web`): polite by construction — one
+request at a time, a pause between pages, no retries, named hosts, and the
+standing rule against fetching "to check" or during a match. Against the
+**league API with the real account** (`listone`, `rosters`, `lineup`, and
+`sync-league` beside them): a different discipline, because the cost of
+getting it wrong is a locked account rather than an annoyed webmaster. The
+bounded login — single-flight lock, cooldown, staleness check, recovery-only
+clock — and why a retry that escapes it locks a real account.
+
+Cutting across both: raw-first, so every fetch lands on disk before anything
+is derived and a fix to an alias re-derives offline. Written so someone could
+adopt the discipline without this codebase.
 
 **`knowledge-base.md`** — prose with provenance for a model to read. The
 front-matter contract (`updated`, `ttl`, `confidence`, `source`, plus the
@@ -281,9 +327,11 @@ good-answer/bad-answer pair as a technique for pinning behaviour.
 
 **`records.md`** — `records/` is committed and permanent; `data/exports/` is a
 rendering and gitignored. What a valuation run writes as parquet, what a lineup
-run and a recorded XI write, what `asta close` copies. Naming by `run_id` and
-why the identifier — not the rendering — is the record a journal entry links.
-Never rewritten, and what that buys.
+run writes, what `asta close` copies — and `lineup_submitted`, the one table
+two commands append to: `lineup record` as source `hand`, `ingest lineup` as
+source `platform`, neither editing the other, the newest per giornata current.
+Naming by `run_id` and why the identifier — not the rendering — is the record
+a journal entry links. Never rewritten, and what that buys.
 
 ## Content rules
 
@@ -359,8 +407,15 @@ markdown_extensions:         # the file currently has none
           format: !!python/name:pymdownx.superfences.fence_code_format
 ```
 
-`nav:` is rewritten to the four sections, listing all 21 pages — `--strict`
-fails on any page absent from it.
+`nav:` is rewritten to the four sections, listing all 21 pages.
+
+A correction, found by testing mkdocs 1.6.1 while the plan was being written:
+**`--strict` does not catch a page that exists but is absent from `nav`.** That
+condition is logged at INFO and the build exits 0. `--strict` *does* fail the
+reverse — a `nav` entry naming a file that does not exist — and it fails a link
+whose target is missing. So nav completeness is not build-enforced and needs
+its own check; the plan makes counting `nav` entries against `site/docs/*.md`
+an explicit verification step rather than assuming the build covers it.
 
 `navigation.indexes` is required by the structure, not cosmetic: without it a
 tab click expands its section without opening a page, and the four `index.md`
@@ -389,10 +444,13 @@ root.
 
 ## Testing
 
-- `uv run poe docs-build` — `mkdocs build --strict` is the pass/fail gate. Under
-  `--strict` a page missing from `nav`, a broken internal link and a bad anchor
-  are all build failures. There is no unit suite for markdown; this is the
-  correctness signal.
+- `uv run poe docs-build` — `mkdocs build --strict` is the pass/fail gate. It
+  fails on a `nav` entry naming a file that does not exist, and on a link whose
+  target is not among the documentation files. It does **not** fail on a page
+  that exists but is missing from `nav` — that is an INFO line and a zero exit
+  (verified against mkdocs 1.6.1) — so nav completeness is checked separately,
+  by counting entries against files. There is no unit suite for markdown;
+  otherwise this is the correctness signal.
 - `uv run poe docs-serve`, then read all four tabs. Two things `--strict`
   cannot catch and a human must:
   - **the mermaid diagrams must actually render.** A misconfigured custom fence
