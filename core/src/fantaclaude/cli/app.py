@@ -1047,7 +1047,7 @@ def _render_doctor(payload: dict) -> str:
 
 @app.command("doctor")
 def doctor_cmd(json_: bool = typer.Option(False, "--json", help="Machine-readable output.")) -> None:
-    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the auction state file, the dashboard bundle."""
+    """Readiness check: credentials, token cache, website session, database, every snapshot's coverage, league.yml, kb, aliases, module table, scoring, pricing, valuations, the pinned run, adjustments.yml, lineup-notes.yml, the journal, the auction state file, the dashboard bundle."""
     from fantacalcio_mcp.config import env_path, token_cache_path
 
     from fantaclaude.commands.doctor import DoctorPaths, run_doctor
