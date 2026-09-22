@@ -242,3 +242,37 @@ def seed_fixtures(con, season_id: int, rounds) -> int:
             con.execute("INSERT INTO fixtures VALUES (?, 'SA', ?, ?, ?, ?, NULL, ?, 'Home', 'Away', NULL, NULL, '{}')",
                         [snapshot_id, season_id, f"seed-{giornata}-{i}", str(giornata), giornata, to_db(kickoff)])
     return snapshot_id
+
+
+def seed_listone(con, rows) -> int:
+    """A fresh listone snapshot -- `v_players_current` follows the newest.
+    `rows` are (player_id, name, team_name, classic_role, mantra_roles), the
+    roles an iterable of role strings ("Dc", "Pc", ...)."""
+    from uuid import uuid4
+    snapshot_id = con.execute(
+        "INSERT INTO listone_snapshots (fetched_at, source, raw_path, sha256, player_count) "
+        "VALUES (now(), 'seed', 'seed/listone', ?, ?) RETURNING snapshot_id",
+        [f"seed-listone-{uuid4().hex[:8]}", len(rows)]).fetchone()[0]
+    con.executemany(
+        "INSERT INTO players VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, [], 1, 1, 1, 1, 1, 1, NULL, NULL, false, '{}')",
+        [[snapshot_id, pid, name, team, role, list(roles)] for pid, name, team, role, roles in rows])
+    return snapshot_id
+
+
+def seed_lineup_run(con, season_id: int, giornata: int, rows, *, late=False, model_hash="m1", weekly_hash=None,
+                    run_id="r1", module=None, xi=None, my_team=None) -> int:
+    """One lineup_runs row and its predictions. `rows` are (player_id,
+    p_start_published, p_start, fv_if_plays, fv_sd); every prediction carries
+    the run's own `late`."""
+    lineup_run_id = con.execute(
+        "INSERT INTO lineup_runs (season_id, giornata, run_id, model_hash, probabili_file_id, deadline, written_at, "
+        "late, my_team, module, xi, predictions, weekly_hash) "
+        "VALUES (?, ?, ?, ?, 1, '2026-09-04 18:45', '2026-09-04 13:46', ?, ?, ?, ?::JSON, ?, ?) RETURNING lineup_run_id",
+        [season_id, giornata, run_id, model_hash, late, my_team, module, None if xi is None else json.dumps(xi),
+         len(rows), weekly_hash]).fetchone()[0]
+    for pid, published, p_start, fv, fv_sd in rows:
+        con.execute(
+            "INSERT INTO predictions (lineup_run_id, season_id, giornata, player_id, p_start_published, p_start, "
+            "fv_if_plays, fv_sd, expected_points, source, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
+            [lineup_run_id, season_id, giornata, pid, published, p_start, fv, fv_sd, p_start * fv, late])
+    return lineup_run_id
