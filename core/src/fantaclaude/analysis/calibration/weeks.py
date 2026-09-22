@@ -54,6 +54,19 @@ class XiScore:
 
 
 @dataclass(frozen=True)
+class FieldedPlayer:
+    """One platform-side row of the fielded eleven or the bench, in the
+    platform's own order (position within its part)."""
+    part: str                        # 'xi' or 'bench'
+    position: int
+    player_id: int
+    name: str
+    status: str
+    fantavoto: float | None          # None: no voto
+    malus: int
+
+
+@dataclass(frozen=True)
 class Week:
     giornata: int
     match_file: int
@@ -75,6 +88,7 @@ class Week:
     model_note: str | None
     lineup_run_id: int | None
     roster_note: str
+    fielded: list[FieldedPlayer]
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -172,12 +186,15 @@ def week(con: duckdb.DuckDBPyConnection, *, season_id: int, giornata: int, my_te
     mine_home = home == my_team
     opponent = away if mine_home else home
     my_total, opponent_total = (home_total, away_total) if mine_home else (away_total, home_total)
-    eleven = con.execute(
-        "SELECT s.player_id, s.status, s.fantavoto, p.name FROM match_scores s "
+    fielded_rows = con.execute(
+        "SELECT s.part, s.position, s.player_id, s.status, s.fantavoto, s.malus, p.name FROM match_scores s "
         "LEFT JOIN v_players_current p ON p.player_id = s.player_id "
-        "WHERE s.file_id = ? AND s.team_id = ? AND s.part = 'xi' ORDER BY s.position", [file_id, my_team]).fetchall()
-    eleven_total = sum(value for _, status, value, _ in eleven if status == "voto")
-    eleven_missing = [name or f"#{pid}" for pid, status, _, name in eleven if status != "voto"]
+        "WHERE s.file_id = ? AND s.team_id = ? ORDER BY (s.part != 'xi'), s.position",
+        [file_id, my_team]).fetchall()
+    fielded = [FieldedPlayer(part, int(position), int(pid), (name or f"#{pid}"), status, fantavoto, int(malus))
+              for part, position, pid, status, fantavoto, malus, name in fielded_rows]
+    eleven_total = sum(f.fantavoto for f in fielded if f.part == "xi" and f.status == "voto")
+    eleven_missing = [f.name for f in fielded if f.part == "xi" and f.status != "voto"]
     opponent_name = con.execute("SELECT any_value(team_name) FROM rosters WHERE team_id = ?", [opponent]).fetchone()[0]
     first = con.execute("SELECT min(kickoff) FROM v_fixtures_current WHERE competition = 'SA' AND season_id = ? "
                         "AND giornata = ?", [season_id, giornata]).fetchone()[0]
@@ -201,4 +218,5 @@ def week(con: duckdb.DuckDBPyConnection, *, season_id: int, giornata: int, my_te
                 oriented_result(result, mine_home), int(home_points if mine_home else away_points),
                 home_module if mine_home else away_module, float(eleven_total), eleven_missing,
                 float(my_total) - float(eleven_total), best, best_note,
-                None if best is None else best.total - float(my_total), model, model_note, lineup_run_id, roster_note)
+                None if best is None else best.total - float(my_total), model, model_note, lineup_run_id, roster_note,
+                fielded)

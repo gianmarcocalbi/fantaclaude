@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -760,6 +761,28 @@ def test_ingest_lineup_records_the_platforms_score_once_the_round_is_calculated(
     con.close()
     plain = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
     assert plain.exit_code == ExitCode.OK and "score: 67 – 82.5 (1-4)" in plain.stdout
+
+
+def test_ingest_lineup_keeps_the_xi_when_the_score_is_malformed(monkeypatch, tmp_path, fixture_json, mcp_fixture_json,
+                                                                 fake_api):
+    """MatchScoresShapeError is a ValueError -- exit 1, the XI already kept
+    (app.py's own comment on the second `_source_errors()` around
+    `record_match`): the score parse runs *after* `record_submitted` and
+    `export_submitted_record`, so a malformed platform response must not
+    cost the read-back that already succeeded."""
+    _ingest_lineup_workspace(monkeypatch, tmp_path, fixture_json, mcp_fixture_json)
+    payload = copy.deepcopy(LINEUP_CALCULATED)
+    payload["away"]["starts"][0]["scr"] = 57
+    payload["away"]["starts"][0]["cscr"] = 100
+    api = fake_api(overrides={"competition_calendar": LINEUP_CALENDAR, "lineup": payload})
+    monkeypatch.setattr("fantaclaude.api_client.run_with_api", lambda fn: asyncio.run(fn(api)))
+    result = runner.invoke(app, ["ingest", "lineup", "--giornata", "3"])
+    assert result.exit_code == ExitCode.ERROR, result.output
+    assert "57" in result.stderr
+    con = connect(tmp_path / "data" / "fanta.duckdb", read_only=True)
+    assert con.execute("SELECT count(*) FROM lineup_submitted").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM match_files").fetchone()[0] == 0
+    con.close()
 
 
 def test_ingest_lineup_records_no_score_for_a_round_not_yet_calculated(monkeypatch, tmp_path, fixture_json,

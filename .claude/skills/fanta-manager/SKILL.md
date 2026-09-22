@@ -80,7 +80,10 @@ was actually fielded.
    Front-matter: `updated`, `ttl: never`, `confidence`, and `source:` naming
    the lineup run, the valuation run and the command. Then prose, **no
    number tables**: the result; what was fielded against what the model
-   named and what was possible; what the page got wrong that is worth
+   named and what was possible — "what was fielded" comes from
+   `weeks[].fielded` in the same `--json` (names, statuses and fantavoti of
+   the eleven and the bench, in the platform's own order), so the entry's
+   facts reproduce from the command; what the page got wrong that is worth
    remembering; and a last section, `## What I learned`, left for the
    operator. Every number the prose cites is the command's, never
    recomputed; a lesson that outlives the week is promoted to a team

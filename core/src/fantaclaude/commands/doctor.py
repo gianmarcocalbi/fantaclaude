@@ -477,6 +477,9 @@ def _scoring_check(con: duckdb.DuckDBPyConnection | None, skip: str) -> Check:
                                        f"corrupts every projection")
     if platform is not None and platform.checked:
         head = f"{source}, verified against the platform on {platform.checked} rows"
+    elif platform is not None and platform.skipped:
+        head = (f"{source} (mapping unverified: {platform.skipped} platform row(s) wait for their voti -- "
+                f"`fantaclaude ingest stats-web`)")
     else:
         head = f"{source} (mapping unverified until `fantaclaude ingest lineup` records a calculated round)"
     status = modifier_status(calculate)

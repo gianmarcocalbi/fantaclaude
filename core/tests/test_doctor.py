@@ -567,6 +567,25 @@ def test_the_scoring_check_is_verified_against_the_platform(tmp_path, fixture_js
     assert "sheet Fantacalcio" in by["scoring"].detail and "no modifier active" in by["scoring"].detail
 
 
+def test_the_scoring_check_points_at_stats_web_when_every_platform_row_is_skipped(tmp_path, fixture_json, mcp_fixture_json):
+    """Matches are recorded but the giornata's voti are not ingested yet, so
+    every platform row is skipped rather than checked -- the head must name
+    the actual next step, `ingest stats-web`, not the generic "record a
+    calculated round" wording that fits only when nothing was recorded at
+    all."""
+    from fantaclaude.ingest.match_scores import record_match
+
+    _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
+    payload = json.loads((FIXTURE_DIR / "lineup_calculated_sample.json").read_text(encoding="utf-8"))
+    con = connect(tmp_path / "data" / "fanta.duckdb")
+    record_match(con, RawStore(tmp_path / "data" / "raw").write("lineup", payload, label="19717181-03"), payload,
+                 season_id=21)
+    con.close()
+    by = {c.name: c for c in run_doctor(_paths(tmp_path), now=datetime.now(UTC))}
+    assert by["scoring"].ok and "ingest stats-web" in by["scoring"].detail
+    assert "sheet Fantacalcio" in by["scoring"].detail and "no modifier active" in by["scoring"].detail
+
+
 def test_the_scoring_check_fails_on_a_platform_disagreement(tmp_path, fixture_json, mcp_fixture_json):
     _ready_workspace(tmp_path, fixture_json, mcp_fixture_json)
     _record_calculated(tmp_path, overrides={632: (7.0, {"assists": 1})})

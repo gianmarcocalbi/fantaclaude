@@ -101,6 +101,11 @@ def test_week_reads_my_side_orients_the_result_and_simulates_no_substitution(db,
     assert w.left_on_bench == pytest.approx(w.best.total - 67.0)
     assert w.model_xi is None and "no forecast" in w.model_note
     assert "earliest" in w.roster_note                                 # the seeded snapshot postdates the kickoff
+    assert len(w.fielded) == 23 and [f.part for f in w.fielded[:11]] == ["xi"] * 11
+    rowe = next(f for f in w.fielded if f.player_id == 6844)
+    assert rowe.part == "xi" and rowe.status == "absent"
+    adams = next(f for f in w.fielded if f.player_id == 6646)
+    assert adams.part == "bench" and adams.fantavoto == 10.0
 
 
 def test_week_scores_the_models_xi_from_the_newest_honest_run(db, tmp_path):
