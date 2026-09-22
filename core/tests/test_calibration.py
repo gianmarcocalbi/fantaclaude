@@ -112,3 +112,27 @@ def test_calibrate_refuses_a_database_at_an_older_schema(tmp_path, mcp_fixture_j
     with pytest.raises(CalibrationError, match="schema 5"):
         calibrate(con, season_id=21, my_team=AWAY_TID)
     con.close()
+
+
+def test_calibrate_names_a_giornata_predicted_under_other_rules(tmp_path, mcp_fixture_json):
+    con = _database(tmp_path, mcp_fixture_json)
+    con.close()
+    writer = connect(tmp_path / "c.duckdb")
+    writer.execute(
+        "INSERT INTO valuation_runs VALUES ('r1', now(), 'deadbeef', 'm1', 'i1', 1, 1, 21, 3, ['balanced'], "
+        "'{}', '{}')")
+    writer.close()
+    con = connect(tmp_path / "c.duckdb", read_only=True)
+    report = calibrate(con, season_id=21, my_team=AWAY_TID)
+    con.close()
+    matches = [w for w in report.warnings if "giornata 3 was predicted under rules deadbeef" in w]
+    assert len(matches) == 1 and report.warnings == matches
+
+
+def test_calibrate_scores_a_week_without_a_forecast(tmp_path, mcp_fixture_json):
+    con = _database(tmp_path, mcp_fixture_json, with_run=False)
+    report = calibrate(con, season_id=21, my_team=AWAY_TID)
+    con.close()
+    assert report.predictions == 0 and report.p_start.n == 0 and report.fantavoto == []
+    [w] = report.weeks
+    assert w.my_total == 67.0 and w.model_xi is None and "no forecast named an XI" in w.model_note
