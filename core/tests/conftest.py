@@ -276,3 +276,37 @@ def seed_lineup_run(con, season_id: int, giornata: int, rows, *, late=False, mod
             "fv_if_plays, fv_sd, expected_points, source, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
             [lineup_run_id, season_id, giornata, pid, published, p_start, fv, fv_sd, p_start * fv, late])
     return lineup_run_id
+
+
+def events_for(delta: float) -> dict:
+    """Event counts whose bonus/malus under the fixtures' own table (goal +3,
+    assist +1, yellow -0.5, goal conceded -1) add up to `delta`: a half point
+    is a yellow, the rest goals and assists, or goals conceded."""
+    yellow = 1 if round(delta * 2) % 2 else 0
+    rest = round(delta + 0.5 * yellow)
+    if rest >= 0:
+        goals, assists = divmod(rest, 3)
+        return {"yellow": yellow, "goals": goals, "assists": assists}
+    return {"yellow": yellow, "goals_conceded": -rest}
+
+
+def seed_voti_matching(con, season_id: int, payload, *, overrides=None) -> int:
+    """One voti file agreeing, row for row, with the calculated match `payload`:
+    a voto where the platform has one (events chosen so the fantavoto, less
+    the malus, is the platform's), a senza voto for 55, no row for 56.
+    `overrides` maps player_id to a (voto, events) pair that replaces the
+    agreeing one -- how a test seeds a disagreement."""
+    from fantaclaude.ingest.match_scores import STATUS_SV, STATUS_VOTO, parse_match
+
+    match = parse_match(payload)
+    rows = []
+    for p in match.players:
+        if p.status == STATUS_VOTO:
+            voto, events = p.voto, events_for(p.fantavoto + p.malus - p.voto)
+        elif p.status == STATUS_SV:
+            voto, events = None, {}
+        else:
+            continue
+        voto, events = (overrides or {}).get(p.player_id, (voto, events))
+        rows.append((p.player_id, f"p{p.player_id}", f"club{p.team_id}", "C", voto, events))
+    return seed_voti(con, season_id, match.giornata, rows)
