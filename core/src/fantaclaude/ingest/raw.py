@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,3 +64,12 @@ class RawStore:
     @staticmethod
     def sha256_of(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def on_disk(path: Path, kind: str) -> RawFile:
+        """The RawFile a prior write() returned, for a file already on disk: the
+        fetch stamp is the name's own prefix, and the hash is cheap to recompute
+        -- nothing about a raw file is ever mutable."""
+        stamp, _, _ = path.name.partition("-")
+        fetched_at = datetime.strptime(stamp, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=UTC)
+        return RawFile(path, RawStore.sha256_of(path), fetched_at, kind)

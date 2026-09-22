@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -283,9 +282,7 @@ def _raw_file_from_disk(path: Path, kind: str) -> RawFile:
     """Reconstruct the RawFile a prior run's write() returned, for a file
     RawStore already wrote: the fetch stamp is the name's own prefix, and the
     hash is cheap to recompute -- nothing about a raw file is ever mutable."""
-    stamp, _, _ = path.name.partition("-")
-    fetched_at = datetime.strptime(stamp, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=UTC)
-    return RawFile(path, RawStore.sha256_of(path), fetched_at, kind)
+    return RawStore.on_disk(path, kind)
 
 
 def existing_giornate(store: RawStore, seasons: list[int]) -> dict[int, set[int]]:
