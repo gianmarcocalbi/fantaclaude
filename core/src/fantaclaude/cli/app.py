@@ -667,10 +667,76 @@ def ingest_rosters_cmd(
 
 
 INGEST_LINEUP_GIORNATA_OPTION = typer.Option(
-    None, "--giornata", help="Giornata number (default: the newest one fully finished -- the read-back is after the lock).")
+    None, "--giornata", help="Giornata number (default: the newest one fully finished -- the read-back is after the round).")
 INGEST_LINEUP_COMPETITION_OPTION = typer.Option(
     None, "--competition", help="The competition id (idcomp), when the account runs more than one; "
                                 "default: the only one, refused if that is ambiguous.")
+INGEST_LINEUP_FROM_DISK_OPTION = typer.Option(
+    False, "--from-disk", help="No network: record the platform's scores from the read-backs already under "
+                               "data/raw/lineup/ (never the XI again).")
+
+
+def _match_line(match: dict, my_team: int) -> str:
+    from fantaclaude.ingest.match_scores import oriented_result
+
+    if not match["calculated"]:
+        return (f"score: giornata {match['giornata']} is not calculated on the platform yet -- nothing recorded; "
+                f"read it back once it is")
+    mine_home = match["home_team"] == my_team
+    mine, theirs = (match["home_total"], match["away_total"]) if mine_home else (match["away_total"], match["home_total"])
+    where = (f"already recorded as match_file {match['file_id']}" if match["duplicate"]
+             else f"match_file {match['file_id']}, {match['players']} player rows")
+    return f"score: {mine:g} – {theirs:g} ({oriented_result(match['result'], mine_home)}) · {where}"
+
+
+def _render_ingest_lineup(payload: dict) -> str:
+    return _render_record(payload) + "\n" + _match_line(payload["match"], payload["my_team"])
+
+
+def _render_lineup_from_disk(payload: dict) -> str:
+    lines = []
+    for f in payload["files"]:
+        name = f["raw_path"].rsplit("/", 1)[-1]
+        if not f["calculated"]:
+            state = "not calculated -- skipped"
+        elif f["duplicate"]:
+            state = f"already recorded (match_file {f['file_id']})"
+        else:
+            state = f"recorded as match_file {f['file_id']} ({f['players']} player rows)"
+        lines.append(f"giornata {f['giornata']}: {name} -- {state}")
+    tail = (f", {payload['before_season']} fetched before season {payload['season_id']} began (ignored)"
+            if payload["before_season"] else "")
+    lines.append(f"{payload['recorded']} recorded, {payload['duplicates']} already recorded, "
+                 f"{payload['not_calculated']} not calculated{tail}")
+    return "\n".join(lines)
+
+
+def _ingest_lineup_from_disk(*, json_: bool) -> None:
+    from fantaclaude.db.connection import connect
+    from fantaclaude.db.schema import apply_schema
+    from fantaclaude.ingest.match_scores import (
+        MatchScoresShapeError,
+        NoSeasonCalendar,
+        record_from_disk,
+    )
+    from fantaclaude.ingest.raw import RawStore
+    from fantaclaude.paths import raw_dir
+
+    season_id = _seasons_or_exit(None)[-1]
+    con = connect()
+    try:
+        apply_schema(con)
+        try:
+            sweep = record_from_disk(con, RawStore(raw_dir()), season_id=season_id)
+        except NoSeasonCalendar as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=ExitCode.NOT_READY) from None
+        except MatchScoresShapeError as exc:
+            typer.echo(f"source shape unexpected: {exc}", err=True)
+            raise typer.Exit(code=ExitCode.ERROR) from None
+    finally:
+        con.close()
+    emit({"season_id": season_id, **sweep.to_dict()}, json_=json_, render=_render_lineup_from_disk)
 
 
 @ingest_app.command("lineup")
@@ -679,8 +745,16 @@ def ingest_lineup_cmd(
     giornata: int | None = INGEST_LINEUP_GIORNATA_OPTION,
     competition: int | None = INGEST_LINEUP_COMPETITION_OPTION,
     league: str | None = typer.Option(None, "--league", help="League alias; only for multi-league accounts."),
+    from_disk: bool = INGEST_LINEUP_FROM_DISK_OPTION,
 ) -> None:
-    """Read the XI actually fielded back from the platform -- the GET the lega's own formazioni page makes for one match -- and record it as source `platform`. The competition id and its own giornata range are read live from the league API, never guessed. Appended, never edited. Network: the account in .env, three reads, once after the lock."""
+    """Read the XI actually fielded back from the platform -- the GET the lega's own formazioni page makes for one match -- and record it as source `platform`; once the round is calculated, record the same response's scores too (match_files, match_scores). The competition id and its own giornata range are read live from the league API, never guessed. Appended, never edited. Network: the account in .env, three reads, once for the finished giornata in Tuesday's refresh. --from-disk: no network, the scores of the read-backs already on disk."""
+    if from_disk:
+        if giornata is not None or competition is not None or league is not None:
+            typer.echo("--from-disk reads what is already on disk -- it takes no --giornata, --competition or --league",
+                       err=True)
+            raise typer.Exit(code=ExitCode.USAGE)
+        _ingest_lineup_from_disk(json_=json_)
+        return
     from fantaclaude.analysis.weekly import ForecastError, target_round
     from fantaclaude.analysis.weekly.submitted import (
         export_submitted_record,
@@ -691,6 +765,7 @@ def ingest_lineup_cmd(
     from fantaclaude.db.connection import connect
     from fantaclaude.db.schema import apply_schema
     from fantaclaude.ingest.lineup_api import fetch_lineup, load_lineup
+    from fantaclaude.ingest.match_scores import record_match
     from fantaclaude.ingest.raw import RawStore
     from fantaclaude.model.modules import load_modules
     from fantaclaude.paths import raw_dir, records_dir
@@ -724,7 +799,7 @@ def ingest_lineup_cmd(
             raise typer.Exit(code=ExitCode.NOT_READY) from None
         store = RawStore(raw_dir())
         with _source_errors():                      # LineupShapeError (and its CompetitionSelection/RangeError subclasses) are ValueErrors: exit 1
-            _raw, payload, resolved = run_with_api(
+            raw, payload, resolved = run_with_api(
                 lambda api: fetch_lineup(api, store, team_id=my_team, requested_giornata=giornata,
                                          ahead_giornata=ahead_giornata, competition_id=competition, league=league))
             submission = load_lineup(payload, team_id=my_team, roster=roster, modules=load_modules(),
@@ -732,11 +807,14 @@ def ingest_lineup_cmd(
         submitted_id = record_submitted(con, season_id=season_id, giornata=resolved, submission=submission,
                                         my_team=my_team, source="platform", now=utc_now())
         records = export_submitted_record(con, submitted_id, records_dir())
+        with _source_errors():                      # MatchScoresShapeError is a ValueError: exit 1, the XI already kept
+            recorded = record_match(con, raw, payload, season_id=season_id)
     finally:
         con.close()
     payload_out = {"submitted_id": submitted_id, "season_id": season_id, "giornata": resolved, "my_team": my_team,
-                   "source": "platform", **submission.to_dict(), "records": [str(p) for p in records]}
-    emit(payload_out, json_=json_, render=_render_record)
+                   "source": "platform", **submission.to_dict(), "records": [str(p) for p in records],
+                   "match": recorded.to_dict()}
+    emit(payload_out, json_=json_, render=_render_ingest_lineup)
 
 
 def _ranges(values: list[int]) -> str:
