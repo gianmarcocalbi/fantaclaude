@@ -25,14 +25,15 @@ you can check rather than infer.
 | `ingest probabili` | Published start probabilities for the next giornata. One request. | networked |
 | `ingest news` | The squalificati and infortunati pages, one request each. | networked |
 | `ingest rosters` | Every lega team's roster and what it paid. | networked |
-| `ingest lineup` | The XI actually fielded, read back from the platform. See below. | networked |
+| `ingest lineup` | The XI actually fielded, read back from the platform — and, once the round is calculated, the platform's own score of the match. `--from-disk` records the scores of read-backs already on disk. See below. | networked (`--from-disk`: local) |
 | `ingest stats-web` | Per-giornata voti and event counts from the XLSX export; needs the website cookie. | networked |
 | `ingest all` | Every source above in one pass; exit 3 if one was skipped. | networked |
 
 `ingest lineup` refuses (exit 3) without `my_team` in `league.yml`, and
 reads the competition id and its own giornata range live rather than
-assuming they match the Serie A calendar. Run it once, after a round locks
-and plays.
+assuming they match the Serie A calendar. Run it once per round, in
+Tuesday's refresh, when the platform has calculated the round: one read
+records both the XI and the score.
 
 ## lineup
 
@@ -41,6 +42,12 @@ and plays.
 | `lineup` | The giornata's forecast, and — when `league.yml` names your team — the XI and module maximizing points. | local |
 | `lineup note` | Append a fact about the giornata (a start probability, factor, or exclusion) to the week's override file, with a reason. | local |
 | `lineup record` | Record the XI actually fielded — the run's XI with `--swap` for deviations, or `--xi`/`--bench` in full. Appended, never edited. | local |
+
+## calibrate
+
+| Command | What it does | Network |
+| --- | --- | --- |
+| `calibrate` | Every finished giornata scored on read: the platform's score of my match beside the best eleven my roster had and the model's XI, the published start probability's reliability curve and Brier scores, the fantavoto bias per role, the page's surprises, and the platform's scores checked against the voti. `--giornata` to pick; nothing is stored. | local |
 
 ## asta
 
@@ -74,9 +81,9 @@ Stated once:
   `advanced`, `calendar`, `probabili`, `news`, `rosters`, `stats-web`,
   `lineup`, `all`; `rank` unless `--offline`; `asta serve`.
 - **Local:** `schema`, `query`, `kb audit`, `doctor`, `lineup`, `lineup
-  note`, `lineup record`, and every `asta` subcommand except `serve` —
-  `board`, `explain`, `replay`, `adjust`, `close`, `verify-transfer`,
-  `market-prices`, `refresh`.
+  note`, `lineup record`, `calibrate`, `ingest lineup --from-disk`, and
+  every `asta` subcommand except `serve` — `board`, `explain`, `replay`,
+  `adjust`, `close`, `verify-transfer`, `market-prices`, `refresh`.
 
 Everything local works against data already on disk, so it runs freely,
 auction included.

@@ -102,9 +102,13 @@ appended by `fantaclaude asta adjust`; every entry needs a `reason`.
 `data/lineup-notes.yml` is the week's override file — mine, hand-editable,
 appended by `fantaclaude lineup note`; every entry carries a `giornata` and a
 `reason`, and an entry for another giornata is inert, never deleted.
-`fantaclaude lineup`, `lineup note` and `lineup record` are local. `fantaclaude
-ingest news` reads two public pages, one request each, under the same rules as
-`ingest probabili`: never "to check", never during a match.
+`fantaclaude lineup`, `lineup note`, `lineup record` and `calibrate` are local
+— `calibrate` read-only on the database — and so is `fantaclaude ingest
+lineup --from-disk`, which records the platform's scores from read-backs
+already under `data/raw/lineup/`; plain `ingest lineup` is networked and runs
+once per giornata, in the Tuesday refresh. `fantaclaude ingest news` reads
+two public pages, one request each, under the same rules as `ingest
+probabili`: never "to check", never during a match.
 `data/asta-state.json` is the mirrored auction as last seen: written
 atomically by the tooling, never edited by hand, copied to `records/asta/` by
 `fantaclaude asta close`. That copy is permanent. The working file is removed

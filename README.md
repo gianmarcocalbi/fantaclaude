@@ -19,7 +19,8 @@ season that follows it.
   the board re-prices on every sale, adjustments land from the dashboard,
   the CLI or Claude through one path, and `--replay` rehearses the whole
   night from a captured session.
-- **Weekly (lineup)** — `fantaclaude lineup`: the giornata's forecast for every player the probabili page lists (p_start by precedence, a `lineup note`, else a squalifica from the news pages, else the published number; the KB, the infortunati list and a European week only ever disagree out loud), a small matchup term and a spread, each prediction honest against its player's own kickoff and never revised — and, once `league.yml` names `my_team`, the XI and module that maximise expected points (an exact solve per permitted module), the bench in the platform's order with what it cannot cover, a re-solve for every doubtful starter and the close calls. `lineup note` writes a fact with its reason; `lineup record` writes the XI actually fielded by hand; `fantaclaude ingest lineup` closes the loop, reading the same fact back from the platform after the lock (source `platform` beside `hand`, same append-only `lineup_submitted`)
+- **Weekly (lineup)** — `fantaclaude lineup`: the giornata's forecast for every player the probabili page lists (p_start by precedence, a `lineup note`, else a squalifica from the news pages, else the published number; the KB, the infortunati list and a European week only ever disagree out loud), a small matchup term and a spread, each prediction honest against its player's own kickoff and never revised — and, once `league.yml` names `my_team`, the XI and module that maximise expected points (an exact solve per permitted module), the bench in the platform's order with what it cannot cover, a re-solve for every doubtful starter and the close calls. `lineup note` writes a fact with its reason; `lineup record` writes the XI actually fielded by hand; `fantaclaude ingest lineup` closes the loop in Tuesday's refresh, reading the same fact back from the platform (source `platform` beside `hand`, same append-only `lineup_submitted`) and, from the same read, the platform's own score of the match once the round is calculated (`--from-disk` records what is already on disk, no request)
+- **Calibration** — `fantaclaude calibrate`: every finished giornata scored on read and never stored — my score as the platform calculated it beside the best eleven my roster had and the model's XI (exact when all eleven got a voto, a named lower bound otherwise), the reliability curve on the published `p_start` with its Brier scores, the fantavoto bias per role and model, the page's surprises, and the platform's own scores checked against the voti. Local, read-only; the refresh drafts the journal entry from it
 - **MCP server** — read-only league API tools (account, league settings, my team, standings, competitions, server time, the XI both sides fielded for a match) exposed directly to Claude Code
 - **Doctor** — one command to check credentials, snapshots, and knowledge-base health
 
@@ -27,7 +28,7 @@ season that follows it.
 
 ```
 fantaclaude/
-├── core/                 fantaclaude CLI — sync, ingest, query, kb audit, rank, lineup, asta, doctor
+├── core/                 fantaclaude CLI — sync, ingest, query, kb audit, rank, lineup, calibrate, asta, doctor
 │   └── src/fantaclaude/api/  FastAPI: REST + WebSocket + the MCP mount, served by `asta serve`
 ├── mcp/fantacalcio/      MCP server — read-only league API tools for Claude Code
 ├── web/                  the Vite/React dashboard `asta serve` builds and mounts

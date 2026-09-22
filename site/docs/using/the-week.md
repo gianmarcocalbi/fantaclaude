@@ -9,20 +9,22 @@ before Friday.
 
 ## Tuesday — refresh
 
-Say "refresh the week" and three things run: the finished giornata's voti
-land first, then the probabili and news pages — each a single, polite read
-of a public web page — then an early forecast, which is entirely local, so
+Say "refresh the week" and the finished giornata comes first: its voti,
+then the platform's read-back — the XI you fielded and, once the platform
+has calculated the round, its own score of your match, from one read — then
+`calibrate`, which is entirely local. Then the probabili and news pages —
+each a single, polite read of a public web page — and an early forecast, so
 a prediction exists for every player while the week is still young. Each
 prediction is written honestly against that player's own kickoff and is
-never revised afterward — a Thursday-night player's number does not wait
-for Sunday's news to catch up.
+never revised afterward.
 
-Worth being precise about: nothing in fantaclaude scores a forecast against
-what actually happened. The record this run writes is what a forecast
-*can* be checked against later — that is why it is written honestly and
-early — but no command in this codebase performs that check today. Running
-early is valuable in its own right, not because something downstream grades
-it.
+`calibrate` is where the forecast meets what happened: your score as the
+platform calculated it, the best eleven your roster had that week, the
+model's XI scored on its own eleven — exact when all eleven got a voto,
+otherwise a lower bound that names who did not — the published start
+probability's reliability curve, the fantavoto bias per role, and the
+platform's own scores checked against the voti. From it the refresh drafts
+the giornata's journal entry, in prose, with the last section left for you.
 
 If a name in the ingest output goes unmatched, it is an alias to add to the
 knowledge base's alias list, never a guess about who it might be.
@@ -70,23 +72,24 @@ not play, and move on to actually submitting it.
 ## And record it
 
 Right after you submit, record the XI as fielded — the run's XI as-is, or
-with a swap for every deviation from it; this is local, no network. Once
-the lock for the round has passed, `fantaclaude ingest lineup` calls the
-live league API to read the same fact back off the platform itself. Both
-land in the same append-only record; the read-back is run once, after the
-round, and never as a way to double-check the hand record you already
-wrote.
+with a swap for every deviation from it; this is local, no network. In
+Tuesday's refresh, `fantaclaude ingest lineup` calls the live league API to
+read the same fact back off the platform itself, together with the
+platform's score. Both land in the same append-only record; the read-back
+is run once, after the round, and never as a way to double-check the hand
+record you already wrote.
 
 ??? note "what ran"
 
     ```
     fantaclaude ingest stats-web --giornata <finished>
+    fantaclaude ingest lineup            # the finished giornata: the XI and the score
+    fantaclaude calibrate --giornata <finished>
     fantaclaude ingest probabili
     fantaclaude ingest news
     fantaclaude lineup
     fantaclaude lineup note --type p_start --player "<name>" --p-start 0 --reason "<why>"
     fantaclaude lineup record --swap "Out=In"
-    fantaclaude ingest lineup      # once, after the round
     ```
 
     Full flags: Tools › [The CLI](../tools/cli.md).

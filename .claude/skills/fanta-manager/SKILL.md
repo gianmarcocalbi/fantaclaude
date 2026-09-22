@@ -1,6 +1,6 @@
 ---
 name: fanta-manager
-description: The weekly loop with fantaclaude — `refresh` early in the week (the finished giornata's voti, the probabili and news pages), `lineup` before the lock (`fantaclaude lineup`, read top to bottom, argue with a `lineup note`, re-run), `note` for a fact from the week, `record` for the XI actually fielded. Use every giornata, from the Tuesday refresh to the Friday XI; never to submit, never to fetch "to check".
+description: The weekly loop with fantaclaude — `refresh` early in the week (the finished giornata's voti, its read-back and calibration, the journal draft, the probabili and news pages), `lineup` before the lock (`fantaclaude lineup`, read top to bottom, argue with a `lineup note`, re-run), `note` for a fact from the week, `record` for the XI actually fielded. Use every giornata, from the Tuesday refresh to the Friday XI; never to submit, never to fetch "to check".
 argument-hint: 'refresh | lineup | note <fact> | record'
 ---
 
@@ -9,10 +9,12 @@ argument-hint: 'refresh | lineup | note <fact> | record'
 Python does the math; this skill does the judgment. It never computes a
 p_start, a bench order or an expected score: it runs `fantaclaude lineup`,
 reads what the run wrote, changes *inputs* (a note with a reason) and reads
-again. Discover the CLI with `fantaclaude lineup --help` and
-`fantaclaude ingest --help`; every command takes `--json`; `lineup`, `lineup
-note` and `lineup record` are local (no network), the `ingest` commands are
-the only fetches and each one is a single polite request per page.
+again. Discover the CLI with `fantaclaude lineup --help`, `fantaclaude
+calibrate --help` and `fantaclaude ingest --help`; every command takes
+`--json`; `lineup`, `lineup note`, `lineup record` and `calibrate` are
+local (no network — `calibrate` read-only on the database), the `ingest`
+commands are the only fetches and each one is a single polite request per
+page.
 
 Four rules, defended hard:
 
@@ -32,15 +34,18 @@ Four rules, defended hard:
 - **Never submit, never write to the platform.** The XI goes on the
   platform by hand (Non-goals): ninety seconds of typing, against a bug at
   18:44 on a Friday. Then `fantaclaude lineup record` writes what was
-  fielded (source `hand`), and that record is what calibration scores. Once
-  the lock has passed, `fantaclaude ingest lineup` reads the same fact back
+  fielded (source `hand`), and that record is what calibration scores. In
+  Tuesday's refresh, `fantaclaude ingest lineup` reads the same fact back
   from the platform itself (source `platform`) — the same `lineup_submitted`
-  table, append-only either way; run it once after the round, never in
-  place of watching what was actually submitted.
+  table, append-only either way — and, from the same single read, the
+  platform's own score of the match once the round is calculated; run it
+  once per round, never in place of watching what was actually submitted.
 - **Fetch at the two moments, not "to check".** `ingest probabili` and
   `ingest news` run in `refresh` and in `lineup`, and at most once more
   before a later kickoff day of the same round. `ingest stats-web` runs once,
-  for the finished giornata. `ingest rosters` runs only when the operator
+  for the finished giornata. So does `ingest lineup`, in the same refresh
+  (it defaults to the newest finished giornata); `--from-disk` makes no
+  request and may run any time. `ingest rosters` runs only when the operator
   says the lega changed. Never during a match.
 
 ## Modes
@@ -56,20 +61,44 @@ was actually fielded.
 1. `fantaclaude ingest stats-web --giornata <the finished giornata>` — the
    voti; needs `FANTACALCIO_WEB_COOKIE`. If it reports "not yet rated", stop
    and try again later in the day; do not loop.
-2. `fantaclaude ingest probabili` then `fantaclaude ingest news` — one request
+2. `fantaclaude ingest lineup` — the read-back for the finished giornata (the
+   default), three reads: the XI as the platform shows it (source
+   `platform`) and, once the platform has calculated the round, its own
+   score of the match. If it says the round is not calculated yet, run it
+   once more later in the week — never in a loop.
+3. `fantaclaude calibrate --giornata <the finished giornata>` — local and
+   read-only. Read it top to bottom: the week (my score as the platform
+   calculated it, what the bench added, the best eleven my roster had, the
+   model's XI — `exact`, or `at least` with the starters who had no voto:
+   never say "the model would have won" off a lower bound); the `p_start`
+   curve and its Brier line; the fantavoto bias per role (a mean error
+   inside its ± is noise, and one week is never a trend); the surprises;
+   and `scoring` — a disagreement there is a stop: the voto source or the
+   bonus table is wrong, and every projection with it.
+4. The journal entry, when `kb/league/season-<label>/giornata-NN.md` does not
+   exist yet — draft it from `fantaclaude calibrate --giornata N --json`.
+   Front-matter: `updated`, `ttl: never`, `confidence`, and `source:` naming
+   the lineup run, the valuation run and the command. Then prose, **no
+   number tables**: the result; what was fielded against what the model
+   named and what was possible; what the page got wrong that is worth
+   remembering; and a last section, `## What I learned`, left for the
+   operator. Every number the prose cites is the command's, never
+   recomputed; a lesson that outlives the week is promoted to a team
+   profile or a dossier, not left in the journal.
+5. `fantaclaude ingest probabili` then `fantaclaude ingest news` — one request
    each (news is two). Read the `unmatched` count: a name the listone does not
    resolve is `fantaclaude query --sql "SELECT * FROM v_unavailable_current
    WHERE player_id IS NULL"`, and the fix is an alias in
    `kb/rules/aliases.yml` under `fantacalcio_teams` (a club) or a spelling the
    listone uses (a player) — never a guess in the adapter.
-3. `fantaclaude lineup` — Tuesday's forecast, so calibration has an early
+6. `fantaclaude lineup` — Tuesday's forecast, so calibration has an early
    point per player (each prediction is honest against its own kickoff).
    Read every `warning:` and every `disagreement:`; write the notes that are
    already known (a suspension the page still prices, a confirmed absence).
-4. `fantaclaude kb audit` and `fantaclaude doctor` — expired profiles and
-   notes, the `lineup_notes` check. An unwritten journal entry for the
-   finished giornata is a notice, not a refusal (the draft is 3c's).
-5. `fantaclaude ingest rosters` only if told the lega changed (a trade, a
+7. `fantaclaude kb audit` and `fantaclaude doctor` — expired profiles and
+   notes, the `lineup_notes` check, `scoring` (verified against the
+   platform's own scores once a round is recorded) and the `journal` notice.
+8. `fantaclaude ingest rosters` only if told the lega changed (a trade, a
    free agent). Never to check.
 
 ### `lineup` — before the lock (Friday)
@@ -119,14 +148,17 @@ edited; the newest per giornata is current. After the round, pass
 `--giornata` (the target has moved on).
 
 `fantaclaude ingest lineup [--giornata N] [--competition ID]` is the
-read-back: after the lock, one GET reads the XI the platform actually
-shows for that giornata and records it the same way, with source
-`platform` instead of `hand`. Needs `league.yml`'s `my_team` leaf; the
-competition id and its own giornata range come from the league API itself
-(`--competition` disambiguates only if the account runs more than one).
-Defaults to the newest giornata that has fully kicked off, clamped to the
+read-back: one GET reads the XI the platform actually shows for that
+giornata and records it the same way, with source `platform` instead of
+`hand`, and — once the round is calculated — the platform's own score of
+the match (`match_files`, `match_scores`). Needs `league.yml`'s `my_team`
+leaf; the competition id and its own giornata range come from the league
+API itself (`--competition` disambiguates only if the account runs more
+than one). Defaults to the newest giornata fully finished, clamped to the
 competition's own start. A network call against the real account — run it
-once per giornata, not "to check" the hand record.
+once per giornata, in `refresh`, not "to check" the hand record.
+`fantaclaude ingest lineup --from-disk` records the scores of read-backs
+already on disk and makes no request.
 
 ## Worked example
 
