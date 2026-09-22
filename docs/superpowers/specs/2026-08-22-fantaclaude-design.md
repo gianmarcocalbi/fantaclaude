@@ -543,8 +543,9 @@ rather than extends the MCP.
 | Observed (Phase 3a) | `roster_snapshots`, `rosters`, `probabili_files`, `probabili` | who owns whom and what they paid (with the `mday`/`mstr` the status read at the same time), and the round's published `p_start` — both appended per fetch, so a mid-season transfer and a Friday re-compilation are each a later snapshot rather than an edit |
 | Observed (Phase 3b) | `news_files`, `unavailable` | squalificati, diffidati and infortunati as one table with a `kind`, appended per fetch like the probabili; `v_unavailable_current` is the newest file per kind |
 | Config | `league_settings` | append-only snapshots, one per observed rule change |
+| Observed (Phase 3c) | `match_files`, `match_scores` | the platform's own scoring of my match, read back with the XI from the same response — per player the voto, fantavoto and malus, per side the total and points, the result — recorded only once the round is calculated; `results` for the whole round stays deferred |
 | Forecast | `lineup_runs`, `predictions` (3a), `lineup_submitted` (3b) | written **before** the deadline, never revised; from 3b a prediction's deadline is its player's own kickoff and the run's is the round's first, the write is *refused* only once every match has started unless `--late`, and `late` on the row marks what calibration drops |
-| Derived | `valuations`, `v_market_prices`, `calibration` | outputs, what things sold for, predicted-vs-actual |
+| Derived | `valuations`, `v_market_prices`, calibration | outputs, what things sold for, predicted-vs-actual — the last computed on read by `fantaclaude calibrate` (3c) and never stored |
 | Live | *not in the database* | auction state is in-memory in `asta serve`; see "One database, and the auction is not in it" |
 
 **Two hashes, because there are two ways a run goes stale.** `valuations` rows
@@ -598,8 +599,9 @@ actually fielded, pointing at the run it came from where one applies. Without it
 "did the chosen XI beat the alternatives?" silently compares the wrong XI, and the
 calibration measures a lineup nobody played.
 
-Joining those to `results` after the weekend yields a calibration curve per role
-and per model version. Overwrite them and there is nothing to measure against —
+Joining those to the actuals after the weekend — the voti for every player the
+page listed, the platform's own scores for mine (3c) — yields a calibration
+curve per role and per model version. Overwrite them and there is nothing to measure against —
 by November this is what reveals that the minutes projection is systematically
 optimistic, and for which kind of player. A forecast that can be edited after the
 fact is not a forecast.
@@ -777,12 +779,15 @@ the `run_id` that produced the decision; the numbers stay queryable in DuckDB. A
 markdown file asserting "Thuram scored 8.5" is a claim that will eventually be
 wrong about which Thuram, and nothing will catch it.
 
-**Entries are drafted automatically, and never block anything.** Results
-ingestion generates that giornata's entry with the facts already filled in —
+**Entries are drafted automatically, and never block anything.** The week's
+refresh drafts that giornata's entry with the facts already filled in —
 predicted versus actual, the largest misses, whether the chosen XI beat the
-rejected alternatives, which calls were close — leaving the judgment blank. The
+model's and what was possible — leaving the judgment blank. The
 expensive part of a diary is the blank page, and a two-minute review of a draft
-happens in November where a twenty-minute write-up does not.
+happens in November where a twenty-minute write-up does not. From 3c the facts
+come from `fantaclaude calibrate --json` and the prose from the `fanta-manager`
+skill that runs it (Calibration: what 3c ships) — Python produces every number,
+the skill interprets, which is the contract every other skill already keeps.
 
 The trigger is concrete, because "when results land" names no moment that actually
 occurs: results enter the system on the **next ingest**, and `fanta-manager` runs
@@ -1603,7 +1608,9 @@ is the phase where that is cheapest to honour.
 **`fanta-manager` has four modes and a written cadence.** `refresh`, early in
 the week: `ingest stats-web` for the finished giornata, `ingest probabili`,
 `ingest news`, `ingest rosters` only when the operator says the lega changed,
-then `kb audit` and the unwritten-journal notice (the draft itself is 3c's).
+then `kb audit` and the unwritten-journal notice (the draft itself is 3c's; 3c
+also moves `ingest lineup` into this step and adds `calibrate` — Calibration:
+what 3c ships).
 `lineup`, before the lock: `ingest probabili` and `ingest news` once more,
 `fantaclaude lineup`, then the report read top to bottom — the late and
 uncompiled lines, every disagreement, the XI, the bench and its coverage
@@ -1678,10 +1685,12 @@ percentages are worth, and the whole weekly edge rests on that number. The
 narrative lands in that giornata's journal entry. By November the projections are
 calibrated against this league's real scoring rather than August assumptions.
 
-`results` — the lega's own per-giornata scores and head-to-head table — needs an
-endpoint that is still unmapped, and is deferred with it. Nothing in 3c waits on
-that: my own score is exact from `lineup_submitted` against actuals, and the
-calibration questions above are all per-player.
+`results` — the lega's own per-giornata scores and head-to-head table — is
+deferred. Nothing in 3c waits on it: my own score is the platform's, read back
+with my XI (3c found the read-back carries it), and the calibration questions
+above are all per-player. The whole round is the same match GET once per match;
+reading the other four is a decision about reads on someone else's account, and
+3c declines it (Calibration: what 3c ships).
 
 `lineup_submitted` records the XI actually fielded: `season_id`, `giornata`,
 `lineup_run_id` (the run it came from, null when none applies), `module`, `xi`,
@@ -1702,6 +1711,180 @@ goes to `captured/`), never guessed against the API; the GET then lands in
 `fantacalcio_mcp.api` and `fantaclaude ingest lineup` records
 `lineup_submitted` with `source: platform`. If the shape is not captured before
 giornata 4, the hand path is the record and the adapter slips to 3c.
+
+#### Calibration: what 3c ships
+
+**Designed 2026-09-22, after giornate 3–5 had been played and only giornata 3
+had a forecast.** The weekly loop was not run for giornate 4 and 5, so neither
+has a prediction, and none can be written now: a row written after its player's
+kickoff is late and calibration drops it — the rule working as intended, not a
+gap to backfill. What those two rounds still yield is what happened: the voti,
+and the XI actually fielded, which the platform still serves. 3c is designed
+around what that read-back turned out to contain.
+
+**The read-back is the round's scoring, not only its lineup.** The match GET
+`ingest lineup` makes answers, per side, every listed player's `scr` and
+`cscr`, a sixteen-count event string `b` and a malus count `m`, the side's `tot`
+and `points`, and for the match `res` and `sign`, under a top-level `cal`
+saying whether the round has been calculated. Checked on 2026-09-22 against
+the voti ingested that morning — both sides of giornate 3, 4 and 5, 138 rows —
+every row agrees. On the 117 with a voto, `scr` is the voto of the
+`Fantacalcio` sheet, including every row where the three sheets disagree
+(Vasquez, Frendrup and Vlasic in giornata 3), which settles `sourcev: 1` →
+`Fantacalcio`, until now "mapping unverified"; and `cscr` is this repo's own
+`scoring.fantavoto` under the league's bonus/malus, less one point per `m` —
+Gallo in giornata 5, the Mantra adaptation malus. The other 21 carry one of two
+sentinels: `scr` 56 with `cscr` 100 is a player absent from the voti sheet, and
+`scr` 55 with `cscr` 100 a senza voto. A mid-round response (`cal: false`, 3b's
+capture of 2026-09-05) carries 56 everywhere, `b` null and a partial `tot`.
+
+Two consequences follow. **My weekly score is the platform's `tot`, never a
+recomputation.** The earlier line that it would be "exact from
+`lineup_submitted` against actuals" assumed the substitutions would be
+re-derived, and re-deriving them is reimplementing the platform's Mantra
+substitution — bench order, the module table's fits, the forced-substitution
+mode of open question 20 — which Non-goals already rules out. And **the scoring
+model is verified against the platform every week, for free**: each row with a
+voto checks the voto source and the bonus/malus table at once.
+
+**Decided with the operator, 2026-09-22.** The XI verdict is *exact-or-flagged*,
+not simulated: my platform score; the best XI my roster could have fielded
+knowing the fantavoti, by the existing exact solve; and the model's XI scored on
+its own eleven — exact whenever all eleven received a voto, because then the
+platform would have made no substitution, and otherwise a lower bound naming
+the starters without one, never completed by a guessed substitution. The
+read-back stays **my match only**, three reads a round as 3b built it. The other
+four matches — `results` and the standings — stay deferred: the same GET once
+per match, but four more reads a week on someone else's account, for data no
+calibration question uses.
+
+##### The observed layer: `match_files` and `match_scores` (schema 6)
+
+`match_files` is one row per calculated read-back response: `file_id`,
+`season_id`, `giornata` (the `cmday`), `competition_id` (`idcomp`), `matchday`
+(the competition's own `mday`), `fetched_at`, `raw_path`, `sha256` (unique), the
+two team ids, their `tot` and `points`, `result` (`res`) and `sign`.
+`match_scores` is one row per listed player per side of that file: `file_id`,
+`team_id`, `player_id`, `part` (`xi` or `bench`), `position` (the index in the
+platform's own array — not a slot order, 3b's Ruling 2), `status` (`voto`; `sv`
+for 55; `absent` for 56), `voto` and `fantavoto` (null unless `voto`), `malus`
+(`m`), `events` (`b` verbatim — seven of its sixteen positions are identified by
+the rows above, the rest are not, and nothing reads it) and the entry's `raw`.
+Both sides are stored: they are in the same bytes, and the opponent's scored
+lineup is observed data a dossier may want later at no extra read. A `scr` above
+10 other than the two sentinels, a sentinel whose `cscr` is not 100, or a real
+voto whose `cscr` is 100, is refused and named: a new sentinel must fail loud.
+`v_match_files_current` is the newest file per (season, giornata, competition,
+matchday); `v_match_scores_current` its rows.
+
+**Only a calculated response is recorded.** `ingest lineup` still records the XI
+from any response, as 3b built it; from a `cal: false` response it records
+nothing into `match_files` and says the round is not calculated yet. So **the
+read-back moves to Tuesday's refresh**: run once for the finished giornata, after
+the platform has calculated it, it records the XI and the score from one read.
+Between Friday's submission and Tuesday, the hand `lineup record` is the record,
+as it already is.
+
+**The backlog is recorded from disk.** `fantaclaude ingest lineup --from-disk`
+makes no request: it records the scores of every raw file under
+`data/raw/lineup/` whose sha256 `match_files` does not hold yet, and never
+appends to `lineup_submitted` (that was recorded when the file was fetched). It
+is how giornate 3–5, fetched on 2026-09-22 before the table existed, land
+without a second read, and it keeps `data/` rebuildable from `data/raw/` for
+this source too.
+
+##### `fantaclaude calibrate`: computed on read, never stored
+
+The `calibration` table this spec used to name is not a table. Everything it
+would hold is derived from immutable inputs — `predictions`, the voti,
+`match_scores` — and a stored copy would go stale the first time fantacalcio.it
+corrects a voto: `v_market_prices`'s argument, "store what was paid, derive on
+read". So `fantaclaude calibrate [--giornata N ...] [--json]` computes on every
+call, opens the database read-only, makes no request and writes nothing; a
+journal entry cites the command, and the command reproduces the numbers. By
+default it reads every giornata of the current season with voti ingested and
+either predictions or a recorded match. Actual fantavoti come from the voti
+sheet and the bonus/malus in force (`scoring_in_force`, what `lineup` scores
+under); a giornata whose predictions were priced under another `rules_hash` is
+named in a warning, and the platform check below would expose any drift.
+Nothing to calibrate — no voti for any giornata asked, or neither predictions
+nor a match for it — is exit 3.
+
+Four sections, each under its own key in `--json`:
+
+- **`weeks`** — per giornata with a recorded match: my `tot`, the opponent's and
+  his team, the result and the points. **`best`**: the exact solve
+  (`assign_weighted`, every permitted module) over my roster as it stood — the
+  newest roster snapshot fetched before the round's first kickoff, else the
+  earliest, and which one is said — each player worth his actual fantavoto, less
+  the malus where fielded adapted, and a player without a voto unavailable;
+  `left_on_bench` is `best` minus my `tot`. **`model_xi`**, when a non-late run
+  named one: each slot's actual fantavoto, less the malus where the run fielded
+  him adapted; `exact` when all eleven had a voto, otherwise a lower bound and
+  the starters without one. **`fielded`**: my eleven's own sum beside `tot`, the
+  difference being what the bench and the malus added. A D-Factor or an unknown
+  modifier in force refuses `best` and `model_xi` with the reason — the per-slot
+  additivity they assume no longer holds (Failure modes) — and leaves the
+  platform's numbers standing.
+- **`p_start`** — the reliability curve on the **published** number, pooled over
+  the giornate asked: `v_predictions_current` joined to the outcome *got a voto*
+  on the league's sheet (absent from the sheet is no voto). Bins of ten points on
+  the page's own values, each with its count, its mean predicted and its
+  observed rate with a 95% Wilson interval; the Brier score of the published
+  number, of the blend and of the base rate beside them, so "does the page beat
+  knowing nothing, and does the blend beat the page" is one line. A row whose
+  club has no voti at all that giornata — a postponed match — is dropped and
+  counted, never scored as a no-show. "Got a voto" is not "started": a
+  substitute who plays half an hour gets one, so the low bins read above their
+  percentages by construction. It is the right outcome all the same, because it
+  is what `expected_points = p_start × fv_if_plays` assumes `p_start` means.
+  Giornata 3 alone, 473 rows: published 90 → 95% got a voto, 80–85 → 90–97%, 60
+  → 76%, 55 → 50%, 20 and under → almost none.
+- **`fantavoto`** — among rows with a voto, actual fantavoto minus
+  `fv_if_plays`: count, mean error and its standard error, and the mean
+  absolute error, per classic role and overall, per `model_hash` and
+  `weekly_hash` (null before 3b). Where `fv_sd` is set, the share of errors
+  inside one and two spreads, against 68% and 95%. And the **surprises** the
+  journal wants: the page's confident no-shows (published 80 or more, no voto),
+  its long shots who played (published 20 or less, a voto), and the five
+  largest fantavoto misses on my own roster.
+- **`scoring`** — every `match_scores` row checked against the ingested voti:
+  `status` against the sheet (absent, senza voto, a voto), `voto` against its
+  voto, `fantavoto` against `scoring.fantavoto` less `malus × ADAPTED_MALUS`.
+  The count checked and every disagreement, named.
+
+`calibrate` never applies a correction. A bias that holds up over weeks is
+written into the model by hand, where it feeds `model_hash` — the stance `asta
+market-prices` already takes towards `pricing.yml`.
+
+**`doctor` reads the check.** `scoring` prints "verified against the platform on
+N rows" once a recorded match exists, and fails naming the first disagreements
+if any row disagrees: a wrong voto source or bonus table corrupts every
+projection, not only calibration. A new `journal` check is the notice the loop
+has promised since 3b — a giornata with a recorded match and no
+`kb/league/season-2026-27/giornata-NN.md` is named — and it never fails.
+
+##### The journal draft, and the refresh that writes it
+
+**The draft is the `fanta-manager` refresh's, from `calibrate --json`.**
+"Drafted automatically" does not need Python writing prose: the skill↔Python
+contract has Python produce every number and a skill interpret it. `refresh`
+becomes: `ingest stats-web` for the finished giornata; `ingest lineup` for it,
+moved here from "after the lock"; `calibrate --giornata N`; the draft, when the
+entry does not exist yet; then the probabili, the news, the early `lineup`, `kb
+audit` and `doctor`, as 3b wrote them. The entry is `giornata-NN.md` beside
+entry zero, with front-matter (`ttl: never`, and a `source:` naming the lineup
+run, the valuation run and the command), in prose and without a number table:
+the result, what was fielded against what the model named and what was
+possible, what the page got wrong that is worth remembering, and a last section
+left to the operator. Giornate 3–5 are drafted from the backlog once 3c lands;
+for 4 and 5 the draft says there was no forecast, which is itself the lesson.
+
+**Open question 19 moves to giornata 6.** Its one logged-in request compares the
+page the maintainer's session sees with the anonymous one, and during the
+international break the page has nothing compiled to compare. It runs once in
+the giornata 6 refresh, on 6 October, beside the anonymous fetch; nothing in 3c
+waits on it.
 
 ## Dashboard architecture
 
@@ -1846,6 +2029,21 @@ source of truth for the contract.
   the newest current; `--swap` naming a player outside the run's XI is refused.
 - **`weekly_hash` moves with its constants** (3b) — a changed threshold is a
   different hash; a changed `model_hash` alone is not.
+- **The match scores parse what the platform sends, and nothing else** (3c) —
+  a calculated fixture extracted from `captured/` by `_extract_lineup.py`, never
+  hand-edited: both sides recorded, 55 as `sv` and 56 as `absent` with null voto
+  and fantavoto, `m` kept; the 3b mid-round fixture (`cal: false`) records the
+  XI and no score; an unknown sentinel is refused by name; the same raw file
+  twice is one `match_files` row; `--from-disk` makes no request and appends
+  nothing to `lineup_submitted`.
+- **Calibration is computed, read-only and reproducible** (3c) — against seeded
+  predictions and voti: the reliability bins and Wilson intervals and the three
+  Brier scores equal hand-computed values; a club with no voti drops its rows
+  and counts them; a late prediction is never read; `best` agrees with brute
+  force on a roster small enough to enumerate; the model's XI is `exact` with
+  eleven voti and a lower bound naming the gap with ten; a seeded disagreement
+  between a `match_scores` row and the voti is named in `scoring` and fails
+  `doctor`. `calibrate` opens the database read-only, so a write in it fails.
 - **The roster adapter reads what the lega actually sends** — `cal`/`cs` as empty
   strings before a transfer (an empty roster, not a parse error), a `cs` that does
   not sum to `crs` (a warning that names the team), and an id the listone does not
@@ -1972,7 +2170,7 @@ the network.
 | **freeze + rehearsal** | no new features; full mock auction end to end | 3 Sep |
 | **3a — close-out and the first forecast** | in this order: `ingest probabili` and the `probabili` tables; `lineup_runs`/`predictions` and `fantaclaude lineup` writing the forecast for giornata 3 — **before 18:45 UTC (20:45 Rome) on 4 September**, its first kickoff; `ingest rosters` (`roster_snapshots`/`rosters` with `mday`/`mstr`), `asta verify-transfer` and the `my_team` leaf; `modules.assign_weighted` and the XI; `v_market_prices` and `asta market-prices`; open question 11's penalty-rate fallback as `MODEL_VERSION` 3 | forecast 4 Sep afternoon, rest that weekend |
 | **3b — the weekly loop** | in this order: the two news captures and schema 5; `ingest news`; the `analysis/weekly/` package split as a pure refactor; per-player deadlines and `v_predictions_current`; the precedence blend, `lineup-notes.yml` with `lineup note`, and the three checks; the ordered bench, the contingencies and the close calls; the matchup term, `fv_sd` and `weekly_hash`; `lineup record` and `lineup_submitted`; the `fanta-manager` skill and the docs; giornata 4 fielded — Tuesday 8 September's refresh, which also takes the early-week capture 3a still owes, and Friday 11 September's XI **before 18:45 UTC (20:45 Rome)**; the read-back discovery last, blocking nothing | giornata 4, 11 September |
-| **3c — calibration** | predicted-vs-actual off the voti already ingested, the `p_start` reliability curve, the `calibration` table, the giornata journal entry | once giornata 3's voti publish |
+| **3c — calibration** | in this order: schema 6 and the match-scores parser; `ingest lineup` recording the score, and `--from-disk`; `fantaclaude calibrate` — predicted-vs-actual off the voti, the `p_start` reliability curve, the XI verdict, the platform check — computed on read, no table; `doctor`'s `scoring` and `journal` checks; the refresh reordered in `fanta-manager` and the docs; giornate 3–5 recorded from disk and their journal entries drafted | designed 2026-09-22, during the international break; before giornata 6's refresh, 6 October |
 
 The knowledge base is not a phase — it is the spine plus `kb/`, which every phase
 reads and writes back into.
@@ -2433,7 +2631,9 @@ often than to bad models.
     belongs beside the `source` column the row already carries, and beside a
     `MODEL_VERSION` bump, not quietly in place of the published number. Deferred
     past 3b on 2026-09-05: 3b's fetches stay anonymous, and the one logged-in
-    request that answers this is scheduled with 3c.
+    request that answers this is scheduled with 3c. Moved again on 2026-09-22,
+    to giornata 6's refresh on 6 October: 3c was built during the international
+    break, when the page has nothing compiled to compare.
 
 20. **Which forced-substitution mode does the league run, and does it lock the
     XI per match? Raised 2026-09-05, open.** The lineup settings snapshot
@@ -2448,7 +2648,11 @@ often than to bad models.
     whether `lineup_runs.late` is the right lock for the XI; 3b keeps the
     first-kickoff reading. To settle both: read the lega's settings page in the
     browser once, the way `d_factor.yml` was read, and record the mapping
-    beside the field names — never infer it from a field name.
+    beside the field names — never infer it from a field name. 3c does not wait
+    on it: my score is the platform's own `tot`, so no substitution is ever
+    simulated. The read-back carries a per-side `swtc`
+    (`2097;7017;1;3421;10` for my side in giornata 3, all zeros in giornata 4),
+    unmapped like the rest and recorded only in the raw file.
 
 ## Non-goals
 
